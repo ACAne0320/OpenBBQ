@@ -21,6 +21,16 @@ Slice 1 includes:
 
 Slice 1 excludes pause/resume, abort, retry/skip, stale lock recovery, `run --force`, `run --step`, and `artifact diff`. Commands for excluded behavior may exist but must return clear "not implemented in Slice 1" errors.
 
+## Phase 1 Plugin Targets
+
+The Phase 1 plugin contracts should be shaped around the production tool choices:
+
+- Video download plugin: use `yt-dlp` for downloading source media.
+- ASR plugin: use a local Whisper runtime for transcription so speech recognition can run without a hosted ASR service.
+- LLM translation plugin: use an OpenAI-compatible API provider, configured through project or environment settings rather than hard-coded credentials.
+
+Slice 1 tests should still use deterministic mock plugins for repeatability and to avoid network, GPU, or media binary requirements. The mock YouTube-to-subtitle workflow must mirror these production plugin roles so real `yt-dlp`, Whisper, and OpenAI-compatible plugins can replace the mocks later without changing workflow wiring.
+
 ## Architecture
 
 Use a small Python package under `src/openbbq/` with explicit module boundaries:
@@ -65,6 +75,7 @@ Use pytest with TDD for implementation. Tests must cover:
 - plugin info/list output.
 - text workflow run to completion.
 - mock YouTube-to-subtitle workflow run to completion with deterministic mock outputs.
+- mock plugin roles that map to the Phase 1 production targets: `yt-dlp` download, local Whisper ASR, and OpenAI-compatible translation.
 - persisted artifact metadata, versions, content, and lineage.
 - event log ordering.
 - CLI status, logs, artifact list/show, project info, version, and JSON envelopes.
