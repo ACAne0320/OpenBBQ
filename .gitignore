@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging and test output
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Node / desktop tooling planned for later phases
+node_modules/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OpenBBQ local runtime state
+.openbbq/
+*.lock
+*.abort_requested
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Editor, OS, and agent-local files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.codex
