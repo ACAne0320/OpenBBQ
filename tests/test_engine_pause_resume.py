@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from openbbq.config import load_project_config
+from openbbq.core.workflow.locks import WorkflowLock, workflow_lock_path
 from openbbq.engine import resume_workflow, run_workflow
 from openbbq.errors import ExecutionError, ValidationError
 from openbbq.plugins import discover_plugins
@@ -83,3 +84,27 @@ def test_run_rejects_paused_workflow_without_force(tmp_path):
         run_workflow(config, registry, "text-demo")
 
     assert exc.value.exit_code == 1
+
+
+def test_run_rejects_existing_lock(tmp_path):
+    project = write_project(tmp_path, "text-basic")
+    config = load_project_config(project)
+    registry = discover_plugins(config.plugin_paths)
+    store = ProjectStore(project / ".openbbq")
+    WorkflowLock.acquire(store, "text-demo")
+
+    with pytest.raises(ExecutionError, match="locked"):
+        run_workflow(config, registry, "text-demo")
+
+
+def test_lock_released_when_workflow_pauses_and_completes(tmp_path):
+    project = write_project(tmp_path, "text-pause")
+    config = load_project_config(project)
+    registry = discover_plugins(config.plugin_paths)
+    store = ProjectStore(project / ".openbbq")
+
+    run_workflow(config, registry, "text-demo")
+    assert not workflow_lock_path(store, "text-demo").exists()
+
+    resume_workflow(config, registry, "text-demo")
+    assert not workflow_lock_path(store, "text-demo").exists()

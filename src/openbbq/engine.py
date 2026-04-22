@@ -9,6 +9,7 @@ from openbbq.core.workflow.execution import (
     execute_workflow_from_resume,
     execute_workflow_from_start,
 )
+from openbbq.core.workflow.locks import WorkflowLock
 from openbbq.core.workflow.state import (
     compute_workflow_config_hash,
     read_effective_workflow_state,
@@ -77,7 +78,8 @@ def run_workflow(
             exit_code=1,
         )
 
-    result = execute_workflow_from_start(config, registry, store, workflow)
+    with WorkflowLock.acquire(store, workflow.id):
+        result = execute_workflow_from_start(config, registry, store, workflow)
     return WorkflowRunResult(
         workflow_id=result.workflow_id,
         status=result.status,
@@ -113,15 +115,16 @@ def resume_workflow(
             exit_code=1,
         )
     step_run_ids = list(state.get("step_run_ids", []))
-    result = execute_workflow_from_resume(
-        config=config,
-        registry=registry,
-        store=store,
-        workflow=workflow,
-        current_step_id=current_step_id,
-        step_run_ids=step_run_ids,
-        output_bindings=rebuild_output_bindings(store, workflow.id, step_run_ids),
-    )
+    with WorkflowLock.acquire(store, workflow.id):
+        result = execute_workflow_from_resume(
+            config=config,
+            registry=registry,
+            store=store,
+            workflow=workflow,
+            current_step_id=current_step_id,
+            step_run_ids=step_run_ids,
+            output_bindings=rebuild_output_bindings(store, workflow.id, step_run_ids),
+        )
     return WorkflowRunResult(
         workflow_id=result.workflow_id,
         status=result.status,
