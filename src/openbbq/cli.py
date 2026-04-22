@@ -134,8 +134,14 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "validate":
         return _validate(args)
     if args.command == "run":
-        if args.force or args.step:
-            raise _unsupported_slice_2("run --force/--step")
+        if args.force and args.step:
+            raise OpenBBQError(
+                "invalid_command_usage",
+                "run --force cannot be combined with --step.",
+                2,
+            )
+        if args.step:
+            raise _unsupported_slice_2("run --step")
         return _run(args)
     if args.command == "status":
         return _status(args)
@@ -227,7 +233,7 @@ def _validate(args: argparse.Namespace) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     config, registry = _load_config_and_plugins(args)
-    result = run_workflow(config, registry, args.workflow)
+    result = run_workflow(config, registry, args.workflow, force=args.force)
     payload = {
         "ok": True,
         "workflow_id": result.workflow_id,

@@ -98,3 +98,19 @@ def test_cli_abort_running_workflow_writes_request(tmp_path, capsys):
     }
     assert abort_request_path(store, "text-demo").exists()
     assert store.read_workflow_state("text-demo")["status"] == "running"
+
+
+def test_cli_run_force_reruns_completed_workflow(tmp_path, capsys):
+    project = write_project(tmp_path, "text-basic")
+
+    assert main(["--project", str(project), "--json", "run", "text-demo"]) == 0
+    capsys.readouterr()
+    code = main(["--project", str(project), "--json", "run", "text-demo", "--force"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["workflow_id"] == "text-demo"
+    assert payload["status"] == "completed"
+    store = ProjectStore(project / ".openbbq")
+    assert [len(artifact["versions"]) for artifact in store.list_artifacts()] == [2, 2]

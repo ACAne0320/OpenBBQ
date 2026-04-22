@@ -66,6 +66,7 @@ def persist_step_outputs(
     tool: ToolSpec,
     response: dict[str, Any],
     input_artifact_version_ids: dict[str, str],
+    artifact_reuse: dict[str, str] | None = None,
 ) -> dict[str, dict[str, str]]:
     response_outputs = response.get("outputs")
     if not isinstance(response_outputs, dict):
@@ -102,6 +103,7 @@ def persist_step_outputs(
                 "tool_ref": step.tool_ref,
                 "input_artifact_version_ids": input_artifact_version_ids,
             },
+            artifact_id=(artifact_reuse or {}).get(f"{step.id}.{output.name}"),
         )
         bindings[output_name] = {
             "artifact_id": artifact.id,

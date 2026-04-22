@@ -4,13 +4,14 @@ from dataclasses import dataclass
 
 from jsonschema import Draft7Validator
 
-from openbbq.core.workflow.bindings import parse_step_selector
 from openbbq.core.workflow.aborts import write_abort_request
+from openbbq.core.workflow.bindings import parse_step_selector
 from openbbq.core.workflow.execution import (
     execute_workflow_from_resume,
     execute_workflow_from_start,
 )
 from openbbq.core.workflow.locks import WorkflowLock, unlock_workflow_lock, workflow_lock_path
+from openbbq.core.workflow.rerun import build_artifact_reuse_map, mark_running_step_runs_failed
 from openbbq.core.workflow.state import (
     compute_workflow_config_hash,
     read_effective_workflow_state,
@@ -63,6 +64,8 @@ def run_workflow(
     config: ProjectConfig,
     registry: PluginRegistry,
     workflow_id: str,
+    *,
+    force: bool = False,
 ) -> WorkflowRunResult:
     validate_workflow(config, registry, workflow_id)
     workflow = config.workflows[workflow_id]
@@ -72,6 +75,14 @@ def run_workflow(
         state_root=config.storage.state,
     )
     existing_state = read_effective_workflow_state(store, workflow)
+    if force:
+        result = _force_run_workflow(config, registry, store, workflow, existing_state)
+        return WorkflowRunResult(
+            workflow_id=result.workflow_id,
+            status=result.status,
+            step_count=result.step_count,
+            artifact_count=result.artifact_count,
+        )
     if existing_state.get("status") in {"running", "paused", "completed", "aborted"}:
         raise ExecutionError(
             f"Workflow '{workflow.id}' is {existing_state['status']}.",
@@ -87,6 +98,48 @@ def run_workflow(
         step_count=result.step_count,
         artifact_count=result.artifact_count,
     )
+
+
+def _force_run_workflow(
+    config: ProjectConfig,
+    registry: PluginRegistry,
+    store: ProjectStore,
+    workflow: WorkflowConfig,
+    existing_state: dict[str, object],
+):
+    status = existing_state.get("status")
+    if status not in {"completed", "running"}:
+        raise ExecutionError(
+            f"Workflow '{workflow.id}' cannot be force rerun from status {status}.",
+            code="invalid_workflow_state",
+            exit_code=1,
+        )
+    raw_step_run_ids = existing_state.get("step_run_ids", [])
+    step_run_ids = (
+        [step_run_id for step_run_id in raw_step_run_ids if isinstance(step_run_id, str)]
+        if isinstance(raw_step_run_ids, list)
+        else []
+    )
+    with WorkflowLock.acquire(store, workflow.id):
+        artifact_reuse = build_artifact_reuse_map(store, workflow.id, step_run_ids)
+        mark_running_step_runs_failed(store, workflow.id, step_run_ids)
+        store.write_workflow_state(
+            workflow.id,
+            {
+                "name": workflow.name,
+                "status": "pending",
+                "current_step_id": workflow.steps[0].id if workflow.steps else None,
+                "config_hash": compute_workflow_config_hash(config, workflow.id),
+                "step_run_ids": [],
+            },
+        )
+        return execute_workflow_from_start(
+            config,
+            registry,
+            store,
+            workflow,
+            artifact_reuse=artifact_reuse,
+        )
 
 
 def resume_workflow(

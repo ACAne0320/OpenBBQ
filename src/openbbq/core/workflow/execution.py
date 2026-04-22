@@ -26,6 +26,7 @@ def execute_workflow_from_start(
     registry: PluginRegistry,
     store: ProjectStore,
     workflow: WorkflowConfig,
+    artifact_reuse: dict[str, str] | None = None,
 ) -> ExecutionResult:
     config_hash = compute_workflow_config_hash(config, workflow.id)
     step_run_ids: list[str] = []
@@ -53,6 +54,7 @@ def execute_workflow_from_start(
         output_bindings=output_bindings,
         config_hash=config_hash,
         skip_pause_before_step_id=None,
+        artifact_reuse=artifact_reuse or {},
     )
 
 
@@ -92,6 +94,7 @@ def execute_workflow_from_resume(
         output_bindings=output_bindings,
         config_hash=config_hash,
         skip_pause_before_step_id=current_step_id,
+        artifact_reuse={},
     )
 
 
@@ -106,6 +109,7 @@ def execute_steps(
     output_bindings: dict[str, dict[str, Any]],
     config_hash: str,
     skip_pause_before_step_id: str | None = None,
+    artifact_reuse: dict[str, str] | None = None,
 ) -> ExecutionResult:
     for index in range(start_index, len(workflow.steps)):
         step = workflow.steps[index]
@@ -189,6 +193,7 @@ def execute_steps(
                 tool,
                 response,
                 input_artifact_version_ids,
+                artifact_reuse=artifact_reuse,
             )
         except (PluginError, ValidationError) as exc:
             failed = dict(step_run)
