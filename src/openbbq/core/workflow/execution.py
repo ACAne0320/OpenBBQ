@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from openbbq.core.workflow.aborts import consume_abort_request
 from openbbq.core.workflow.bindings import build_plugin_inputs, persist_step_outputs
 from openbbq.core.workflow.state import compute_workflow_config_hash
 from openbbq.errors import ExecutionError, PluginError, ValidationError
@@ -244,6 +245,34 @@ def execute_steps(
                 "message": f"Step '{step.id}' completed.",
             },
         )
+        if next_step_id is not None and consume_abort_request(store, workflow.id):
+            store.append_event(
+                workflow.id,
+                {
+                    "type": "workflow.abort_requested",
+                    "message": f"Workflow '{workflow.id}' abort requested.",
+                },
+            )
+            store.write_workflow_state(
+                workflow.id,
+                {
+                    "name": workflow.name,
+                    "status": "aborted",
+                    "current_step_id": next_step_id,
+                    "config_hash": config_hash,
+                    "step_run_ids": step_run_ids,
+                },
+            )
+            store.append_event(
+                workflow.id,
+                {"type": "workflow.aborted", "message": f"Workflow '{workflow.id}' aborted."},
+            )
+            return ExecutionResult(
+                workflow_id=workflow.id,
+                status="aborted",
+                step_count=len(workflow.steps),
+                artifact_count=len(output_bindings),
+            )
         if pausing_after:
             store.append_event(
                 workflow.id,

@@ -70,3 +70,31 @@ def test_cli_unlock_stale_lock_with_yes(tmp_path, capsys):
         "stale": True,
     }
     assert not lock_path.exists()
+
+
+def test_cli_abort_running_workflow_writes_request(tmp_path, capsys):
+    from openbbq.core.workflow.aborts import abort_request_path
+
+    project = write_project(tmp_path, "text-basic")
+    store = ProjectStore(project / ".openbbq")
+    store.write_workflow_state(
+        "text-demo",
+        {
+            "name": "Text Demo",
+            "status": "running",
+            "current_step_id": "uppercase",
+            "step_run_ids": [],
+        },
+    )
+
+    code = main(["--project", str(project), "--json", "abort", "text-demo"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "ok": True,
+        "workflow_id": "text-demo",
+        "status": "abort_requested",
+    }
+    assert abort_request_path(store, "text-demo").exists()
+    assert store.read_workflow_state("text-demo")["status"] == "running"

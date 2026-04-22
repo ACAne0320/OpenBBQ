@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from jsonschema import Draft7Validator
 
 from openbbq.core.workflow.bindings import parse_step_selector
+from openbbq.core.workflow.aborts import write_abort_request
 from openbbq.core.workflow.execution import (
     execute_workflow_from_resume,
     execute_workflow_from_start,
@@ -143,6 +144,10 @@ def abort_workflow(config: ProjectConfig, workflow_id: str) -> dict[str, object]
         state_root=config.storage.state,
     )
     state = read_effective_workflow_state(store, workflow)
+    status = state.get("status")
+    if status == "running":
+        write_abort_request(store, workflow.id)
+        return {"workflow_id": workflow.id, "status": "abort_requested"}
     require_status(state, "paused", workflow.id)
     aborted = store.write_workflow_state(
         workflow.id,

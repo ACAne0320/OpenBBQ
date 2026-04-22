@@ -257,7 +257,12 @@ def _abort(args: argparse.Namespace) -> int:
     config = _load_config(args)
     result = abort_workflow(config, args.workflow)
     payload = {"ok": True, "workflow_id": args.workflow, "status": result["status"]}
-    _emit(payload, args.json_output, f"Workflow '{args.workflow}' aborted.")
+    message = (
+        f"Workflow '{args.workflow}' abort requested."
+        if result["status"] == "abort_requested"
+        else f"Workflow '{args.workflow}' aborted."
+    )
+    _emit(payload, args.json_output, message)
     return 0
 
 
