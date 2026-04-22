@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import re
 from typing import Any
 
@@ -54,13 +55,17 @@ def build_plugin_inputs(
 
 
 def artifact_input(artifact: dict[str, Any], version: StoredArtifactVersion) -> dict[str, Any]:
-    return {
+    payload = {
         "artifact_id": artifact["id"],
         "artifact_version_id": version.id,
         "type": artifact["type"],
-        "content": version.content,
         "metadata": version.record.get("metadata", {}),
     }
+    if version.record.get("content_encoding") == "file":
+        payload["file_path"] = version.content["file_path"]
+    else:
+        payload["content"] = version.content
+    return payload
 
 
 def persist_step_outputs(
@@ -95,10 +100,22 @@ def persist_step_outputs(
             raise ValidationError(
                 f"Plugin response for step '{step.id}' output '{output_name}' type '{output_type}' is not allowed."
             )
+        has_content = payload.get("content") is not None
+        has_file = payload.get("file_path") is not None
+        if has_content == has_file:
+            raise ValidationError(
+                f"Plugin response for step '{step.id}' output '{output_name}' must include exactly one of content or file_path."
+            )
+        file_path = Path(payload["file_path"]) if has_file else None
+        if file_path is not None and not file_path.is_file():
+            raise ValidationError(
+                f"Plugin response for step '{step.id}' output '{output_name}' file_path does not exist: {file_path}."
+            )
         artifact, version = store.write_artifact_version(
             artifact_type=output.type,
             name=f"{step.id}.{output.name}",
-            content=payload.get("content"),
+            content=payload.get("content") if has_content else None,
+            file_path=file_path,
             metadata=payload.get("metadata", {}),
             created_by_step_id=step.id,
             lineage={
