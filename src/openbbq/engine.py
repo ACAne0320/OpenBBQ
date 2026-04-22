@@ -9,7 +9,7 @@ from openbbq.core.workflow.execution import (
     execute_workflow_from_resume,
     execute_workflow_from_start,
 )
-from openbbq.core.workflow.locks import WorkflowLock, workflow_lock_path
+from openbbq.core.workflow.locks import WorkflowLock, unlock_workflow_lock, workflow_lock_path
 from openbbq.core.workflow.state import (
     compute_workflow_config_hash,
     read_effective_workflow_state,
@@ -160,6 +160,18 @@ def abort_workflow(config: ProjectConfig, workflow_id: str) -> dict[str, object]
     )
     workflow_lock_path(store, workflow.id).unlink(missing_ok=True)
     return aborted
+
+
+def unlock_workflow(config: ProjectConfig, workflow_id: str) -> dict[str, object]:
+    workflow = config.workflows.get(workflow_id)
+    if workflow is None:
+        raise ValidationError(f"Workflow '{workflow_id}' is not defined.")
+    store = ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )
+    return unlock_workflow_lock(store, workflow.id)
 
 
 def _validate_step_control(step: StepConfig, workflow: WorkflowConfig) -> None:

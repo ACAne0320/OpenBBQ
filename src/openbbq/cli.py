@@ -10,7 +10,13 @@ from openbbq import __version__
 from openbbq.config import load_project_config
 from openbbq.core.workflow.state import read_effective_workflow_state
 from openbbq.domain import ProjectConfig
-from openbbq.engine import abort_workflow, resume_workflow, run_workflow, validate_workflow
+from openbbq.engine import (
+    abort_workflow,
+    resume_workflow,
+    run_workflow,
+    unlock_workflow,
+    validate_workflow,
+)
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.plugins import PluginRegistry, discover_plugins
 from openbbq.storage import ProjectStore
@@ -119,7 +125,7 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "abort":
         return _abort(args)
     if args.command == "unlock":
-        raise _unsupported_slice_2(args.command)
+        return _unlock(args)
     if args.command == "project":
         if args.project_command == "list":
             return _project_list(args)
@@ -252,6 +258,28 @@ def _abort(args: argparse.Namespace) -> int:
     result = abort_workflow(config, args.workflow)
     payload = {"ok": True, "workflow_id": args.workflow, "status": result["status"]}
     _emit(payload, args.json_output, f"Workflow '{args.workflow}' aborted.")
+    return 0
+
+
+def _unlock(args: argparse.Namespace) -> int:
+    if not args.yes:
+        if args.json_output:
+            raise OpenBBQError(
+                "confirmation_required",
+                "unlock requires --yes when --json is used.",
+                1,
+            )
+        answer = input(f"Remove stale lock for workflow '{args.workflow}'? [y/N] ")
+        if answer.strip().lower() not in {"y", "yes"}:
+            raise OpenBBQError("unlock_cancelled", "Unlock cancelled.", 1)
+    config = _load_config(args)
+    result = unlock_workflow(config, args.workflow)
+    payload = {"ok": True, **result}
+    _emit(
+        payload,
+        args.json_output,
+        f"Unlocked workflow '{args.workflow}' stale lock from PID {result['pid']}.",
+    )
     return 0
 
 

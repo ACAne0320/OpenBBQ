@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 
 from openbbq.cli import main
+from openbbq.core.workflow.locks import workflow_lock_path
+from openbbq.storage import ProjectStore
 
 
 def write_project(tmp_path, fixture_name: str) -> Path:
@@ -47,3 +49,24 @@ def test_cli_abort_paused_workflow_and_reject_resume(tmp_path, capsys):
     error_payload = json.loads(capsys.readouterr().out)
     assert error_payload["ok"] is False
     assert error_payload["error"]["code"] == "invalid_workflow_state"
+
+
+def test_cli_unlock_stale_lock_with_yes(tmp_path, capsys):
+    project = write_project(tmp_path, "text-basic")
+    store = ProjectStore(project / ".openbbq")
+    lock_path = workflow_lock_path(store, "text-demo")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text('{"pid":999999999,"workflow_id":"text-demo"}', encoding="utf-8")
+
+    code = main(["--project", str(project), "--json", "unlock", "text-demo", "--yes"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "ok": True,
+        "workflow_id": "text-demo",
+        "unlocked": True,
+        "pid": 999999999,
+        "stale": True,
+    }
+    assert not lock_path.exists()

@@ -16,6 +16,15 @@ def workflow_lock_path(store: ProjectStore, workflow_id: str) -> Path:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkflowLockInfo:
+    path: Path
+    workflow_id: str
+    pid: int | None
+    created_at: str | None
+    stale: bool
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowLock:
     path: Path
 
@@ -32,11 +41,7 @@ class WorkflowLock:
         try:
             fd = os.open(path, flags, 0o644)
         except FileExistsError as exc:
-            raise ExecutionError(
-                f"Workflow '{workflow_id}' is locked.",
-                code="workflow_locked",
-                exit_code=1,
-            ) from exc
+            raise _existing_lock_error(store, workflow_id) from exc
         try:
             data = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
             os.write(fd, data)
@@ -61,3 +66,81 @@ class WorkflowLock:
         traceback: TracebackType | None,
     ) -> None:
         self.release()
+
+
+def read_workflow_lock(store: ProjectStore, workflow_id: str) -> WorkflowLockInfo:
+    path = workflow_lock_path(store, workflow_id)
+    if not path.exists():
+        raise ExecutionError(
+            f"Workflow '{workflow_id}' does not have a lock file.",
+            code="workflow_lock_missing",
+            exit_code=1,
+        )
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {}
+    pid = payload.get("pid")
+    if isinstance(pid, bool) or not isinstance(pid, int):
+        pid = None
+    recorded_workflow_id = payload.get("workflow_id")
+    if not isinstance(recorded_workflow_id, str) or not recorded_workflow_id:
+        recorded_workflow_id = workflow_id
+    created_at = payload.get("created_at")
+    if not isinstance(created_at, str):
+        created_at = None
+    return WorkflowLockInfo(
+        path=path,
+        workflow_id=recorded_workflow_id,
+        pid=pid,
+        created_at=created_at,
+        stale=not _pid_is_alive(pid),
+    )
+
+
+def unlock_workflow_lock(store: ProjectStore, workflow_id: str) -> dict[str, object]:
+    info = read_workflow_lock(store, workflow_id)
+    if not info.stale:
+        raise ExecutionError(
+            f"Workflow '{workflow_id}' lock is held by live PID {info.pid}.",
+            code="workflow_locked",
+            exit_code=1,
+        )
+    info.path.unlink()
+    return {
+        "workflow_id": workflow_id,
+        "unlocked": True,
+        "pid": info.pid,
+        "stale": True,
+    }
+
+
+def _existing_lock_error(store: ProjectStore, workflow_id: str) -> ExecutionError:
+    info = read_workflow_lock(store, workflow_id)
+    if info.stale:
+        pid_text = "unknown PID" if info.pid is None else f"PID {info.pid}"
+        return ExecutionError(
+            f"Workflow '{workflow_id}' has a stale lock held by {pid_text}. "
+            f"Run 'openbbq unlock {workflow_id}' before retrying.",
+            code="workflow_stale_lock",
+            exit_code=1,
+        )
+    return ExecutionError(
+        f"Workflow '{workflow_id}' is locked by PID {info.pid}.",
+        code="workflow_locked",
+        exit_code=1,
+    )
+
+
+def _pid_is_alive(pid: int | None) -> bool:
+    if pid is None or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
