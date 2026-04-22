@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,16 @@ def test_run_text_workflow_to_completion(tmp_path):
     state = store.read_workflow_state("text-demo")
     assert state["status"] == "completed"
     assert len(state["step_run_ids"]) == 2
+    events_path = project / ".openbbq" / "state" / "workflows" / "text-demo" / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+    assert [event["type"] for event in events] == [
+        "workflow.started",
+        "step.started",
+        "step.completed",
+        "step.started",
+        "step.completed",
+        "workflow.completed",
+    ]
 
 
 def test_run_rejects_completed_workflow(tmp_path):
