@@ -1,0 +1,27 @@
+name = "ffmpeg"
+version = "0.1.0"
+runtime = "python"
+entrypoint = "plugin:run"
+
+[[tools]]
+name = "extract_audio"
+description = "Extract audio from a file-backed video artifact with ffmpeg."
+input_artifact_types = ["video"]
+output_artifact_types = ["audio"]
+effects = ["reads_files", "writes_files"]
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+
+[tools.parameter_schema.properties.format]
+type = "string"
+default = "wav"
+
+[tools.parameter_schema.properties.sample_rate]
+type = "integer"
+default = 16000
+
+[tools.parameter_schema.properties.channels]
+type = "integer"
+default = 1

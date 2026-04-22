@@ -1,0 +1,20 @@
+name = "subtitle"
+version = "0.1.0"
+runtime = "python"
+entrypoint = "plugin:run"
+
+[[tools]]
+name = "export"
+description = "Export transcript or translation segments as subtitle text."
+input_artifact_types = ["asr_transcript", "translation"]
+output_artifact_types = ["subtitle"]
+effects = []
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+
+[tools.parameter_schema.properties.format]
+type = "string"
+enum = ["srt"]
+default = "srt"

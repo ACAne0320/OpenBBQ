@@ -1,0 +1,15 @@
+name = "faster_whisper"
+version = "0.1.0"
+runtime = "python"
+entrypoint = "plugin:run"
+
+[[tools]]
+name = "transcribe"
+description = "Transcribe a file-backed audio artifact with faster-whisper."
+input_artifact_types = ["audio"]
+output_artifact_types = ["asr_transcript"]
+effects = ["reads_files"]
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false

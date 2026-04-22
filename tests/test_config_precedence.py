@@ -45,6 +45,7 @@ def test_plugin_paths_use_cli_then_env_then_project_config(tmp_path):
         "plugins-c",
         "plugins-b",
         "plugins-a",
+        "builtin_plugins",
     ]
 
 

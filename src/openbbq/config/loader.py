@@ -26,6 +26,7 @@ STEP_SELECTOR_PATTERN = re.compile(r"^([a-z0-9_-]+)\.([a-z0-9_-]+)$")
 VALID_ON_ERROR = {"abort", "retry", "skip"}
 DEFAULT_STORAGE_ROOT = Path(".openbbq")
 DEFAULT_CONFIG_NAME = "openbbq.yaml"
+BUILTIN_PLUGIN_ROOT = Path(__file__).resolve().parents[1] / "builtin_plugins"
 
 
 def load_project_config(
@@ -67,7 +68,9 @@ def load_project_config(
     cli_plugin_paths = _normalize_plugin_paths(
         root_path, extra_plugin_paths or [], "extra_plugin_paths"
     )
-    plugin_paths = _merge_paths(cli_plugin_paths, config_plugin_paths)
+    plugin_paths = _merge_paths(
+        cli_plugin_paths, _merge_paths(config_plugin_paths, [BUILTIN_PLUGIN_ROOT])
+    )
     plugins = PluginConfig(paths=tuple(plugin_paths))
 
     workflows_raw = _require_mapping(raw_config.get("workflows"), "workflows")
