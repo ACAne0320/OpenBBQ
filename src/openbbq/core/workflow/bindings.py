@@ -38,7 +38,11 @@ def build_plugin_inputs(
 
         selector = parse_step_selector(input_value)
         if selector is not None:
-            binding = output_bindings[input_value]
+            binding = output_bindings.get(input_value)
+            if binding is None:
+                raise ValidationError(
+                    f"Step '{step.id}' input '{input_name}' references unavailable output '{input_value}'."
+                )
             artifact = store.read_artifact(binding["artifact_id"])
             version = store.read_artifact_version(binding["artifact_version_id"])
             plugin_inputs[input_name] = artifact_input(artifact, version)

@@ -35,6 +35,8 @@ def test_fixture_manifests_and_projects_match_phase_1_contracts():
         "glossary_replace",
         "translate",
         "subtitle_export",
+        "flaky_echo",
+        "always_fail",
     }
     assert set(mock_media_tools) == {"youtube_download", "extract_audio", "transcribe"}
 

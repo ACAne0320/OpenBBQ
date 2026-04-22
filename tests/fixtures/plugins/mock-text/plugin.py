@@ -156,4 +156,23 @@ def run(request):
             }
         }
 
+    if tool_name == "flaky_echo":
+        attempt = int(request.get("attempt", 1))
+        fail_until_attempt = int(parameters.get("fail_until_attempt", 0))
+        if attempt <= fail_until_attempt:
+            raise ValueError(f"planned failure on attempt {attempt}")
+        return {
+            "pause_requested": bool(parameters.get("pause_requested", False)),
+            "outputs": {
+                "text": {
+                    "type": "text",
+                    "content": parameters["text"],
+                    "metadata": {"attempt": attempt},
+                }
+            },
+        }
+
+    if tool_name == "always_fail":
+        raise ValueError(parameters.get("message", "planned failure"))
+
     raise ValueError(f"Unsupported tool: {tool_name}")

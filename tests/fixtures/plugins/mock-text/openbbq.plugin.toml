@@ -64,3 +64,28 @@ type = "object"
 additionalProperties = false
 properties = { format = { type = "string" }, max_chars_per_line = { type = "integer" }, max_lines = { type = "integer" } }
 required = ["format", "max_chars_per_line", "max_lines"]
+
+[[tools]]
+name = "flaky_echo"
+description = "Echo text after a deterministic number of failed attempts."
+input_artifact_types = []
+output_artifact_types = ["text"]
+effects = []
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+properties = { text = { type = "string" }, fail_until_attempt = { type = "integer" }, pause_requested = { type = "boolean" } }
+required = ["text"]
+
+[[tools]]
+name = "always_fail"
+description = "Raise a deterministic plugin failure."
+input_artifact_types = []
+output_artifact_types = ["text"]
+effects = []
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+properties = { message = { type = "string" } }

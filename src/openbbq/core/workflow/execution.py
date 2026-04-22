@@ -189,91 +189,128 @@ def execute_steps(
 
         tool = registry.tools[step.tool_ref]
         plugin = registry.plugins[tool.plugin_name]
-        store.append_event(
-            workflow.id,
-            {
-                "type": "step.started",
-                "step_id": step.id,
-                "message": f"Step '{step.id}' started.",
-            },
-        )
-        plugin_inputs, input_artifact_version_ids = build_plugin_inputs(
-            store, step, output_bindings
-        )
-        step_run = store.write_step_run(
-            workflow.id,
-            {
-                "step_id": step.id,
-                "attempt": 1,
-                "status": "running",
-                "input_artifact_version_ids": input_artifact_version_ids,
-                "output_bindings": {},
-                "started_at": _timestamp(),
-            },
-        )
-        step_run_ids.append(step_run["id"])
-        store.write_workflow_state(
-            workflow.id,
-            {
-                "name": workflow.name,
-                "status": "running",
-                "current_step_id": step.id,
-                "config_hash": config_hash,
-                "step_run_ids": step_run_ids,
-            },
-        )
-
-        request = {
-            "project_root": str(config.root_path),
-            "workflow_id": workflow.id,
-            "step_id": step.id,
-            "tool_name": tool.name,
-            "parameters": step.parameters,
-            "inputs": plugin_inputs,
-            "work_dir": str(config.storage.root / "work" / workflow.id / step.id),
-        }
-        try:
-            response = execute_plugin_tool(plugin, tool, request)
-            output_bindings_for_step = persist_step_outputs(
-                store,
+        attempt = 1
+        max_attempts = 1 + (step.max_retries if step.on_error == "retry" else 0)
+        output_bindings_for_step: dict[str, dict[str, str]] = {}
+        pause_requested = False
+        skipped = False
+        while True:
+            store.append_event(
                 workflow.id,
-                step,
-                tool,
-                response,
-                input_artifact_version_ids,
-                artifact_reuse=artifact_reuse,
+                {
+                    "type": "step.started",
+                    "step_id": step.id,
+                    "attempt": attempt,
+                    "message": f"Step '{step.id}' attempt {attempt} started.",
+                },
             )
-        except (PluginError, ValidationError) as exc:
-            failed = dict(step_run)
-            failed["status"] = "failed"
-            failed["error"] = {"code": exc.code, "message": exc.message}
-            failed["completed_at"] = _timestamp()
-            store.write_step_run(workflow.id, failed)
+            step_run = store.write_step_run(
+                workflow.id,
+                {
+                    "step_id": step.id,
+                    "attempt": attempt,
+                    "status": "running",
+                    "input_artifact_version_ids": {},
+                    "output_bindings": {},
+                    "started_at": _timestamp(),
+                },
+            )
+            step_run_ids.append(step_run["id"])
             store.write_workflow_state(
                 workflow.id,
                 {
                     "name": workflow.name,
-                    "status": "failed",
+                    "status": "running",
                     "current_step_id": step.id,
                     "config_hash": config_hash,
                     "step_run_ids": step_run_ids,
                 },
             )
-            store.append_event(
-                workflow.id,
-                {
-                    "type": "step.failed",
+            input_artifact_version_ids: dict[str, str] = {}
+            try:
+                plugin_inputs, input_artifact_version_ids = build_plugin_inputs(
+                    store, step, output_bindings
+                )
+                running = dict(step_run)
+                running["input_artifact_version_ids"] = input_artifact_version_ids
+                store.write_step_run(workflow.id, running)
+                request = {
+                    "project_root": str(config.root_path),
+                    "workflow_id": workflow.id,
                     "step_id": step.id,
-                    "message": exc.message,
-                },
-            )
-            raise ExecutionError(exc.message) from exc
+                    "attempt": attempt,
+                    "tool_name": tool.name,
+                    "parameters": step.parameters,
+                    "inputs": plugin_inputs,
+                    "work_dir": str(config.storage.root / "work" / workflow.id / step.id),
+                }
+                response = execute_plugin_tool(plugin, tool, request)
+                output_bindings_for_step = persist_step_outputs(
+                    store,
+                    workflow.id,
+                    step,
+                    tool,
+                    response,
+                    input_artifact_version_ids,
+                    artifact_reuse=artifact_reuse,
+                )
+            except (PluginError, ValidationError) as exc:
+                failed = dict(step_run)
+                failed["status"] = "failed"
+                failed["input_artifact_version_ids"] = input_artifact_version_ids
+                failed["error"] = _step_error(
+                    exc, step.id, plugin.name, plugin.version, tool.name, attempt
+                )
+                failed["completed_at"] = _timestamp()
+                if step.on_error == "skip":
+                    skipped_step = dict(failed)
+                    skipped_step["status"] = "skipped"
+                    store.write_step_run(workflow.id, skipped_step)
+                    store.append_event(
+                        workflow.id,
+                        {
+                            "type": "step.skipped",
+                            "step_id": step.id,
+                            "attempt": attempt,
+                            "message": exc.message,
+                        },
+                    )
+                    skipped = True
+                    break
+                store.write_step_run(workflow.id, failed)
+                store.append_event(
+                    workflow.id,
+                    {
+                        "type": "step.failed",
+                        "step_id": step.id,
+                        "attempt": attempt,
+                        "message": exc.message,
+                    },
+                )
+                if step.on_error == "retry" and attempt < max_attempts:
+                    attempt += 1
+                    continue
+                store.write_workflow_state(
+                    workflow.id,
+                    {
+                        "name": workflow.name,
+                        "status": "failed",
+                        "current_step_id": step.id,
+                        "config_hash": config_hash,
+                        "step_run_ids": step_run_ids,
+                    },
+                )
+                raise ExecutionError(exc.message) from exc
 
-        completed = dict(step_run)
-        completed["status"] = "completed"
-        completed["output_bindings"] = output_bindings_for_step
-        completed["completed_at"] = _timestamp()
-        store.write_step_run(workflow.id, completed)
+            completed = dict(step_run)
+            completed["status"] = "completed"
+            completed["input_artifact_version_ids"] = input_artifact_version_ids
+            completed["output_bindings"] = output_bindings_for_step
+            completed["completed_at"] = _timestamp()
+            store.write_step_run(workflow.id, completed)
+            pause_requested = response.get("pause_requested") is True
+            break
+
         for output_name, binding in output_bindings_for_step.items():
             output_bindings[f"{step.id}.{output_name}"] = binding
         next_step_id = (
@@ -281,7 +318,7 @@ def execute_steps(
             if index + 1 < len(workflow.steps) and index + 1 < final_index
             else None
         )
-        pausing_after = step.pause_after and next_step_id is not None
+        pausing_after = (step.pause_after or pause_requested) and next_step_id is not None
         store.write_workflow_state(
             workflow.id,
             {
@@ -294,14 +331,15 @@ def execute_steps(
                 "step_run_ids": step_run_ids,
             },
         )
-        store.append_event(
-            workflow.id,
-            {
-                "type": "step.completed",
-                "step_id": step.id,
-                "message": f"Step '{step.id}' completed.",
-            },
-        )
+        if not skipped:
+            store.append_event(
+                workflow.id,
+                {
+                    "type": "step.completed",
+                    "step_id": step.id,
+                    "message": f"Step '{step.id}' completed.",
+                },
+            )
         if next_step_id is not None and consume_abort_request(store, workflow.id):
             store.append_event(
                 workflow.id,
@@ -363,6 +401,25 @@ def _step_index(workflow: WorkflowConfig, step_id: str) -> int:
         if step.id == step_id:
             return index
     raise ExecutionError(f"Workflow '{workflow.id}' cannot resume unknown step '{step_id}'.")
+
+
+def _step_error(
+    error: PluginError | ValidationError,
+    step_id: str,
+    plugin_name: str,
+    plugin_version: str,
+    tool_name: str,
+    attempt: int,
+) -> dict[str, object]:
+    return {
+        "code": error.code,
+        "message": error.message,
+        "step_id": step_id,
+        "plugin_name": plugin_name,
+        "plugin_version": plugin_version,
+        "tool_name": tool_name,
+        "attempt": attempt,
+    }
 
 
 def _timestamp() -> str:

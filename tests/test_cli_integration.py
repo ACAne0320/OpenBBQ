@@ -114,4 +114,6 @@ def test_project_and_plugin_info(tmp_path, capsys):
         "glossary_replace",
         "translate",
         "subtitle_export",
+        "flaky_echo",
+        "always_fail",
     ]

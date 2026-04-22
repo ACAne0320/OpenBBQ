@@ -285,9 +285,9 @@ def unlock_workflow(config: ProjectConfig, workflow_id: str) -> dict[str, object
 
 
 def _validate_step_control(step: StepConfig, workflow: WorkflowConfig) -> None:
-    if step.on_error != "abort" or step.max_retries != 0:
+    if step.on_error != "retry" and step.max_retries != 0:
         raise ValidationError(
-            f"Step '{step.id}' in workflow '{workflow.id}' uses error recovery that is not implemented in this control-flow MVP.",
+            f"Step '{step.id}' in workflow '{workflow.id}' may only set max_retries with on_error: retry.",
         )
 
 
