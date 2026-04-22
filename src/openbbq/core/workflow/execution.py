@@ -228,7 +228,9 @@ def execute_steps(
             workflow.id,
             {
                 "name": workflow.name,
-                "status": "paused" if pausing_after else ("running" if next_step_id else "completed"),
+                "status": "paused"
+                if pausing_after
+                else ("running" if next_step_id else "completed"),
                 "current_step_id": next_step_id,
                 "config_hash": config_hash,
                 "step_run_ids": step_run_ids,
