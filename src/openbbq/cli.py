@@ -8,6 +8,7 @@ from typing import Any
 
 from openbbq import __version__
 from openbbq.config import load_project_config
+from openbbq.core.workflow.diff import diff_artifact_versions
 from openbbq.core.workflow.state import read_effective_workflow_state
 from openbbq.domain import ProjectConfig
 from openbbq.engine import (
@@ -147,7 +148,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         return _logs(args)
     if args.command == "artifact":
         if args.artifact_command == "diff":
-            raise _unsupported_slice_2("artifact diff")
+            return _artifact_diff(args)
         if args.artifact_command == "list":
             return _artifact_list(args)
         if args.artifact_command == "show":
@@ -314,7 +315,14 @@ def _logs(args: argparse.Namespace) -> int:
 
 def _artifact_list(args: argparse.Namespace) -> int:
     config = _load_config(args)
-    artifacts = _project_store(config).list_artifacts()
+    store = _project_store(config)
+    artifacts = store.list_artifacts()
+    if args.workflow:
+        artifacts = [
+            artifact
+            for artifact in artifacts
+            if _artifact_workflow_id(store, artifact) == args.workflow
+        ]
     if args.step:
         artifacts = [
             artifact
@@ -328,6 +336,18 @@ def _artifact_list(args: argparse.Namespace) -> int:
         ]
     payload = {"ok": True, "artifacts": artifacts}
     _emit(payload, args.json_output, "\n".join(artifact["id"] for artifact in artifacts))
+    return 0
+
+
+def _artifact_diff(args: argparse.Namespace) -> int:
+    config = _load_config(args)
+    result = diff_artifact_versions(
+        _project_store(config),
+        args.from_version,
+        args.to_version,
+    )
+    payload = {"ok": True, **result}
+    _emit(payload, args.json_output, result["diff"])
     return 0
 
 
@@ -346,6 +366,15 @@ def _artifact_show(args: argparse.Namespace) -> int:
     }
     _emit(payload, args.json_output, _jsonable_content(version.content))
     return 0
+
+
+def _artifact_workflow_id(store: ProjectStore, artifact: dict[str, Any]) -> str | None:
+    current_version_id = artifact.get("current_version_id")
+    if not isinstance(current_version_id, str):
+        return None
+    version = store.read_artifact_version(current_version_id)
+    workflow_id = version.record.get("lineage", {}).get("workflow_id")
+    return workflow_id if isinstance(workflow_id, str) else None
 
 
 def _plugin_list(args: argparse.Namespace) -> int:
