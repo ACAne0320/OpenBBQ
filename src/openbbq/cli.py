@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -97,8 +99,8 @@ def _build_parser() -> argparse.ArgumentParser:
 def _global_options(*, defaults: bool) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
     if defaults:
-        parser.add_argument("--project", default=".")
-        parser.add_argument("--config")
+        parser.add_argument("--project", default=os.environ.get("OPENBBQ_PROJECT", "."))
+        parser.add_argument("--config", default=os.environ.get("OPENBBQ_CONFIG"))
         parser.add_argument("--plugins", action="append", default=[])
         parser.add_argument("--json", action="store_true", dest="json_output")
         parser.add_argument("--verbose", action="store_true")
@@ -115,7 +117,23 @@ def _global_options(*, defaults: bool) -> argparse.ArgumentParser:
     return parser
 
 
+def _configure_logging(args: argparse.Namespace) -> None:
+    logging.getLogger("openbbq").setLevel(_effective_log_level(args))
+
+
+def _effective_log_level(args: argparse.Namespace) -> int:
+    if getattr(args, "debug", False):
+        return logging.DEBUG
+    env_level = os.environ.get("OPENBBQ_LOG_LEVEL")
+    if env_level:
+        return getattr(logging, env_level.upper(), logging.WARNING)
+    if getattr(args, "verbose", False):
+        return logging.INFO
+    return logging.WARNING
+
+
 def _dispatch(args: argparse.Namespace) -> int:
+    _configure_logging(args)
     if args.command == "version":
         _emit({"ok": True, "version": __version__}, args.json_output, __version__)
         return 0
