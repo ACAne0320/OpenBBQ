@@ -12,7 +12,7 @@ from openbbq.storage import ProjectStore
 
 
 def workflow_lock_path(store: ProjectStore, workflow_id: str) -> Path:
-    return store.state_root / workflow_id / f"{workflow_id}.lock"
+    return store.state_root / f"{workflow_id}.lock"
 
 
 @dataclass(frozen=True, slots=True)

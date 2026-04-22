@@ -8,6 +8,7 @@ from typing import Any
 
 from openbbq import __version__
 from openbbq.config import load_project_config
+from openbbq.core.workflow.state import read_effective_workflow_state
 from openbbq.domain import ProjectConfig
 from openbbq.engine import abort_workflow, resume_workflow, run_workflow, validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
@@ -151,8 +152,8 @@ def _dispatch(args: argparse.Namespace) -> int:
 
 def _unsupported_slice_2(feature: str) -> OpenBBQError:
     return OpenBBQError(
-        "slice_1_unsupported",
-        f"{feature} is not implemented in Slice 1.",
+        "slice_2_unsupported",
+        f"{feature} is not implemented in Slice 2.",
         1,
     )
 
@@ -260,16 +261,7 @@ def _status(args: argparse.Namespace) -> int:
     if workflow is None:
         raise ValidationError(f"Workflow '{args.workflow}' is not defined.")
     store = _project_store(config)
-    try:
-        state = store.read_workflow_state(args.workflow)
-    except FileNotFoundError:
-        state = {
-            "id": workflow.id,
-            "name": workflow.name,
-            "status": "pending",
-            "current_step_id": workflow.steps[0].id if workflow.steps else None,
-            "step_run_ids": [],
-        }
+    state = read_effective_workflow_state(store, workflow)
     payload = {"ok": True, **state}
     _emit(payload, args.json_output, f"{args.workflow}: {state.get('status')}")
     return 0

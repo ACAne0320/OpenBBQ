@@ -66,6 +66,17 @@ def execute_workflow_from_resume(
     output_bindings: dict[str, dict[str, Any]],
 ) -> ExecutionResult:
     start_index = _step_index(workflow, current_step_id)
+    config_hash = compute_workflow_config_hash(config, workflow.id)
+    store.write_workflow_state(
+        workflow.id,
+        {
+            "name": workflow.name,
+            "status": "running",
+            "current_step_id": current_step_id,
+            "config_hash": config_hash,
+            "step_run_ids": step_run_ids,
+        },
+    )
     store.append_event(
         workflow.id,
         {"type": "workflow.resumed", "message": f"Workflow '{workflow.id}' resumed."},
@@ -78,7 +89,7 @@ def execute_workflow_from_resume(
         start_index=start_index,
         step_run_ids=step_run_ids,
         output_bindings=output_bindings,
-        config_hash=compute_workflow_config_hash(config, workflow.id),
+        config_hash=config_hash,
         skip_pause_before_step_id=current_step_id,
     )
 
@@ -212,11 +223,12 @@ def execute_steps(
         for output_name, binding in output_bindings_for_step.items():
             output_bindings[f"{step.id}.{output_name}"] = binding
         next_step_id = workflow.steps[index + 1].id if index + 1 < len(workflow.steps) else None
+        pausing_after = step.pause_after and next_step_id is not None
         store.write_workflow_state(
             workflow.id,
             {
                 "name": workflow.name,
-                "status": "running" if next_step_id else "completed",
+                "status": "paused" if pausing_after else ("running" if next_step_id else "completed"),
                 "current_step_id": next_step_id,
                 "config_hash": config_hash,
                 "step_run_ids": step_run_ids,
@@ -230,17 +242,7 @@ def execute_steps(
                 "message": f"Step '{step.id}' completed.",
             },
         )
-        if step.pause_after and next_step_id is not None:
-            store.write_workflow_state(
-                workflow.id,
-                {
-                    "name": workflow.name,
-                    "status": "paused",
-                    "current_step_id": next_step_id,
-                    "config_hash": config_hash,
-                    "step_run_ids": step_run_ids,
-                },
-            )
+        if pausing_after:
             store.append_event(
                 workflow.id,
                 {
