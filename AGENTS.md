@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-OpenBBQ now includes the Slice 1 Python backend and CLI. The root `README.md` explains the product direction and current CLI usage. Architecture, roadmap, and workflow notes live in `docs/`; Phase 1 contracts live in `docs/phase1/`, starting with `docs/phase1/README.md`.
+OpenBBQ includes the Phase 1 Python backend and CLI. The root `README.md` explains the product direction and current CLI usage. Architecture, roadmap, and workflow notes live in `docs/`; Phase 1 contracts live in `docs/phase1/`, starting with `docs/phase1/README.md`.
 
 Code and fixtures follow the documented layout in `docs/phase1/Phase-1-Scope.md`:
 
@@ -25,13 +25,13 @@ Use the Phase 1 stack from `pyproject.toml` and `docs/phase1/Backend-CLI-Goals.m
 
 ## Coding Style & Naming Conventions
 
-Use Python for the Phase 1 backend. Format and lint with Ruff. Prefer small modules aligned to `config`, `domain`, `engine`, `plugins`, and `storage`. Workflow IDs and step IDs must use lowercase letters, digits, `_`, or `-`, matching `docs/phase1/Project-Config.md`.
+Use Python for the Phase 1 backend. Format and lint with Ruff. Prefer small modules aligned to `config`, `core/workflow`, `domain`, `engine`, `models`, `plugins`, and `storage`. Workflow IDs and step IDs must use lowercase letters, digits, `_`, or `-`, matching `docs/phase1/Project-Config.md`.
 
 Keep Markdown headings descriptive and sentence case where practical. Update docs when behavior, CLI flags, exit codes, config schema, or fixture paths change.
 
 ## Testing Guidelines
 
-Use `pytest`. Current fixtures are `text-basic` and `youtube-subtitle-mock`, plus deterministic mock text and media plugins. Slice 1 covers validation, run-to-completion, status, logs, artifact inspection, JSON output, and unsupported Slice 2 guardrails. Add tests for pause/resume, abort, artifact diff, retry/skip policies, and lock recovery as those features land.
+Use `pytest`. Current fixtures are `text-basic`, `text-pause`, and `youtube-subtitle-mock`, plus deterministic mock text and media plugins. Phase 1 covers validation, run-to-completion, pause/resume, paused and running abort, stale lock recovery, forced rerun, single-step rerun, retry/skip policies, status, logs, artifact inspection and diff, JSON output, and configuration precedence.
 
 ## Commit & Pull Request Guidelines
 

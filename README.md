@@ -23,9 +23,9 @@ OpenBBQ is a workflow-first system for media language operations. It coordinates
 
 The platform treats each stage as part of a controlled workflow rather than a one-off tool invocation. Human editors can step in, revise outputs, and continue execution from that point forward.
 
-## Slice 1 CLI
+## Phase 1 CLI
 
-The current backend is a local Python CLI managed with `uv`. It can initialize a project, load `openbbq.yaml`, discover trusted local plugin manifests, validate workflows, run deterministic mock workflows to completion, and inspect persisted state under `.openbbq/`.
+The current backend is a local Python CLI managed with `uv`. It can initialize a project, load `openbbq.yaml`, discover trusted local plugin manifests, validate workflows, run deterministic mock workflows, pause and resume persisted workflow state, recover stale locks, rerun completed work, and inspect persisted artifacts under `.openbbq/`.
 
 Install dependencies and run the text fixture:
 
@@ -36,4 +36,19 @@ uv run openbbq run text-demo --project tests/fixtures/projects/text-basic
 uv run openbbq status text-demo --project tests/fixtures/projects/text-basic
 ```
 
-Use `uv run openbbq --json <command>` for machine-readable output. `run` writes workflow state, event logs, and artifacts to the selected project's `.openbbq/` directory. Slice 2 commands such as `resume`, `abort`, `run --force`, `run --step`, and `artifact diff` currently return clear unsupported errors.
+Use `uv run openbbq --json <command>` for machine-readable output. `run` writes workflow state, event logs, and artifacts to the selected project's `.openbbq/` directory.
+
+Common Phase 1 commands:
+
+```bash
+uv run openbbq run text-demo --project tests/fixtures/projects/text-pause
+uv run openbbq status text-demo --project tests/fixtures/projects/text-pause
+uv run openbbq resume text-demo --project tests/fixtures/projects/text-pause
+uv run openbbq abort text-demo --project tests/fixtures/projects/text-pause
+uv run openbbq run text-demo --force --project tests/fixtures/projects/text-basic
+uv run openbbq run text-demo --step seed --project tests/fixtures/projects/text-basic
+uv run openbbq artifact list --project tests/fixtures/projects/text-basic
+uv run openbbq artifact diff <from-version-id> <to-version-id> --project tests/fixtures/projects/text-basic
+```
+
+Phase 1 still uses deterministic mock plugins. Real transcription, translation, subtitle rendering, API service layers, and desktop UI are later-phase work.
