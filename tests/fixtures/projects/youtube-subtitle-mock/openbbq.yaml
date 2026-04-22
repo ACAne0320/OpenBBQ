@@ -1,0 +1,96 @@
+version: 1
+
+project:
+  id: youtube-subtitle-mock
+  name: YouTube Subtitle Mock
+
+storage:
+  root: .openbbq
+
+plugins:
+  paths:
+    - ../../plugins/mock-media
+    - ../../plugins/mock-text
+
+workflows:
+  youtube-subtitle:
+    name: YouTube To Subtitle Mock
+    steps:
+      - id: download
+        name: Mock Download
+        tool_ref: mock_media.youtube_download
+        inputs: {}
+        outputs:
+          - name: video
+            type: video
+        parameters:
+          url: "https://example.invalid/watch?v=openbbq"
+          format: mp4
+          quality: best
+
+      - id: extract_audio
+        name: Mock Extract Audio
+        tool_ref: mock_media.extract_audio
+        inputs:
+          video: download.video
+        outputs:
+          - name: audio
+            type: audio
+        parameters:
+          format: mp3
+          sample_rate: 16000
+          channels: 1
+
+      - id: transcribe
+        name: Mock ASR
+        tool_ref: mock_media.transcribe
+        inputs:
+          audio: extract_audio.audio
+        outputs:
+          - name: transcript
+            type: asr_transcript
+        parameters:
+          language: en
+          model: mock-asr
+          word_timestamps: true
+
+      - id: glossary
+        name: Mock Glossary Replacement
+        tool_ref: mock_text.glossary_replace
+        inputs:
+          transcript: transcribe.transcript
+        outputs:
+          - name: transcript
+            type: asr_transcript
+        parameters:
+          rules:
+            - find: Open BBQ
+              replace: OpenBBQ
+              is_regex: false
+              case_sensitive: false
+
+      - id: translate
+        name: Mock Translation
+        tool_ref: mock_text.translate
+        inputs:
+          transcript: glossary.transcript
+        outputs:
+          - name: translation
+            type: translation
+        parameters:
+          source_lang: en
+          target_lang: zh-Hans
+          model: mock-llm
+
+      - id: subtitle
+        name: Mock Subtitle Export
+        tool_ref: mock_text.subtitle_export
+        inputs:
+          translation: translate.translation
+        outputs:
+          - name: subtitle
+            type: subtitle
+        parameters:
+          format: srt
+          max_chars_per_line: 40
+          max_lines: 2

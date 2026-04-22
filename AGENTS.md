@@ -2,9 +2,9 @@
 
 ## Project Structure & Module Organization
 
-OpenBBQ is currently documentation-first. The root `README.md` explains the product direction. Architecture, roadmap, and workflow notes live in `docs/`. Phase 1 backend and CLI requirements live in `docs/phase1/`; start with `docs/phase1/README.md`.
+OpenBBQ now includes the Slice 1 Python backend and CLI. The root `README.md` explains the product direction and current CLI usage. Architecture, roadmap, and workflow notes live in `docs/`; Phase 1 contracts live in `docs/phase1/`, starting with `docs/phase1/README.md`.
 
-Source code has not landed yet. When adding Phase 1 code, follow the documented layout in `docs/phase1/Phase-1-Scope.md`:
+Code and fixtures follow the documented layout in `docs/phase1/Phase-1-Scope.md`:
 
 ```text
 src/openbbq/      # Python package: cli, config, domain, engine, plugins, storage
@@ -14,14 +14,14 @@ tests/fixtures/   # canonical project and plugin fixtures
 
 ## Build, Test, and Development Commands
 
-There is no `pyproject.toml` or runnable CLI yet. Once the backend package is added, use the Phase 1 stack from `docs/phase1/Backend-CLI-Goals.md`:
+Use the Phase 1 stack from `pyproject.toml` and `docs/phase1/Backend-CLI-Goals.md`:
 
 - `uv sync` installs project dependencies.
 - `uv run pytest` runs the test suite.
 - `uv run ruff check .` lints Python code.
 - `uv run ruff format .` formats Python code.
-- `uv run openbbq validate <workflow>` validates a workflow without executing plugins.
-- `uv run openbbq run <workflow>` executes a local workflow.
+- `uv run openbbq validate text-demo --project tests/fixtures/projects/text-basic` validates a workflow without executing plugins.
+- `uv run openbbq run text-demo --project tests/fixtures/projects/text-basic` executes the text fixture and writes `.openbbq/` state.
 
 ## Coding Style & Naming Conventions
 
@@ -31,7 +31,7 @@ Keep Markdown headings descriptive and sentence case where practical. Update doc
 
 ## Testing Guidelines
 
-Use `pytest`. Required fixture families are documented in `docs/phase1/Project-Config.md`: `text-basic`, `text-pause`, `youtube-subtitle-mock`, plus mock text and media plugins. Cover the MVP acceptance scenarios from `docs/phase1/Phase-1-Scope.md`: run to completion, pause/resume, and abort. Add tests for configuration precedence, artifact diff behavior, retry/skip policies, and lock recovery as those features land.
+Use `pytest`. Current fixtures are `text-basic` and `youtube-subtitle-mock`, plus deterministic mock text and media plugins. Slice 1 covers validation, run-to-completion, status, logs, artifact inspection, JSON output, and unsupported Slice 2 guardrails. Add tests for pause/resume, abort, artifact diff, retry/skip policies, and lock recovery as those features land.
 
 ## Commit & Pull Request Guidelines
 

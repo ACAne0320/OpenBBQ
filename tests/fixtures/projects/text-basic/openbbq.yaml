@@ -1,0 +1,40 @@
+version: 1
+
+project:
+  id: text-basic
+  name: Text Basic
+
+storage:
+  root: .openbbq
+
+plugins:
+  paths:
+    - ../../plugins/mock-text
+
+workflows:
+  text-demo:
+    name: Text Demo
+    steps:
+      - id: seed
+        name: Seed Text
+        tool_ref: mock_text.echo
+        inputs:
+          text: "hello openbbq"
+        outputs:
+          - name: text
+            type: text
+        parameters: {}
+        on_error: abort
+        max_retries: 0
+
+      - id: uppercase
+        name: Uppercase Text
+        tool_ref: mock_text.uppercase
+        inputs:
+          text: seed.text
+        outputs:
+          - name: text
+            type: text
+        parameters: {}
+        on_error: abort
+        max_retries: 0

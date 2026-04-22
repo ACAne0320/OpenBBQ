@@ -1,0 +1,43 @@
+name = "mock_media"
+version = "0.1.0"
+runtime = "python"
+entrypoint = "plugin:run"
+
+[[tools]]
+name = "youtube_download"
+description = "Mock yt-dlp download step that emits a deterministic video artifact."
+input_artifact_types = []
+output_artifact_types = ["video"]
+effects = []
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+properties = { url = { type = "string" }, format = { type = "string" }, quality = { type = "string" } }
+required = ["url", "format", "quality"]
+
+[[tools]]
+name = "extract_audio"
+description = "Extract mock audio locally without media binaries."
+input_artifact_types = ["video"]
+output_artifact_types = ["audio"]
+effects = []
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+properties = { format = { type = "string" }, sample_rate = { type = "integer" }, channels = { type = "integer" } }
+required = ["format", "sample_rate", "channels"]
+
+[[tools]]
+name = "transcribe"
+description = "Deterministic local Whisper transcription for fixture workflows."
+input_artifact_types = ["audio"]
+output_artifact_types = ["asr_transcript"]
+effects = []
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+properties = { language = { type = "string" }, model = { type = "string" }, word_timestamps = { type = "boolean" } }
+required = ["language", "model", "word_timestamps"]
