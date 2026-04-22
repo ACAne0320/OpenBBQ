@@ -50,3 +50,13 @@ def test_fixture_manifests_and_projects_match_phase_1_contracts():
                 plugin_name, tool_name = step["tool_ref"].split(".", 1)
                 tool = tool_maps[plugin_name][tool_name]
                 Draft7Validator(tool["parameter_schema"]).validate(step["parameters"])
+
+
+def test_text_pause_fixture_pauses_before_uppercase():
+    project = _load_yaml(FIXTURES / "projects/text-pause/openbbq.yaml")
+
+    steps = project["workflows"]["text-demo"]["steps"]
+
+    assert steps[0]["id"] == "seed"
+    assert steps[1]["id"] == "uppercase"
+    assert steps[1]["pause_before"] is True
