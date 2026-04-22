@@ -4,6 +4,9 @@ import tomllib
 import yaml
 from jsonschema import Draft7Validator
 
+from openbbq.config.loader import load_project_config
+from openbbq.plugins.registry import discover_plugins
+
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -62,3 +65,12 @@ def test_text_pause_fixture_pauses_before_uppercase():
     assert steps[0]["id"] == "seed"
     assert steps[1]["id"] == "uppercase"
     assert steps[1]["pause_before"] is True
+
+
+def test_local_video_subtitle_fixture_uses_builtin_plugins():
+    config = load_project_config(FIXTURES / "projects/local-video-subtitle")
+    registry = discover_plugins(config.plugin_paths)
+
+    assert "ffmpeg.extract_audio" in registry.tools
+    assert "faster_whisper.transcribe" in registry.tools
+    assert "subtitle.export" in registry.tools

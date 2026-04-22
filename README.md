@@ -54,3 +54,18 @@ uv run openbbq artifact diff <from-version-id> <to-version-id> --project tests/f
 ```
 
 Phase 1 still uses deterministic mock plugins. Real transcription, translation, subtitle rendering, API service layers, and desktop UI are later-phase work.
+
+## Phase 2 Local Media Preview
+
+Phase 2 begins with a local video-to-subtitle workflow driven by the existing CLI. Install optional media dependencies and system ffmpeg before running real local media smoke tests:
+
+```bash
+uv sync --extra media
+ffmpeg -version
+cp -R tests/fixtures/projects/local-video-subtitle ./demo
+uv run openbbq artifact import ./sample.mp4 --type video --name source.video --project ./demo
+# Replace project.art_imported_video in ./demo/openbbq.yaml with the returned project.<artifact-id>.
+uv run openbbq run local-video-subtitle --project ./demo
+```
+
+Default CI does not download Whisper models or require ffmpeg.

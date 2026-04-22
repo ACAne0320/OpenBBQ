@@ -1,0 +1,53 @@
+version: 1
+
+project:
+  id: local-video-subtitle
+  name: Local Video Subtitle
+
+workflows:
+  local-video-subtitle:
+    name: Local Video Subtitle
+    steps:
+      - id: extract_audio
+        name: Extract Audio
+        tool_ref: ffmpeg.extract_audio
+        inputs:
+          video: project.art_imported_video
+        outputs:
+          - name: audio
+            type: audio
+        parameters:
+          format: wav
+          sample_rate: 16000
+          channels: 1
+        on_error: abort
+        max_retries: 0
+
+      - id: transcribe
+        name: Transcribe
+        tool_ref: faster_whisper.transcribe
+        inputs:
+          audio: extract_audio.audio
+        outputs:
+          - name: transcript
+            type: asr_transcript
+        parameters:
+          model: base
+          device: cpu
+          compute_type: int8
+          word_timestamps: true
+        on_error: abort
+        max_retries: 0
+
+      - id: subtitle
+        name: Export Subtitle
+        tool_ref: subtitle.export
+        inputs:
+          transcript: transcribe.transcript
+        outputs:
+          - name: subtitle
+            type: subtitle
+        parameters:
+          format: srt
+        on_error: abort
+        max_retries: 0
