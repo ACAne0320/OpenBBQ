@@ -154,7 +154,13 @@ class ProjectStore:
         record = json.loads((version_path / "version.json").read_text(encoding="utf-8"))
         content_path = Path(record["content_path"])
         encoding = record.get("content_encoding", "text")
-        if encoding == "bytes":
+        if encoding == "file":
+            content = {
+                "file_path": str(content_path),
+                "size": record["content_size"],
+                "sha256": record["content_hash"],
+            }
+        elif encoding == "bytes":
             content = content_path.read_bytes()
         else:
             raw = content_path.read_text(encoding="utf-8")
@@ -166,12 +172,17 @@ class ProjectStore:
         *,
         artifact_type: str,
         name: str,
-        content: Any,
+        content: Any = None,
+        file_path: Path | None = None,
         metadata: Mapping[str, Any],
-        created_by_step_id: str,
+        created_by_step_id: str | None,
         lineage: Mapping[str, Any],
         artifact_id: str | None = None,
     ) -> tuple[StoredArtifact, StoredArtifactVersion]:
+        has_content = content is not None
+        has_file = file_path is not None
+        if has_content == has_file:
+            raise ValueError("Artifact versions require exactly one of content or file_path.")
         artifact = self._load_or_create_artifact(
             artifact_id=artifact_id,
             artifact_type=artifact_type,
@@ -186,8 +197,21 @@ class ProjectStore:
         )
         version_dir.mkdir(parents=True, exist_ok=True)
         content_path = version_dir / "content"
-        content_encoding, content_bytes = self._write_content_durably(content_path, content)
-        content_hash = hashlib.sha256(content_bytes).hexdigest()
+        if file_path is None:
+            content_encoding, content_bytes = self._write_content_durably(content_path, content)
+            content_hash = hashlib.sha256(content_bytes).hexdigest()
+            content_size = len(content_bytes)
+            stored_content = self._normalize_content(content, content_encoding)
+        else:
+            content_encoding, digest, content_size = self._copy_file_durably(
+                content_path, file_path
+            )
+            content_hash = digest.hex()
+            stored_content = {
+                "file_path": str(content_path),
+                "size": content_size,
+                "sha256": content_hash,
+            }
         version_record = {
             "id": version_id,
             "artifact_id": artifact["id"],
@@ -195,6 +219,7 @@ class ProjectStore:
             "content_path": str(content_path),
             "content_hash": content_hash,
             "content_encoding": content_encoding,
+            "content_size": content_size,
             "metadata": dict(metadata),
             "lineage": dict(lineage),
             "created_at": timestamp,
@@ -206,7 +231,7 @@ class ProjectStore:
         self.write_json_atomic(self._artifact_dir(artifact["id"]) / "artifact.json", artifact)
         return StoredArtifact(record=artifact), StoredArtifactVersion(
             record=version_record,
-            content=self._normalize_content(content, content_encoding),
+            content=stored_content,
         )
 
     def _load_or_create_artifact(
@@ -215,7 +240,7 @@ class ProjectStore:
         artifact_id: str | None,
         artifact_type: str,
         name: str,
-        created_by_step_id: str,
+        created_by_step_id: str | None,
     ) -> dict[str, Any]:
         if artifact_id is not None:
             artifact = self.read_artifact(artifact_id)
@@ -269,6 +294,32 @@ class ProjectStore:
         temp_path.replace(path)
         self._fsync_parent(path.parent)
         return encoding, payload
+
+    def _copy_file_durably(self, destination: Path, source: Path) -> tuple[str, bytes, int]:
+        source = Path(source)
+        if not source.is_file():
+            raise ValueError(f"file-backed artifact source does not exist: {source}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256()
+        size = 0
+        with NamedTemporaryFile(
+            "wb",
+            dir=destination.parent,
+            delete=False,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+        ) as handle:
+            with source.open("rb") as source_handle:
+                for chunk in iter(lambda: source_handle.read(1024 * 1024), b""):
+                    size += len(chunk)
+                    digest.update(chunk)
+                    handle.write(chunk)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_path = Path(handle.name)
+        temp_path.replace(destination)
+        self._fsync_parent(destination.parent)
+        return "file", digest.digest(), size
 
     def _normalize_content(self, content: Any, encoding: str) -> Any:
         if encoding == "bytes":
