@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 import os
 from pathlib import Path
 
-from openbbq.storage import ProjectStore
+from openbbq.storage.project_store import ProjectStore
 
 
 def abort_request_path(store: ProjectStore, workflow_id: str) -> Path:

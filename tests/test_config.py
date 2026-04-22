@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from openbbq.config import load_project_config
+from openbbq.config.loader import load_project_config
 from openbbq.errors import ValidationError
 
 

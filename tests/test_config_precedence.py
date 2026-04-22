@@ -2,8 +2,8 @@ import json
 import logging
 from pathlib import Path
 
-from openbbq.cli import _build_parser, main
-from openbbq.config import load_project_config
+from openbbq.cli.app import _build_parser, main
+from openbbq.config.loader import load_project_config
 
 
 def write_config(path: Path, name: str, plugin_path: str = "./plugins-a") -> None:
@@ -78,7 +78,7 @@ def test_cli_config_defaults_to_openbbq_config_and_cli_flag_overrides(
 
 
 def test_openbbq_log_level_env_combines_with_verbose(monkeypatch):
-    from openbbq.cli import _effective_log_level
+    from openbbq.cli.app import _effective_log_level
 
     monkeypatch.setenv("OPENBBQ_LOG_LEVEL", "debug")
 

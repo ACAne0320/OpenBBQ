@@ -27,6 +27,8 @@ The platform treats each stage as part of a controlled workflow rather than a on
 
 The current backend is a local Python CLI managed with `uv`. It can initialize a project, load `openbbq.yaml`, discover trusted local plugin manifests, validate workflows, run deterministic mock workflows, pause and resume persisted workflow state, recover stale locks, rerun completed work, and inspect persisted artifacts under `.openbbq/`.
 
+The Phase 1 source tree is split into strict backend subpackages under `src/openbbq/`: `cli`, `config`, `domain`, `engine`, `workflow`, `plugins`, and `storage`.
+
 Install dependencies and run the text fixture:
 
 ```bash

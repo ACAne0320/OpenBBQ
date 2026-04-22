@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Iterable
 
-from openbbq.storage import ProjectStore
+from openbbq.storage.project_store import ProjectStore
 
 
 def build_artifact_reuse_map(

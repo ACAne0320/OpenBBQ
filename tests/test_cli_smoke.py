@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from openbbq.cli import main
+from openbbq.cli.app import main
 
 
 def test_version_json(capsys):

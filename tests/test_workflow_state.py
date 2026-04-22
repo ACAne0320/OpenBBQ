@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from openbbq.config import load_project_config
-from openbbq.core.workflow.state import (
+from openbbq.config.loader import load_project_config
+from openbbq.workflow.state import (
     build_pending_state,
     compute_workflow_config_hash,
     read_effective_workflow_state,
@@ -11,7 +11,7 @@ from openbbq.core.workflow.state import (
     require_status,
 )
 from openbbq.errors import ExecutionError
-from openbbq.storage import ProjectStore
+from openbbq.storage.project_store import ProjectStore
 
 
 def test_build_pending_state_for_missing_workflow_state():

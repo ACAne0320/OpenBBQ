@@ -4,7 +4,7 @@ import difflib
 import json
 
 from openbbq.errors import ValidationError
-from openbbq.storage import ProjectStore, StoredArtifactVersion
+from openbbq.storage.project_store import ProjectStore, StoredArtifactVersion
 
 
 def diff_artifact_versions(

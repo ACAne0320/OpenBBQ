@@ -8,7 +8,7 @@ from pathlib import Path
 from types import TracebackType
 
 from openbbq.errors import ExecutionError
-from openbbq.storage import ProjectStore
+from openbbq.storage.project_store import ProjectStore
 
 
 def workflow_lock_path(store: ProjectStore, workflow_id: str) -> Path:

@@ -9,20 +9,20 @@ import sys
 from typing import Any
 
 from openbbq import __version__
-from openbbq.config import load_project_config
-from openbbq.core.workflow.diff import diff_artifact_versions
-from openbbq.core.workflow.state import read_effective_workflow_state
-from openbbq.domain import ProjectConfig
-from openbbq.engine import (
+from openbbq.config.loader import load_project_config
+from openbbq.workflow.diff import diff_artifact_versions
+from openbbq.workflow.state import read_effective_workflow_state
+from openbbq.domain.models import ProjectConfig
+from openbbq.engine.service import (
     abort_workflow,
     resume_workflow,
     run_workflow,
     unlock_workflow,
-    validate_workflow,
 )
+from openbbq.engine.validation import validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
-from openbbq.plugins import PluginRegistry, discover_plugins
-from openbbq.storage import ProjectStore
+from openbbq.plugins.registry import PluginRegistry, discover_plugins
+from openbbq.storage.project_store import ProjectStore
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -4,13 +4,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from openbbq.core.workflow.aborts import consume_abort_request
-from openbbq.core.workflow.bindings import build_plugin_inputs, persist_step_outputs
-from openbbq.core.workflow.state import compute_workflow_config_hash
+from openbbq.workflow.aborts import consume_abort_request
+from openbbq.workflow.bindings import build_plugin_inputs, persist_step_outputs
+from openbbq.workflow.state import compute_workflow_config_hash
 from openbbq.errors import ExecutionError, PluginError, ValidationError
-from openbbq.models.workflow import ProjectConfig, WorkflowConfig
-from openbbq.plugins import PluginRegistry, execute_plugin_tool
-from openbbq.storage import ProjectStore
+from openbbq.domain.models import ProjectConfig, WorkflowConfig
+from openbbq.plugins.registry import PluginRegistry, execute_plugin_tool
+from openbbq.storage.project_store import ProjectStore
 
 
 @dataclass(frozen=True, slots=True)

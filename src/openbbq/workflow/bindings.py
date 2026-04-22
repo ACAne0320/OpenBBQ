@@ -4,9 +4,9 @@ import re
 from typing import Any
 
 from openbbq.errors import ValidationError
-from openbbq.models.workflow import StepConfig
-from openbbq.plugins import ToolSpec
-from openbbq.storage import ProjectStore, StoredArtifactVersion
+from openbbq.domain.models import StepConfig
+from openbbq.plugins.registry import ToolSpec
+from openbbq.storage.project_store import ProjectStore, StoredArtifactVersion
 
 STEP_SELECTOR_PATTERN = re.compile(r"^([a-z0-9_-]+)\.([a-z0-9_-]+)$")
 

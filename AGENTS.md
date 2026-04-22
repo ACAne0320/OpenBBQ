@@ -7,7 +7,7 @@ OpenBBQ includes the Phase 1 Python backend and CLI. The root `README.md` explai
 Code and fixtures follow the documented layout in `docs/phase1/Phase-1-Scope.md`:
 
 ```text
-src/openbbq/      # Python package: cli, config, domain, engine, plugins, storage
+src/openbbq/      # Python package: cli, config, domain, engine, workflow, plugins, storage
 tests/            # unit and integration tests
 tests/fixtures/   # canonical project and plugin fixtures
 ```
@@ -25,7 +25,7 @@ Use the Phase 1 stack from `pyproject.toml` and `docs/phase1/Backend-CLI-Goals.m
 
 ## Coding Style & Naming Conventions
 
-Use Python for the Phase 1 backend. Format and lint with Ruff. Prefer small modules aligned to `config`, `core/workflow`, `domain`, `engine`, `models`, `plugins`, and `storage`. Workflow IDs and step IDs must use lowercase letters, digits, `_`, or `-`, matching `docs/phase1/Project-Config.md`.
+Use Python for the Phase 1 backend. Format and lint with Ruff. Prefer small modules aligned to `cli`, `config`, `domain`, `engine`, `workflow`, `plugins`, and `storage`. Use strict concrete submodule imports, such as `openbbq.engine.service` and `openbbq.workflow.state`, instead of package-level compatibility imports. Workflow IDs and step IDs must use lowercase letters, digits, `_`, or `-`, matching `docs/phase1/Project-Config.md`.
 
 Keep Markdown headings descriptive and sentence case where practical. Update docs when behavior, CLI flags, exit codes, config schema, or fixture paths change.
 

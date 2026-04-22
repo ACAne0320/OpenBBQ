@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from openbbq.cli import main
+from openbbq.cli.app import main
 
 
 def write_project(tmp_path, fixture_name: str) -> Path:

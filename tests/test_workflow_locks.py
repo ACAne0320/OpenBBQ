@@ -3,10 +3,10 @@ import os
 
 import pytest
 
-from openbbq.core.workflow import locks
-from openbbq.core.workflow.locks import WorkflowLock, workflow_lock_path
+from openbbq.workflow import locks
+from openbbq.workflow.locks import WorkflowLock, workflow_lock_path
 from openbbq.errors import ExecutionError
-from openbbq.storage import ProjectStore
+from openbbq.storage.project_store import ProjectStore
 
 
 def test_workflow_lock_creates_pid_file_and_releases(tmp_path):

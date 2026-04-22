@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from openbbq.cli import main
-from openbbq.storage import ProjectStore
+from openbbq.cli.app import main
+from openbbq.storage.project_store import ProjectStore
 
 
 def write_project(tmp_path) -> Path:

@@ -3,7 +3,7 @@ from datetime import datetime
 
 import pytest
 
-from openbbq.storage import ProjectStore
+from openbbq.storage.project_store import ProjectStore
 
 
 def test_write_artifact_version_round_trip(tmp_path):

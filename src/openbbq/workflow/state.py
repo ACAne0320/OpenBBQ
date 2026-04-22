@@ -6,8 +6,8 @@ import json
 from typing import Any, Iterable
 
 from openbbq.errors import ExecutionError
-from openbbq.models.workflow import ProjectConfig, WorkflowConfig
-from openbbq.storage import ProjectStore
+from openbbq.domain.models import ProjectConfig, WorkflowConfig
+from openbbq.storage.project_store import ProjectStore
 
 
 def build_pending_state(workflow: WorkflowConfig) -> dict[str, Any]:

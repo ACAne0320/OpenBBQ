@@ -1,10 +1,10 @@
 import json
 from pathlib import Path
 
-from openbbq.config import load_project_config
-from openbbq.engine import abort_workflow, run_workflow
-from openbbq.plugins import discover_plugins
-from openbbq.storage import ProjectStore
+from openbbq.config.loader import load_project_config
+from openbbq.engine.service import abort_workflow, run_workflow
+from openbbq.plugins.registry import discover_plugins
+from openbbq.storage.project_store import ProjectStore
 
 
 def write_project(tmp_path, fixture_name: str) -> Path:
@@ -30,7 +30,7 @@ def read_events(store: ProjectStore, workflow_id: str) -> list[dict]:
 
 
 def test_abort_running_workflow_writes_request_without_state_transition(tmp_path):
-    from openbbq.core.workflow import aborts
+    from openbbq.workflow import aborts
 
     project = write_project(tmp_path, "text-basic")
     config = load_project_config(project)
@@ -53,7 +53,7 @@ def test_abort_running_workflow_writes_request_without_state_transition(tmp_path
 
 
 def test_run_processes_abort_request_between_steps(tmp_path):
-    from openbbq.core.workflow import aborts
+    from openbbq.workflow import aborts
 
     project = write_project(tmp_path, "text-basic")
     config = load_project_config(project)

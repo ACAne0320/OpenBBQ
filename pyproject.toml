@@ -9,7 +9,7 @@ requires-python = ">=3.11"
 dependencies = ["PyYAML>=6.0", "jsonschema>=4.0"]
 
 [project.scripts]
-openbbq = "openbbq.cli:main"
+openbbq = "openbbq.cli.app:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6"]

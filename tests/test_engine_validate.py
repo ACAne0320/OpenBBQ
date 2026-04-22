@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from openbbq.config import load_project_config
-from openbbq.engine import validate_workflow
+from openbbq.config.loader import load_project_config
+from openbbq.engine.validation import validate_workflow
 from openbbq.errors import ValidationError
-from openbbq.plugins import discover_plugins
+from openbbq.plugins.registry import discover_plugins
 
 
 def test_validate_text_workflow_success():

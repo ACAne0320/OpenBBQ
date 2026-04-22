@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-from openbbq.cli import main
-from openbbq.core.workflow.locks import workflow_lock_path
-from openbbq.storage import ProjectStore
+from openbbq.cli.app import main
+from openbbq.workflow.locks import workflow_lock_path
+from openbbq.storage.project_store import ProjectStore
 
 
 def write_project(tmp_path, fixture_name: str) -> Path:
@@ -73,7 +73,7 @@ def test_cli_unlock_stale_lock_with_yes(tmp_path, capsys):
 
 
 def test_cli_abort_running_workflow_writes_request(tmp_path, capsys):
-    from openbbq.core.workflow.aborts import abort_request_path
+    from openbbq.workflow.aborts import abort_request_path
 
     project = write_project(tmp_path, "text-basic")
     store = ProjectStore(project / ".openbbq")

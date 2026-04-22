@@ -3,8 +3,8 @@ from textwrap import dedent
 
 import pytest
 
-from openbbq.config import load_project_config
-from openbbq.plugins import discover_plugins
+from openbbq.config.loader import load_project_config
+from openbbq.plugins.registry import discover_plugins
 
 
 def _write_plugin(directory: Path, manifest: str, plugin_py: str | None = None) -> Path:

@@ -2,11 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from openbbq.config import load_project_config
-from openbbq.engine import run_workflow, validate_workflow
+from openbbq.config.loader import load_project_config
+from openbbq.engine.service import run_workflow
+from openbbq.engine.validation import validate_workflow
 from openbbq.errors import ExecutionError
-from openbbq.plugins import discover_plugins
-from openbbq.storage import ProjectStore
+from openbbq.plugins.registry import discover_plugins
+from openbbq.storage.project_store import ProjectStore
 
 
 def write_config(tmp_path, workflow_yaml: str) -> Path:

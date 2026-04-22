@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from openbbq.domain import (
+from openbbq.domain.models import (
     ARTIFACT_TYPES,
     PluginConfig,
     ProjectConfig,

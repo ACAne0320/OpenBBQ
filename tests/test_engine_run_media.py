@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from openbbq.config import load_project_config
-from openbbq.engine import run_workflow
-from openbbq.plugins import discover_plugins
-from openbbq.storage import ProjectStore
+from openbbq.config.loader import load_project_config
+from openbbq.engine.service import run_workflow
+from openbbq.plugins.registry import discover_plugins
+from openbbq.storage.project_store import ProjectStore
 
 
 def test_run_mock_youtube_subtitle_workflow(tmp_path):

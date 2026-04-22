@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from openbbq.config import load_project_config
-from openbbq.core.workflow.bindings import build_plugin_inputs, persist_step_outputs
-from openbbq.plugins import discover_plugins
-from openbbq.storage import ProjectStore
+from openbbq.config.loader import load_project_config
+from openbbq.workflow.bindings import build_plugin_inputs, persist_step_outputs
+from openbbq.plugins.registry import discover_plugins
+from openbbq.storage.project_store import ProjectStore
 
 
 def test_build_plugin_inputs_resolves_literals_and_artifacts(tmp_path):

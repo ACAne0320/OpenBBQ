@@ -2,12 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from openbbq.config import load_project_config
-from openbbq.core.workflow.locks import WorkflowLock, workflow_lock_path
-from openbbq.engine import abort_workflow, resume_workflow, run_workflow
+from openbbq.config.loader import load_project_config
+from openbbq.workflow.locks import WorkflowLock, workflow_lock_path
+from openbbq.engine.service import abort_workflow, resume_workflow, run_workflow
 from openbbq.errors import ExecutionError, ValidationError
-from openbbq.plugins import discover_plugins
-from openbbq.storage import ProjectStore
+from openbbq.plugins.registry import discover_plugins
+from openbbq.storage.project_store import ProjectStore
 
 
 def write_project(tmp_path, fixture_name: str) -> Path:

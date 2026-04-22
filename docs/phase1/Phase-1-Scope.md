@@ -124,6 +124,7 @@ openbbq/
     config/
     domain/
     engine/
+    workflow/
     plugins/
     storage/
   tests/
