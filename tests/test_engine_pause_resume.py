@@ -108,3 +108,31 @@ def test_lock_released_when_workflow_pauses_and_completes(tmp_path):
 
     resume_workflow(config, registry, "text-demo")
     assert not workflow_lock_path(store, "text-demo").exists()
+
+
+def test_run_pauses_after_step_and_resume_completes(tmp_path):
+    project = write_project(tmp_path, "text-basic")
+    config_path = project / "openbbq.yaml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            "      - id: seed\n",
+            "      - id: seed\n        pause_after: true\n",
+        ),
+        encoding="utf-8",
+    )
+    config = load_project_config(project)
+    registry = discover_plugins(config.plugin_paths)
+
+    paused = run_workflow(config, registry, "text-demo")
+
+    assert paused.status == "paused"
+    store = ProjectStore(project / ".openbbq")
+    state = store.read_workflow_state("text-demo")
+    assert state["status"] == "paused"
+    assert state["current_step_id"] == "uppercase"
+    artifacts = store.list_artifacts()
+    assert [artifact["name"] for artifact in artifacts] == ["seed.text"]
+
+    resumed = resume_workflow(config, registry, "text-demo")
+
+    assert resumed.status == "completed"

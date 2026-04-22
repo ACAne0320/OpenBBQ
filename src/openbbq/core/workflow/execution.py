@@ -230,6 +230,31 @@ def execute_steps(
                 "message": f"Step '{step.id}' completed.",
             },
         )
+        if step.pause_after and next_step_id is not None:
+            store.write_workflow_state(
+                workflow.id,
+                {
+                    "name": workflow.name,
+                    "status": "paused",
+                    "current_step_id": next_step_id,
+                    "config_hash": config_hash,
+                    "step_run_ids": step_run_ids,
+                },
+            )
+            store.append_event(
+                workflow.id,
+                {
+                    "type": "workflow.paused",
+                    "step_id": step.id,
+                    "message": f"Workflow '{workflow.id}' paused after step '{step.id}'.",
+                },
+            )
+            return ExecutionResult(
+                workflow_id=workflow.id,
+                status="paused",
+                step_count=len(workflow.steps),
+                artifact_count=len(output_bindings),
+            )
 
     store.append_event(
         workflow.id,
