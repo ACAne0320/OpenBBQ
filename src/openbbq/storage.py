@@ -50,11 +50,20 @@ class StoredArtifactVersion:
 
 
 class ProjectStore:
-    def __init__(self, root: Path, id_generator: IdGenerator | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        id_generator: IdGenerator | None = None,
+        artifacts_root: Path | None = None,
+        state_root: Path | None = None,
+    ) -> None:
         self.root = Path(root)
         self.id_generator = id_generator or IdGenerator()
-        self.artifacts_root = self.root / "artifacts"
-        self.state_root = self.root / "state" / "workflows"
+        self.artifacts_root = (
+            Path(artifacts_root) if artifacts_root is not None else self.root / "artifacts"
+        )
+        state_base = Path(state_root) if state_root is not None else self.root / "state"
+        self.state_root = state_base / "workflows"
         self.artifacts_root.mkdir(parents=True, exist_ok=True)
         self.state_root.mkdir(parents=True, exist_ok=True)
 

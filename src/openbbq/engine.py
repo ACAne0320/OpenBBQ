@@ -58,7 +58,11 @@ def run_workflow(
 ) -> WorkflowRunResult:
     validate_workflow(config, registry, workflow_id)
     workflow = config.workflows[workflow_id]
-    store = ProjectStore(config.storage.root)
+    store = ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )
     existing_state = _read_optional_workflow_state(store, workflow.id)
     if existing_state and existing_state.get("status") == "completed":
         raise ExecutionError(f"Workflow '{workflow.id}' is already completed.")

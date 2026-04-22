@@ -8,6 +8,7 @@ from typing import Any
 
 from openbbq import __version__
 from openbbq.config import load_project_config
+from openbbq.domain import ProjectConfig
 from openbbq.engine import run_workflow, validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.plugins import PluginRegistry, discover_plugins
@@ -229,8 +230,20 @@ def _run(args: argparse.Namespace) -> int:
 
 def _status(args: argparse.Namespace) -> int:
     config = _load_config(args)
-    store = ProjectStore(config.storage.root)
-    state = store.read_workflow_state(args.workflow)
+    workflow = config.workflows.get(args.workflow)
+    if workflow is None:
+        raise ValidationError(f"Workflow '{args.workflow}' is not defined.")
+    store = _project_store(config)
+    try:
+        state = store.read_workflow_state(args.workflow)
+    except FileNotFoundError:
+        state = {
+            "id": workflow.id,
+            "name": workflow.name,
+            "status": "pending",
+            "current_step_id": workflow.steps[0].id if workflow.steps else None,
+            "step_run_ids": [],
+        }
     payload = {"ok": True, **state}
     _emit(payload, args.json_output, f"{args.workflow}: {state.get('status')}")
     return 0
@@ -238,7 +251,7 @@ def _status(args: argparse.Namespace) -> int:
 
 def _logs(args: argparse.Namespace) -> int:
     config = _load_config(args)
-    events = _read_events(ProjectStore(config.storage.root), args.workflow)
+    events = _read_events(_project_store(config), args.workflow)
     payload = {"ok": True, "workflow_id": args.workflow, "events": events}
     _emit(payload, args.json_output, "\n".join(_format_event(event) for event in events))
     return 0
@@ -246,7 +259,7 @@ def _logs(args: argparse.Namespace) -> int:
 
 def _artifact_list(args: argparse.Namespace) -> int:
     config = _load_config(args)
-    artifacts = ProjectStore(config.storage.root).list_artifacts()
+    artifacts = _project_store(config).list_artifacts()
     if args.step:
         artifacts = [
             artifact
@@ -265,7 +278,7 @@ def _artifact_list(args: argparse.Namespace) -> int:
 
 def _artifact_show(args: argparse.Namespace) -> int:
     config = _load_config(args)
-    store = ProjectStore(config.storage.root)
+    store = _project_store(config)
     artifact = store.read_artifact(args.artifact_id)
     version = store.read_artifact_version(artifact["current_version_id"])
     payload = {
@@ -351,6 +364,14 @@ def _load_registry(args: argparse.Namespace) -> PluginRegistry:
 def _load_config_and_plugins(args: argparse.Namespace):
     config = _load_config(args)
     return config, discover_plugins(config.plugin_paths)
+
+
+def _project_store(config: ProjectConfig) -> ProjectStore:
+    return ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )
 
 
 def _read_events(store: ProjectStore, workflow_id: str) -> list[dict[str, Any]]:

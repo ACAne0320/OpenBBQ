@@ -48,3 +48,25 @@ def test_run_rejects_completed_workflow(tmp_path):
 
     with pytest.raises(ExecutionError, match="completed"):
         run_workflow(config, registry, "text-demo")
+
+
+def test_run_respects_custom_storage_paths(tmp_path):
+    project = write_project(tmp_path, "text-basic")
+    config_path = project / "openbbq.yaml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace(
+            "storage:\n  root: .openbbq\n",
+            "storage:\n"
+            "  root: runtime-root\n"
+            "  artifacts: artifact-store\n"
+            "  state: workflow-state\n",
+        ),
+        encoding="utf-8",
+    )
+    config = load_project_config(project)
+
+    run_workflow(config, discover_plugins(config.plugin_paths), "text-demo")
+
+    assert (project / "artifact-store").is_dir()
+    assert (project / "workflow-state" / "workflows" / "text-demo" / "state.json").is_file()
+    assert not (project / "runtime-root" / "artifacts").exists()

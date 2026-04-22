@@ -35,10 +35,14 @@ Use `pytest`. Current fixtures are `text-basic` and `youtube-subtitle-mock`, plu
 
 ## Commit & Pull Request Guidelines
 
-This checkout does not include Git history, so no existing commit convention can be inferred. Use concise, imperative commit messages such as `Add phase 1 config loader` or `Document artifact diff contract`.
+Use concise, imperative commit messages such as `feat: Add phase 1 config loader` or `docs: Document artifact diff contract`.
 
 Pull requests should describe the user-facing change, list tests run, and link the relevant document or issue. Include CLI output examples when changing command behavior, JSON output, exit codes, or workflow state transitions.
 
 ## Security & Configuration Tips
 
 Do not commit real media credentials, API keys, or private project data. Phase 1 fixtures should use deterministic mock plugins and local files only. Respect configuration precedence: CLI flags, environment variables, project config, then defaults.
+
+## Language Style
+
+Documentation in the code repository must be in English.

@@ -68,6 +68,32 @@ def test_run_status_logs_and_artifact_show(tmp_path, capsys):
     assert artifact["current_version"]["content"] == "HELLO OPENBBQ"
 
 
+def test_status_before_first_run_reports_pending(tmp_path, capsys):
+    project = write_project(tmp_path, "text-basic")
+
+    code = main(["--project", str(project), "--json", "status", "text-demo"])
+
+    assert code == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["ok"] is True
+    assert status["id"] == "text-demo"
+    assert status["status"] == "pending"
+    assert status["current_step_id"] == "seed"
+    assert status["step_run_ids"] == []
+
+
+def test_status_rejects_unknown_workflow(tmp_path, capsys):
+    project = write_project(tmp_path, "text-basic")
+
+    code = main(["--project", str(project), "--json", "status", "missing"])
+
+    assert code == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "validation_error"
+    assert "missing" in payload["error"]["message"]
+
+
 def test_project_and_plugin_info(tmp_path, capsys):
     project = write_project(tmp_path, "text-basic")
 
