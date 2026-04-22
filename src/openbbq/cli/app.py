@@ -86,6 +86,10 @@ def _build_parser() -> argparse.ArgumentParser:
     artifact_diff = artifact_sub.add_parser("diff", parents=[subcommand_global_options])
     artifact_diff.add_argument("from_version")
     artifact_diff.add_argument("to_version")
+    artifact_import = artifact_sub.add_parser("import", parents=[subcommand_global_options])
+    artifact_import.add_argument("path")
+    artifact_import.add_argument("--type", dest="artifact_type", required=True)
+    artifact_import.add_argument("--name", required=True)
 
     plugin = subparsers.add_parser("plugin", parents=[subcommand_global_options])
     plugin_sub = plugin.add_subparsers(dest="plugin_command", required=True)
@@ -167,6 +171,8 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "artifact":
         if args.artifact_command == "diff":
             return _artifact_diff(args)
+        if args.artifact_command == "import":
+            return _artifact_import(args)
         if args.artifact_command == "list":
             return _artifact_list(args)
         if args.artifact_command == "show":
@@ -358,6 +364,30 @@ def _artifact_diff(args: argparse.Namespace) -> int:
     )
     payload = {"ok": True, **result}
     _emit(payload, args.json_output, result["diff"])
+    return 0
+
+
+def _artifact_import(args: argparse.Namespace) -> int:
+    from openbbq.domain.models import ARTIFACT_TYPES
+
+    source = Path(args.path).expanduser().resolve()
+    if not source.is_file():
+        raise ValidationError(f"Artifact import source is not a file: {source}")
+    if args.artifact_type not in ARTIFACT_TYPES:
+        raise ValidationError(f"Artifact type '{args.artifact_type}' is not registered.")
+
+    config = _load_config(args)
+    artifact, version = _project_store(config).write_artifact_version(
+        artifact_type=args.artifact_type,
+        name=args.name,
+        content=None,
+        file_path=source,
+        metadata={},
+        created_by_step_id=None,
+        lineage={"source": "cli_import", "original_path": str(source)},
+    )
+    payload = {"ok": True, "artifact": artifact.record, "version": version.record}
+    _emit(payload, args.json_output, artifact.id)
     return 0
 
 
