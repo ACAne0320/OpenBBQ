@@ -13,3 +13,26 @@ effects = ["reads_files"]
 [tools.parameter_schema]
 type = "object"
 additionalProperties = false
+
+[tools.parameter_schema.properties.model]
+type = "string"
+default = "base"
+
+[tools.parameter_schema.properties.device]
+type = "string"
+default = "cpu"
+
+[tools.parameter_schema.properties.compute_type]
+type = "string"
+default = "int8"
+
+[tools.parameter_schema.properties.language]
+type = "string"
+
+[tools.parameter_schema.properties.word_timestamps]
+type = "boolean"
+default = true
+
+[tools.parameter_schema.properties.vad_filter]
+type = "boolean"
+default = false

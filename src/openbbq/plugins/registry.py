@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+import importlib
 import importlib.util
 from pathlib import Path
 import re
@@ -106,6 +107,13 @@ def execute_plugin_tool(
 
 
 def _load_plugin_module(plugin: PluginSpec, module_path: Path) -> ModuleType:
+    builtin_module_name = _builtin_module_name(module_path)
+    if builtin_module_name is not None:
+        try:
+            return importlib.import_module(builtin_module_name)
+        except Exception as exc:
+            raise PluginError(f"Plugin module '{module_path}' failed to import: {exc}") from exc
+
     unique_name = f"_openbbq_plugin_{plugin.name}_{uuid4().hex}"
     spec = importlib.util.spec_from_file_location(unique_name, module_path)
     if spec is None or spec.loader is None:
@@ -116,6 +124,24 @@ def _load_plugin_module(plugin: PluginSpec, module_path: Path) -> ModuleType:
     except Exception as exc:
         raise PluginError(f"Plugin module '{module_path}' failed to import: {exc}") from exc
     return module
+
+
+def _builtin_module_name(module_path: Path) -> str | None:
+    try:
+        from openbbq import builtin_plugins
+    except ImportError:
+        return None
+
+    builtin_root_raw = getattr(builtin_plugins, "__file__", None)
+    if builtin_root_raw is None:
+        return None
+    builtin_root = Path(builtin_root_raw).resolve().parent
+    resolved_module = module_path.resolve()
+    try:
+        relative_module = resolved_module.relative_to(builtin_root).with_suffix("")
+    except ValueError:
+        return None
+    return "openbbq.builtin_plugins." + ".".join(relative_module.parts)
 
 
 def _candidate_manifests(path: Path) -> list[Path]:
