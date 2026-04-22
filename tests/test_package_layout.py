@@ -4,6 +4,12 @@ import importlib
 from pathlib import Path
 
 
+def test_cli_app_does_not_keep_obsolete_slice_guard() -> None:
+    cli_app = importlib.import_module("openbbq.cli.app")
+
+    assert not hasattr(cli_app, "_unsupported_slice_2")
+
+
 def test_new_package_modules_are_importable() -> None:
     modules = [
         "openbbq.cli.app",

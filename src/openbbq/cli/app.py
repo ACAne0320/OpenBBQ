@@ -179,14 +179,6 @@ def _dispatch(args: argparse.Namespace) -> int:
     return 2
 
 
-def _unsupported_slice_2(feature: str) -> OpenBBQError:
-    return OpenBBQError(
-        "slice_2_unsupported",
-        f"{feature} is not implemented in Slice 2.",
-        1,
-    )
-
-
 def _init_project(args: argparse.Namespace) -> int:
     project_root = Path(args.project).expanduser().resolve()
     project_root.mkdir(parents=True, exist_ok=True)
