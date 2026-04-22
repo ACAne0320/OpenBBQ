@@ -3,8 +3,8 @@ import json
 from openbbq.cli import main
 
 
-def test_resume_is_clear_slice_2_error(capsys):
-    code = main(["resume", "demo"])
+def test_unlock_is_clear_slice_2_error(capsys):
+    code = main(["unlock", "demo"])
 
     assert code == 1
     assert "not implemented in Slice 1" in capsys.readouterr().err

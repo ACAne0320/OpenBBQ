@@ -9,7 +9,7 @@ from typing import Any
 from openbbq import __version__
 from openbbq.config import load_project_config
 from openbbq.domain import ProjectConfig
-from openbbq.engine import run_workflow, validate_workflow
+from openbbq.engine import abort_workflow, resume_workflow, run_workflow, validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.plugins import PluginRegistry, discover_plugins
 from openbbq.storage import ProjectStore
@@ -113,7 +113,11 @@ def _dispatch(args: argparse.Namespace) -> int:
         return 0
     if args.command == "init":
         return _init_project(args)
-    if args.command in {"resume", "abort", "unlock"}:
+    if args.command == "resume":
+        return _resume(args)
+    if args.command == "abort":
+        return _abort(args)
+    if args.command == "unlock":
         raise _unsupported_slice_2(args.command)
     if args.command == "project":
         if args.project_command == "list":
@@ -224,7 +228,29 @@ def _run(args: argparse.Namespace) -> int:
         "step_count": result.step_count,
         "artifact_count": result.artifact_count,
     }
-    _emit(payload, args.json_output, f"Workflow '{result.workflow_id}' completed.")
+    _emit(payload, args.json_output, f"Workflow '{result.workflow_id}' {result.status}.")
+    return 0
+
+
+def _resume(args: argparse.Namespace) -> int:
+    config, registry = _load_config_and_plugins(args)
+    result = resume_workflow(config, registry, args.workflow)
+    payload = {
+        "ok": True,
+        "workflow_id": result.workflow_id,
+        "status": result.status,
+        "step_count": result.step_count,
+        "artifact_count": result.artifact_count,
+    }
+    _emit(payload, args.json_output, f"Workflow '{result.workflow_id}' {result.status}.")
+    return 0
+
+
+def _abort(args: argparse.Namespace) -> int:
+    config = _load_config(args)
+    result = abort_workflow(config, args.workflow)
+    payload = {"ok": True, "workflow_id": args.workflow, "status": result["status"]}
+    _emit(payload, args.json_output, f"Workflow '{args.workflow}' aborted.")
     return 0
 
 
