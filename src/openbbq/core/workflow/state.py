@@ -20,9 +20,7 @@ def build_pending_state(workflow: WorkflowConfig) -> dict[str, Any]:
     }
 
 
-def read_effective_workflow_state(
-    store: ProjectStore, workflow: WorkflowConfig
-) -> dict[str, Any]:
+def read_effective_workflow_state(store: ProjectStore, workflow: WorkflowConfig) -> dict[str, Any]:
     try:
         return store.read_workflow_state(workflow.id)
     except FileNotFoundError:

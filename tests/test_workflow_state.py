@@ -40,9 +40,7 @@ def test_read_effective_workflow_state_returns_pending_when_missing(tmp_path):
 def test_compute_workflow_config_hash_changes_when_step_parameters_change(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
-    source = Path("tests/fixtures/projects/text-basic/openbbq.yaml").read_text(
-        encoding="utf-8"
-    )
+    source = Path("tests/fixtures/projects/text-basic/openbbq.yaml").read_text(encoding="utf-8")
     (project / "openbbq.yaml").write_text(
         source.replace("../../plugins", str(Path.cwd() / "tests/fixtures/plugins")),
         encoding="utf-8",
