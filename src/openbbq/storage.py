@@ -126,6 +126,12 @@ class ProjectStore:
         self.write_json_atomic(path, record)
         return record
 
+    def read_step_run(self, workflow_id: str, step_run_id: str) -> dict[str, Any]:
+        path = self._workflow_dir(workflow_id) / "step-runs" / f"{step_run_id}.json"
+        if not path.exists():
+            raise FileNotFoundError(path)
+        return json.loads(path.read_text(encoding="utf-8"))
+
     def list_artifacts(self) -> list[dict[str, Any]]:
         artifacts: list[dict[str, Any]] = []
         for artifact_dir in sorted(self.artifacts_root.iterdir(), key=lambda path: path.name):
