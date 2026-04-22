@@ -38,7 +38,7 @@ def validate_workflow(
 
     step_outputs = _step_outputs_by_id(workflow)
     for step in workflow.steps:
-        _validate_slice_1_step_control(step, workflow)
+        _validate_step_control(step, workflow)
         tool = registry.tools.get(step.tool_ref)
         if tool is None:
             raise ValidationError(f"Step '{step.id}' references unknown tool '{step.tool_ref}'.")
@@ -74,14 +74,10 @@ def run_workflow(
     )
 
 
-def _validate_slice_1_step_control(step: StepConfig, workflow: WorkflowConfig) -> None:
-    if step.pause_before or step.pause_after:
-        raise ValidationError(
-            f"Step '{step.id}' in workflow '{workflow.id}' uses pause flags, which are not implemented in Slice 1.",
-        )
+def _validate_step_control(step: StepConfig, workflow: WorkflowConfig) -> None:
     if step.on_error != "abort" or step.max_retries != 0:
         raise ValidationError(
-            f"Step '{step.id}' in workflow '{workflow.id}' uses error recovery that is not implemented in Slice 1.",
+            f"Step '{step.id}' in workflow '{workflow.id}' uses error recovery that is not implemented in this control-flow MVP.",
         )
 
 

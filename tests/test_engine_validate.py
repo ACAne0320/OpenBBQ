@@ -130,7 +130,7 @@ workflows:
         validate_workflow(config, registry, "demo")
 
 
-def test_validate_rejects_slice_1_pause_flags(tmp_path):
+def test_validate_accepts_pause_flags(tmp_path):
     (tmp_path / "openbbq.yaml").write_text(
         f"""
 version: 1
@@ -158,5 +158,7 @@ workflows:
     config = load_project_config(tmp_path)
     registry = discover_plugins(config.plugin_paths)
 
-    with pytest.raises(ValidationError, match="Slice 1"):
-        validate_workflow(config, registry, "demo")
+    result = validate_workflow(config, registry, "demo")
+
+    assert result.workflow_id == "demo"
+    assert result.step_count == 1
