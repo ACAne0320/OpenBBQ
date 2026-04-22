@@ -29,6 +29,7 @@ pnpm-debug.log*
 
 # OpenBBQ local runtime state
 .openbbq/
+/tmp/
 *.lock
 *.abort_requested
 
