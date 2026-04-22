@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from openbbq.core.workflow.bindings import build_plugin_inputs, persist_step_outputs
+from openbbq.core.workflow.state import compute_workflow_config_hash
 from openbbq.errors import ExecutionError, PluginError, ValidationError
 from openbbq.models.workflow import ProjectConfig, WorkflowConfig
 from openbbq.plugins import PluginRegistry, execute_plugin_tool
@@ -25,6 +26,7 @@ def execute_workflow_from_start(
     store: ProjectStore,
     workflow: WorkflowConfig,
 ) -> ExecutionResult:
+    config_hash = compute_workflow_config_hash(config, workflow.id)
     step_run_ids: list[str] = []
     output_bindings: dict[str, dict[str, Any]] = {}
     store.write_workflow_state(
@@ -33,6 +35,7 @@ def execute_workflow_from_start(
             "name": workflow.name,
             "status": "running",
             "current_step_id": workflow.steps[0].id if workflow.steps else None,
+            "config_hash": config_hash,
             "step_run_ids": [],
         },
     )
@@ -47,6 +50,36 @@ def execute_workflow_from_start(
         start_index=0,
         step_run_ids=step_run_ids,
         output_bindings=output_bindings,
+        config_hash=config_hash,
+        skip_pause_before_step_id=None,
+    )
+
+
+def execute_workflow_from_resume(
+    *,
+    config: ProjectConfig,
+    registry: PluginRegistry,
+    store: ProjectStore,
+    workflow: WorkflowConfig,
+    current_step_id: str,
+    step_run_ids: list[str],
+    output_bindings: dict[str, dict[str, Any]],
+) -> ExecutionResult:
+    start_index = _step_index(workflow, current_step_id)
+    store.append_event(
+        workflow.id,
+        {"type": "workflow.resumed", "message": f"Workflow '{workflow.id}' resumed."},
+    )
+    return execute_steps(
+        config=config,
+        registry=registry,
+        store=store,
+        workflow=workflow,
+        start_index=start_index,
+        step_run_ids=step_run_ids,
+        output_bindings=output_bindings,
+        config_hash=compute_workflow_config_hash(config, workflow.id),
+        skip_pause_before_step_id=current_step_id,
     )
 
 
@@ -59,9 +92,37 @@ def execute_steps(
     start_index: int,
     step_run_ids: list[str],
     output_bindings: dict[str, dict[str, Any]],
+    config_hash: str,
+    skip_pause_before_step_id: str | None = None,
 ) -> ExecutionResult:
     for index in range(start_index, len(workflow.steps)):
         step = workflow.steps[index]
+        if step.pause_before and step.id != skip_pause_before_step_id:
+            store.write_workflow_state(
+                workflow.id,
+                {
+                    "name": workflow.name,
+                    "status": "paused",
+                    "current_step_id": step.id,
+                    "config_hash": config_hash,
+                    "step_run_ids": step_run_ids,
+                },
+            )
+            store.append_event(
+                workflow.id,
+                {
+                    "type": "workflow.paused",
+                    "step_id": step.id,
+                    "message": f"Workflow '{workflow.id}' paused before step '{step.id}'.",
+                },
+            )
+            return ExecutionResult(
+                workflow_id=workflow.id,
+                status="paused",
+                step_count=len(workflow.steps),
+                artifact_count=len(output_bindings),
+            )
+
         tool = registry.tools[step.tool_ref]
         plugin = registry.plugins[tool.plugin_name]
         store.append_event(
@@ -93,6 +154,7 @@ def execute_steps(
                 "name": workflow.name,
                 "status": "running",
                 "current_step_id": step.id,
+                "config_hash": config_hash,
                 "step_run_ids": step_run_ids,
             },
         )
@@ -128,6 +190,7 @@ def execute_steps(
                     "name": workflow.name,
                     "status": "failed",
                     "current_step_id": step.id,
+                    "config_hash": config_hash,
                     "step_run_ids": step_run_ids,
                 },
             )
@@ -155,6 +218,7 @@ def execute_steps(
                 "name": workflow.name,
                 "status": "running" if next_step_id else "completed",
                 "current_step_id": next_step_id,
+                "config_hash": config_hash,
                 "step_run_ids": step_run_ids,
             },
         )
@@ -177,6 +241,13 @@ def execute_steps(
         step_count=len(workflow.steps),
         artifact_count=len(output_bindings),
     )
+
+
+def _step_index(workflow: WorkflowConfig, step_id: str) -> int:
+    for index, step in enumerate(workflow.steps):
+        if step.id == step_id:
+            return index
+    raise ExecutionError(f"Workflow '{workflow.id}' cannot resume unknown step '{step_id}'.")
 
 
 def _timestamp() -> str:

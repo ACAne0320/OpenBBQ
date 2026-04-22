@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from jsonschema import Draft7Validator
 
 from openbbq.core.workflow.bindings import parse_step_selector
-from openbbq.core.workflow.execution import execute_workflow_from_start
+from openbbq.core.workflow.execution import (
+    execute_workflow_from_resume,
+    execute_workflow_from_start,
+)
+from openbbq.core.workflow.state import (
+    compute_workflow_config_hash,
+    read_effective_workflow_state,
+    rebuild_output_bindings,
+    require_status,
+)
 from openbbq.domain import ProjectConfig, StepConfig, StepOutput, WorkflowConfig
 from openbbq.errors import ExecutionError, ValidationError
 from openbbq.plugins import PluginRegistry, ToolSpec
@@ -61,11 +69,59 @@ def run_workflow(
         artifacts_root=config.storage.artifacts,
         state_root=config.storage.state,
     )
-    existing_state = _read_optional_workflow_state(store, workflow.id)
-    if existing_state and existing_state.get("status") == "completed":
-        raise ExecutionError(f"Workflow '{workflow.id}' is already completed.")
+    existing_state = read_effective_workflow_state(store, workflow)
+    if existing_state.get("status") in {"running", "paused", "completed", "aborted"}:
+        raise ExecutionError(
+            f"Workflow '{workflow.id}' is {existing_state['status']}.",
+            code="invalid_workflow_state",
+            exit_code=1,
+        )
 
     result = execute_workflow_from_start(config, registry, store, workflow)
+    return WorkflowRunResult(
+        workflow_id=result.workflow_id,
+        status=result.status,
+        step_count=result.step_count,
+        artifact_count=result.artifact_count,
+    )
+
+
+def resume_workflow(
+    config: ProjectConfig,
+    registry: PluginRegistry,
+    workflow_id: str,
+) -> WorkflowRunResult:
+    validate_workflow(config, registry, workflow_id)
+    workflow = config.workflows[workflow_id]
+    store = ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )
+    state = read_effective_workflow_state(store, workflow)
+    require_status(state, "paused", workflow.id)
+    current_hash = compute_workflow_config_hash(config, workflow.id)
+    if state.get("config_hash") != current_hash:
+        raise ValidationError(
+            f"Workflow '{workflow.id}' changed while paused; resume is not supported across config edits."
+        )
+    current_step_id = state.get("current_step_id")
+    if not isinstance(current_step_id, str) or not current_step_id:
+        raise ExecutionError(
+            f"Workflow '{workflow.id}' does not have a resumable step.",
+            code="invalid_workflow_state",
+            exit_code=1,
+        )
+    step_run_ids = list(state.get("step_run_ids", []))
+    result = execute_workflow_from_resume(
+        config=config,
+        registry=registry,
+        store=store,
+        workflow=workflow,
+        current_step_id=current_step_id,
+        step_run_ids=step_run_ids,
+        output_bindings=rebuild_output_bindings(store, workflow.id, step_run_ids),
+    )
     return WorkflowRunResult(
         workflow_id=result.workflow_id,
         status=result.status,
@@ -123,10 +179,3 @@ def _validate_step_outputs(step: StepConfig, tool: ToolSpec) -> None:
 
 def _step_outputs_by_id(workflow: WorkflowConfig) -> dict[str, dict[str, StepOutput]]:
     return {step.id: {output.name: output for output in step.outputs} for step in workflow.steps}
-
-
-def _read_optional_workflow_state(store: ProjectStore, workflow_id: str) -> dict[str, Any] | None:
-    try:
-        return store.read_workflow_state(workflow_id)
-    except FileNotFoundError:
-        return None
