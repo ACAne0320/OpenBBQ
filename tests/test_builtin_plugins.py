@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from openbbq.builtin_plugins.faster_whisper import plugin as whisper_plugin
 from openbbq.builtin_plugins.ffmpeg import plugin as ffmpeg_plugin
 from openbbq.builtin_plugins.subtitle import plugin as subtitle_plugin
 from openbbq.config.loader import load_project_config
@@ -122,4 +123,73 @@ def test_ffmpeg_extract_audio_builds_command_and_returns_file_output(tmp_path):
         "format": "wav",
         "sample_rate": 16000,
         "channels": 1,
+    }
+
+
+class FakeWord:
+    start = 0.0
+    end = 0.5
+    word = "Hello"
+    probability = 0.9
+
+
+class FakeSegment:
+    start = 0.0
+    end = 1.0
+    text = "Hello"
+    avg_logprob = -0.1
+    words = [FakeWord()]
+
+
+class FakeInfo:
+    language = "en"
+    duration = 1.0
+
+
+class FakeWhisperModel:
+    def __init__(self, model, device, compute_type):
+        self.model = model
+        self.device = device
+        self.compute_type = compute_type
+
+    def transcribe(self, audio_path, language=None, word_timestamps=True, vad_filter=False):
+        return [FakeSegment()], FakeInfo()
+
+
+def test_faster_whisper_transcribe_uses_backend_and_returns_segments(tmp_path):
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"audio")
+
+    response = whisper_plugin.run(
+        {
+            "tool_name": "transcribe",
+            "parameters": {
+                "model": "base",
+                "device": "cpu",
+                "compute_type": "int8",
+                "word_timestamps": True,
+            },
+            "inputs": {"audio": {"type": "audio", "file_path": str(audio)}},
+        },
+        model_factory=FakeWhisperModel,
+    )
+
+    assert response["outputs"]["transcript"]["type"] == "asr_transcript"
+    assert response["outputs"]["transcript"]["content"] == [
+        {
+            "start": 0.0,
+            "end": 1.0,
+            "text": "Hello",
+            "confidence": -0.1,
+            "words": [
+                {"start": 0.0, "end": 0.5, "text": "Hello", "confidence": 0.9}
+            ],
+        }
+    ]
+    assert response["outputs"]["transcript"]["metadata"] == {
+        "model": "base",
+        "device": "cpu",
+        "compute_type": "int8",
+        "language": "en",
+        "duration_seconds": 1.0,
     }
