@@ -181,9 +181,7 @@ def test_faster_whisper_transcribe_uses_backend_and_returns_segments(tmp_path):
             "end": 1.0,
             "text": "Hello",
             "confidence": -0.1,
-            "words": [
-                {"start": 0.0, "end": 0.5, "text": "Hello", "confidence": 0.9}
-            ],
+            "words": [{"start": 0.0, "end": 0.5, "text": "Hello", "confidence": 0.9}],
         }
     ]
     assert response["outputs"]["transcript"]["metadata"] == {
