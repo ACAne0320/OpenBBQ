@@ -1,7 +1,10 @@
 from pathlib import Path
 
+import pytest
+
 from openbbq.config import load_project_config
 from openbbq.engine import run_workflow
+from openbbq.errors import ExecutionError
 from openbbq.plugins import discover_plugins
 from openbbq.storage import ProjectStore
 
@@ -75,3 +78,42 @@ def test_force_rerun_crash_recovered_running_marks_dangling_step_run_failed(tmp_
     assert dangling["status"] == "failed"
     assert dangling["error"]["code"] == "engine.crash_recovery"
     assert store.read_workflow_state("text-demo")["status"] == "completed"
+
+
+def test_step_rerun_completed_workflow_updates_only_target_step_outputs(tmp_path):
+    project = write_project(tmp_path, "text-basic")
+    config = load_project_config(project)
+    registry = discover_plugins(config.plugin_paths)
+    run_workflow(config, registry, "text-demo")
+    store = ProjectStore(project / ".openbbq")
+    first_artifacts = {artifact["name"]: artifact for artifact in store.list_artifacts()}
+
+    result = run_workflow(config, registry, "text-demo", step_id="seed")
+
+    assert result.status == "completed"
+    second_artifacts = {artifact["name"]: artifact for artifact in store.list_artifacts()}
+    assert second_artifacts["seed.text"]["id"] == first_artifacts["seed.text"]["id"]
+    assert second_artifacts["uppercase.text"]["id"] == first_artifacts["uppercase.text"]["id"]
+    assert len(second_artifacts["seed.text"]["versions"]) == 2
+    assert len(second_artifacts["uppercase.text"]["versions"]) == 1
+    assert (
+        second_artifacts["seed.text"]["current_version_id"]
+        != first_artifacts["seed.text"]["current_version_id"]
+    )
+    assert (
+        second_artifacts["uppercase.text"]["current_version_id"]
+        == first_artifacts["uppercase.text"]["current_version_id"]
+    )
+    state = store.read_workflow_state("text-demo")
+    assert state["status"] == "completed"
+    assert len(state["step_run_ids"]) == 3
+
+
+def test_step_rerun_rejects_paused_workflow(tmp_path):
+    project = write_project(tmp_path, "text-pause")
+    config = load_project_config(project)
+    registry = discover_plugins(config.plugin_paths)
+    run_workflow(config, registry, "text-demo")
+
+    with pytest.raises(ExecutionError, match="paused"):
+        run_workflow(config, registry, "text-demo", step_id="uppercase")

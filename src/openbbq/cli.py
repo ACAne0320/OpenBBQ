@@ -140,8 +140,6 @@ def _dispatch(args: argparse.Namespace) -> int:
                 "run --force cannot be combined with --step.",
                 2,
             )
-        if args.step:
-            raise _unsupported_slice_2("run --step")
         return _run(args)
     if args.command == "status":
         return _status(args)
@@ -233,7 +231,7 @@ def _validate(args: argparse.Namespace) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     config, registry = _load_config_and_plugins(args)
-    result = run_workflow(config, registry, args.workflow, force=args.force)
+    result = run_workflow(config, registry, args.workflow, force=args.force, step_id=args.step)
     payload = {
         "ok": True,
         "workflow_id": result.workflow_id,

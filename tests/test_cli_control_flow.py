@@ -114,3 +114,19 @@ def test_cli_run_force_reruns_completed_workflow(tmp_path, capsys):
     assert payload["status"] == "completed"
     store = ProjectStore(project / ".openbbq")
     assert [len(artifact["versions"]) for artifact in store.list_artifacts()] == [2, 2]
+
+
+def test_cli_run_step_reruns_one_step(tmp_path, capsys):
+    project = write_project(tmp_path, "text-basic")
+
+    assert main(["--project", str(project), "--json", "run", "text-demo"]) == 0
+    capsys.readouterr()
+    code = main(["--project", str(project), "--json", "run", "text-demo", "--step", "seed"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["workflow_id"] == "text-demo"
+    assert payload["status"] == "completed"
+    store = ProjectStore(project / ".openbbq")
+    assert [len(artifact["versions"]) for artifact in store.list_artifacts()] == [2, 1]

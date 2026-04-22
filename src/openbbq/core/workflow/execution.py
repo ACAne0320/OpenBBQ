@@ -98,6 +98,52 @@ def execute_workflow_from_resume(
     )
 
 
+def execute_workflow_step(
+    *,
+    config: ProjectConfig,
+    registry: PluginRegistry,
+    store: ProjectStore,
+    workflow: WorkflowConfig,
+    step_id: str,
+    step_run_ids: list[str],
+    output_bindings: dict[str, dict[str, Any]],
+    artifact_reuse: dict[str, str],
+) -> ExecutionResult:
+    start_index = _step_index(workflow, step_id)
+    config_hash = compute_workflow_config_hash(config, workflow.id)
+    store.write_workflow_state(
+        workflow.id,
+        {
+            "name": workflow.name,
+            "status": "running",
+            "current_step_id": step_id,
+            "config_hash": config_hash,
+            "step_run_ids": step_run_ids,
+        },
+    )
+    store.append_event(
+        workflow.id,
+        {
+            "type": "workflow.step_rerun_started",
+            "step_id": step_id,
+            "message": f"Workflow '{workflow.id}' rerunning step '{step_id}'.",
+        },
+    )
+    return execute_steps(
+        config=config,
+        registry=registry,
+        store=store,
+        workflow=workflow,
+        start_index=start_index,
+        end_index=start_index + 1,
+        step_run_ids=step_run_ids,
+        output_bindings=output_bindings,
+        config_hash=config_hash,
+        skip_pause_before_step_id=step_id,
+        artifact_reuse=artifact_reuse,
+    )
+
+
 def execute_steps(
     *,
     config: ProjectConfig,
@@ -110,8 +156,10 @@ def execute_steps(
     config_hash: str,
     skip_pause_before_step_id: str | None = None,
     artifact_reuse: dict[str, str] | None = None,
+    end_index: int | None = None,
 ) -> ExecutionResult:
-    for index in range(start_index, len(workflow.steps)):
+    final_index = len(workflow.steps) if end_index is None else end_index
+    for index in range(start_index, final_index):
         step = workflow.steps[index]
         if step.pause_before and step.id != skip_pause_before_step_id:
             store.write_workflow_state(
@@ -228,7 +276,11 @@ def execute_steps(
         store.write_step_run(workflow.id, completed)
         for output_name, binding in output_bindings_for_step.items():
             output_bindings[f"{step.id}.{output_name}"] = binding
-        next_step_id = workflow.steps[index + 1].id if index + 1 < len(workflow.steps) else None
+        next_step_id = (
+            workflow.steps[index + 1].id
+            if index + 1 < len(workflow.steps) and index + 1 < final_index
+            else None
+        )
         pausing_after = step.pause_after and next_step_id is not None
         store.write_workflow_state(
             workflow.id,

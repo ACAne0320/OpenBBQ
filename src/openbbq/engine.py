@@ -9,6 +9,7 @@ from openbbq.core.workflow.bindings import parse_step_selector
 from openbbq.core.workflow.execution import (
     execute_workflow_from_resume,
     execute_workflow_from_start,
+    execute_workflow_step,
 )
 from openbbq.core.workflow.locks import WorkflowLock, unlock_workflow_lock, workflow_lock_path
 from openbbq.core.workflow.rerun import build_artifact_reuse_map, mark_running_step_runs_failed
@@ -66,6 +67,7 @@ def run_workflow(
     workflow_id: str,
     *,
     force: bool = False,
+    step_id: str | None = None,
 ) -> WorkflowRunResult:
     validate_workflow(config, registry, workflow_id)
     workflow = config.workflows[workflow_id]
@@ -75,6 +77,20 @@ def run_workflow(
         state_root=config.storage.state,
     )
     existing_state = read_effective_workflow_state(store, workflow)
+    if force and step_id is not None:
+        raise ExecutionError(
+            "run --force cannot be combined with run --step.",
+            code="invalid_command_usage",
+            exit_code=2,
+        )
+    if step_id is not None:
+        result = _run_workflow_step(config, registry, store, workflow, existing_state, step_id)
+        return WorkflowRunResult(
+            workflow_id=result.workflow_id,
+            status=result.status,
+            step_count=result.step_count,
+            artifact_count=result.artifact_count,
+        )
     if force:
         result = _force_run_workflow(config, registry, store, workflow, existing_state)
         return WorkflowRunResult(
@@ -98,6 +114,42 @@ def run_workflow(
         step_count=result.step_count,
         artifact_count=result.artifact_count,
     )
+
+
+def _run_workflow_step(
+    config: ProjectConfig,
+    registry: PluginRegistry,
+    store: ProjectStore,
+    workflow: WorkflowConfig,
+    existing_state: dict[str, object],
+    step_id: str,
+):
+    status = existing_state.get("status")
+    if status not in {"completed", "failed"}:
+        raise ExecutionError(
+            f"Workflow '{workflow.id}' is {status}; run --step requires completed or failed.",
+            code="invalid_workflow_state",
+            exit_code=1,
+        )
+    if not any(step.id == step_id for step in workflow.steps):
+        raise ValidationError(f"Workflow '{workflow.id}' does not define step '{step_id}'.")
+    raw_step_run_ids = existing_state.get("step_run_ids", [])
+    step_run_ids = (
+        [step_run_id for step_run_id in raw_step_run_ids if isinstance(step_run_id, str)]
+        if isinstance(raw_step_run_ids, list)
+        else []
+    )
+    with WorkflowLock.acquire(store, workflow.id):
+        return execute_workflow_step(
+            config=config,
+            registry=registry,
+            store=store,
+            workflow=workflow,
+            step_id=step_id,
+            step_run_ids=step_run_ids,
+            output_bindings=rebuild_output_bindings(store, workflow.id, step_run_ids),
+            artifact_reuse=build_artifact_reuse_map(store, workflow.id, step_run_ids),
+        )
 
 
 def _force_run_workflow(
