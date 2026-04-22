@@ -1,7 +1,8 @@
 from pathlib import Path
 
-from openbbq.config.loader import load_project_config
+from openbbq.builtin_plugins.ffmpeg import plugin as ffmpeg_plugin
 from openbbq.builtin_plugins.subtitle import plugin as subtitle_plugin
+from openbbq.config.loader import load_project_config
 from openbbq.plugins.registry import discover_plugins
 
 
@@ -70,4 +71,55 @@ def test_subtitle_export_writes_srt_from_transcript_segments():
                 "metadata": {"format": "srt", "segment_count": 2, "duration_seconds": 3.0},
             }
         }
+    }
+
+
+class RecordingRunner:
+    def __init__(self):
+        self.commands = []
+
+    def __call__(self, command):
+        self.commands.append(command)
+        output_path = command[-1]
+        Path(output_path).write_bytes(b"wav")
+
+
+def test_ffmpeg_extract_audio_builds_command_and_returns_file_output(tmp_path):
+    runner = RecordingRunner()
+    video = tmp_path / "input.mp4"
+    video.write_bytes(b"video")
+    work_dir = tmp_path / "work"
+
+    response = ffmpeg_plugin.run(
+        {
+            "tool_name": "extract_audio",
+            "work_dir": str(work_dir),
+            "parameters": {"format": "wav", "sample_rate": 16000, "channels": 1},
+            "inputs": {"video": {"type": "video", "file_path": str(video)}},
+        },
+        runner=runner,
+    )
+
+    assert runner.commands == [
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video),
+            "-vn",
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            str(work_dir / "audio.wav"),
+        ]
+    ]
+    assert response["outputs"]["audio"]["type"] == "audio"
+    assert response["outputs"]["audio"]["file_path"] == str(work_dir / "audio.wav")
+    assert response["outputs"]["audio"]["metadata"] == {
+        "format": "wav",
+        "sample_rate": 16000,
+        "channels": 1,
     }
