@@ -4,7 +4,7 @@ import pytest
 
 from openbbq.config import load_project_config
 from openbbq.core.workflow.locks import WorkflowLock, workflow_lock_path
-from openbbq.engine import resume_workflow, run_workflow
+from openbbq.engine import abort_workflow, resume_workflow, run_workflow
 from openbbq.errors import ExecutionError, ValidationError
 from openbbq.plugins import discover_plugins
 from openbbq.storage import ProjectStore
@@ -136,3 +136,30 @@ def test_run_pauses_after_step_and_resume_completes(tmp_path):
     resumed = resume_workflow(config, registry, "text-demo")
 
     assert resumed.status == "completed"
+
+
+def test_abort_paused_workflow_persists_aborted_and_preserves_artifacts(tmp_path):
+    project = write_project(tmp_path, "text-pause")
+    config = load_project_config(project)
+    registry = discover_plugins(config.plugin_paths)
+    run_workflow(config, registry, "text-demo")
+
+    result = abort_workflow(config, "text-demo")
+
+    assert result["status"] == "aborted"
+    store = ProjectStore(project / ".openbbq")
+    state = store.read_workflow_state("text-demo")
+    assert state["status"] == "aborted"
+    assert state["current_step_id"] == "uppercase"
+    assert [artifact["name"] for artifact in store.list_artifacts()] == ["seed.text"]
+
+
+def test_resume_rejects_aborted_workflow(tmp_path):
+    project = write_project(tmp_path, "text-pause")
+    config = load_project_config(project)
+    registry = discover_plugins(config.plugin_paths)
+    run_workflow(config, registry, "text-demo")
+    abort_workflow(config, "text-demo")
+
+    with pytest.raises(ExecutionError, match="paused"):
+        resume_workflow(config, registry, "text-demo")

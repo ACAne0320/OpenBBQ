@@ -9,7 +9,7 @@ from openbbq.core.workflow.execution import (
     execute_workflow_from_resume,
     execute_workflow_from_start,
 )
-from openbbq.core.workflow.locks import WorkflowLock
+from openbbq.core.workflow.locks import WorkflowLock, workflow_lock_path
 from openbbq.core.workflow.state import (
     compute_workflow_config_hash,
     read_effective_workflow_state,
@@ -131,6 +131,35 @@ def resume_workflow(
         step_count=result.step_count,
         artifact_count=result.artifact_count,
     )
+
+
+def abort_workflow(config: ProjectConfig, workflow_id: str) -> dict[str, object]:
+    workflow = config.workflows.get(workflow_id)
+    if workflow is None:
+        raise ValidationError(f"Workflow '{workflow_id}' is not defined.")
+    store = ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )
+    state = read_effective_workflow_state(store, workflow)
+    require_status(state, "paused", workflow.id)
+    aborted = store.write_workflow_state(
+        workflow.id,
+        {
+            "name": workflow.name,
+            "status": "aborted",
+            "current_step_id": state.get("current_step_id"),
+            "config_hash": state.get("config_hash"),
+            "step_run_ids": list(state.get("step_run_ids", [])),
+        },
+    )
+    store.append_event(
+        workflow.id,
+        {"type": "workflow.aborted", "message": f"Workflow '{workflow.id}' aborted."},
+    )
+    workflow_lock_path(store, workflow.id).unlink(missing_ok=True)
+    return aborted
 
 
 def _validate_step_control(step: StepConfig, workflow: WorkflowConfig) -> None:
