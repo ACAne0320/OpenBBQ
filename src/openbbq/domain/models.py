@@ -11,6 +11,7 @@ ARTIFACT_TYPES: frozenset[str] = frozenset(
         "audio",
         "image",
         "asr_transcript",
+        "subtitle_segments",
         "glossary",
         "translation",
         "subtitle",

@@ -9,6 +9,7 @@ from openbbq.builtin_plugins.glossary import plugin as glossary_plugin
 from openbbq.builtin_plugins.llm import plugin as llm_plugin
 from openbbq.builtin_plugins.remote_video import plugin as remote_video_plugin
 from openbbq.builtin_plugins.subtitle import plugin as subtitle_plugin
+from openbbq.builtin_plugins.transcript import plugin as transcript_plugin
 from openbbq.config.loader import load_project_config
 from openbbq.plugins.registry import discover_plugins
 
@@ -53,6 +54,8 @@ def test_builtin_plugin_path_is_discovered_by_default(tmp_path):
     assert "llm.translate" in registry.tools
     assert "remote_video.download" in registry.tools
     assert "subtitle.export" in registry.tools
+    assert "transcript.correct" in registry.tools
+    assert "transcript.segment" in registry.tools
 
 
 def test_glossary_replace_updates_segment_text_and_preserves_other_fields():
@@ -613,6 +616,363 @@ def test_llm_translate_rejects_malformed_model_json(monkeypatch):
         )
 
 
+def test_llm_translate_batches_long_transcripts(monkeypatch):
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+    factory = SequencedRecordingOpenAIClientFactory(
+        [
+            json.dumps([{"index": index, "text": f"chunk-a-{index}"} for index in range(20)]),
+            json.dumps([{"index": 0, "text": "chunk-b-0"}]),
+        ]
+    )
+    transcript = [
+        {"start": float(index), "end": float(index + 1), "text": f"segment-{index}"}
+        for index in range(21)
+    ]
+
+    response = llm_plugin.run(
+        {
+            "tool_name": "translate",
+            "parameters": {
+                "source_lang": "en",
+                "target_lang": "zh-Hans",
+                "model": "moonshot-v1-auto",
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": transcript,
+                }
+            },
+        },
+        client_factory=factory,
+    )
+
+    assert len(factory.client.chat.completions.calls) == 2
+    first_payload = json.loads(factory.client.chat.completions.calls[0]["messages"][1]["content"])
+    second_payload = json.loads(factory.client.chat.completions.calls[1]["messages"][1]["content"])
+    assert len(first_payload["segments"]) == 20
+    assert first_payload["segments"][0]["index"] == 0
+    assert first_payload["segments"][-1]["index"] == 19
+    assert len(second_payload["segments"]) == 1
+    assert second_payload["segments"][0]["index"] == 0
+    assert response["outputs"]["translation"]["content"][0]["text"] == "chunk-a-0"
+    assert response["outputs"]["translation"]["content"][-1]["text"] == "chunk-b-0"
+    assert response["outputs"]["translation"]["metadata"]["segment_count"] == 21
+
+
+def test_llm_translate_splits_chunk_when_model_returns_too_few_segments(monkeypatch):
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+    factory = SequencedRecordingOpenAIClientFactory(
+        [
+            json.dumps([{"index": index, "text": f"partial-{index}"} for index in range(10)]),
+            json.dumps([{"index": index, "text": f"left-{index}"} for index in range(10)]),
+            json.dumps([{"index": index, "text": f"right-{index}"} for index in range(10)]),
+        ]
+    )
+    transcript = [
+        {"start": float(index), "end": float(index + 1), "text": f"segment-{index}"}
+        for index in range(20)
+    ]
+
+    response = llm_plugin.run(
+        {
+            "tool_name": "translate",
+            "parameters": {
+                "source_lang": "en",
+                "target_lang": "zh-Hans",
+                "model": "moonshot-v1-auto",
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": transcript,
+                }
+            },
+        },
+        client_factory=factory,
+    )
+
+    assert len(factory.client.chat.completions.calls) == 3
+    first_payload = json.loads(factory.client.chat.completions.calls[0]["messages"][1]["content"])
+    second_payload = json.loads(factory.client.chat.completions.calls[1]["messages"][1]["content"])
+    third_payload = json.loads(factory.client.chat.completions.calls[2]["messages"][1]["content"])
+    assert len(first_payload["segments"]) == 20
+    assert len(second_payload["segments"]) == 10
+    assert len(third_payload["segments"]) == 10
+    assert response["outputs"]["translation"]["content"][0]["text"] == "left-0"
+    assert response["outputs"]["translation"]["content"][9]["text"] == "left-9"
+    assert response["outputs"]["translation"]["content"][10]["text"] == "right-0"
+    assert response["outputs"]["translation"]["content"][-1]["text"] == "right-9"
+
+
+def test_transcript_correct_uses_openai_client_and_returns_corrected_transcript(monkeypatch):
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
+    factory = RecordingOpenAIClientFactory(
+        json.dumps(
+            [
+                {"index": 0, "text": "Hello OpenBBQ", "status": "corrected"},
+                {"index": 1, "text": "Frieren", "status": "unchanged"},
+            ],
+            ensure_ascii=False,
+        )
+    )
+
+    response = transcript_plugin.run(
+        {
+            "tool_name": "correct",
+            "parameters": {
+                "source_lang": "en",
+                "model": "moonshot-v1-auto",
+                "domain_context": "Anime and software discussion.",
+                "glossary_rules": [
+                    {
+                        "find": "Open BBQ",
+                        "replace": "OpenBBQ",
+                        "aliases": ["Open Barbecue"],
+                    }
+                ],
+                "uncertainty_threshold": 0.8,
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": [
+                        {
+                            "start": 0.0,
+                            "end": 1.0,
+                            "text": "Hello Open BBQ",
+                            "confidence": -0.1,
+                            "words": [
+                                {"start": 0.0, "end": 0.3, "text": "Hello", "confidence": 0.95},
+                                {"start": 0.3, "end": 0.6, "text": "Open", "confidence": 0.45},
+                                {"start": 0.6, "end": 1.0, "text": "BBQ", "confidence": 0.4},
+                            ],
+                        },
+                        {
+                            "start": 1.0,
+                            "end": 2.0,
+                            "text": "Frieren",
+                            "confidence": -0.05,
+                        },
+                    ],
+                }
+            },
+        },
+        client_factory=factory,
+    )
+
+    assert factory.calls == [{"api_key": "test-key", "base_url": "https://llm.example/v1"}]
+    call = factory.client.chat.completions.calls[0]
+    payload = json.loads(call["messages"][1]["content"])
+    assert payload["source_lang"] == "en"
+    assert payload["domain_context"] == "Anime and software discussion."
+    assert payload["glossary_rules"] == [
+        {"find": "Open BBQ", "replace": "OpenBBQ", "aliases": ["Open Barbecue"]}
+    ]
+    assert payload["segments"][0]["low_confidence_words"] == [
+        {"text": "Open", "start": 0.3, "end": 0.6, "confidence": 0.45},
+        {"text": "BBQ", "start": 0.6, "end": 1.0, "confidence": 0.4},
+    ]
+
+    assert response == {
+        "outputs": {
+            "transcript": {
+                "type": "asr_transcript",
+                "content": [
+                    {
+                        "start": 0.0,
+                        "end": 1.0,
+                        "text": "Hello OpenBBQ",
+                        "source_text": "Hello Open BBQ",
+                        "confidence": -0.1,
+                        "words": [
+                            {"start": 0.0, "end": 0.3, "text": "Hello", "confidence": 0.95},
+                            {"start": 0.3, "end": 0.6, "text": "Open", "confidence": 0.45},
+                            {"start": 0.6, "end": 1.0, "text": "BBQ", "confidence": 0.4},
+                        ],
+                        "correction_status": "corrected",
+                    },
+                    {
+                        "start": 1.0,
+                        "end": 2.0,
+                        "text": "Frieren",
+                        "source_text": "Frieren",
+                        "confidence": -0.05,
+                        "correction_status": "unchanged",
+                    },
+                ],
+                "metadata": {
+                    "source_lang": "en",
+                    "model": "moonshot-v1-auto",
+                    "segment_count": 2,
+                    "corrected_segment_count": 1,
+                    "uncertain_segment_count": 0,
+                },
+            }
+        }
+    }
+
+
+def test_transcript_correct_splits_chunk_when_model_returns_too_few_segments(monkeypatch):
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+    factory = SequencedRecordingOpenAIClientFactory(
+        [
+            json.dumps([{"index": 0, "text": "bad-0"}]),
+            json.dumps(
+                [
+                    {"index": 0, "text": "left-0"},
+                    {"index": 1, "text": "left-1"},
+                ]
+            ),
+            json.dumps(
+                [
+                    {"index": 0, "text": "right-0"},
+                    {"index": 1, "text": "right-1"},
+                ]
+            ),
+        ]
+    )
+    transcript = [
+        {"start": float(index), "end": float(index + 1), "text": f"segment-{index}"}
+        for index in range(4)
+    ]
+
+    response = transcript_plugin.run(
+        {
+            "tool_name": "correct",
+            "parameters": {
+                "source_lang": "en",
+                "model": "moonshot-v1-auto",
+                "max_segments_per_request": 4,
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": transcript,
+                }
+            },
+        },
+        client_factory=factory,
+    )
+
+    assert len(factory.client.chat.completions.calls) == 3
+    first_payload = json.loads(factory.client.chat.completions.calls[0]["messages"][1]["content"])
+    second_payload = json.loads(factory.client.chat.completions.calls[1]["messages"][1]["content"])
+    third_payload = json.loads(factory.client.chat.completions.calls[2]["messages"][1]["content"])
+    assert len(first_payload["segments"]) == 4
+    assert len(second_payload["segments"]) == 2
+    assert len(third_payload["segments"]) == 2
+    assert response["outputs"]["transcript"]["content"][0]["text"] == "left-0"
+    assert response["outputs"]["transcript"]["content"][2]["text"] == "right-0"
+    assert response["outputs"]["transcript"]["metadata"]["segment_count"] == 4
+
+
+def test_transcript_segment_derives_subtitle_ready_units_from_word_timestamps():
+    response = transcript_plugin.run(
+        {
+            "tool_name": "segment",
+            "parameters": {
+                "pause_threshold_ms": 500,
+                "max_duration_seconds": 6,
+                "max_chars_per_line": 40,
+                "max_lines": 2,
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": [
+                        {
+                            "start": 0.0,
+                            "end": 1.1,
+                            "text": "Hello OpenBBQ world.",
+                            "words": [
+                                {"start": 0.0, "end": 0.3, "text": "Hello"},
+                                {"start": 0.35, "end": 0.7, "text": "OpenBBQ"},
+                                {"start": 0.75, "end": 1.1, "text": "world."},
+                            ],
+                        },
+                        {
+                            "start": 2.0,
+                            "end": 2.8,
+                            "text": "Next sentence",
+                            "words": [
+                                {"start": 2.0, "end": 2.3, "text": "Next"},
+                                {"start": 2.35, "end": 2.8, "text": "sentence"},
+                            ],
+                        },
+                    ],
+                }
+            },
+        }
+    )
+
+    assert response == {
+        "outputs": {
+            "subtitle_segments": {
+                "type": "subtitle_segments",
+                "content": [
+                    {
+                        "start": 0.0,
+                        "end": 1.1,
+                        "text": "Hello OpenBBQ world.",
+                        "source_segment_indexes": [0],
+                        "word_count": 3,
+                        "line_count": 1,
+                        "cps": 18.182,
+                    },
+                    {
+                        "start": 2.0,
+                        "end": 2.8,
+                        "text": "Next sentence",
+                        "source_segment_indexes": [1],
+                        "word_count": 2,
+                        "line_count": 1,
+                        "cps": 16.25,
+                    },
+                ],
+                "metadata": {
+                    "segment_count": 2,
+                    "duration_seconds": 2.8,
+                    "max_duration_seconds": 6.0,
+                    "max_chars_per_line": 40,
+                    "max_lines": 2,
+                },
+            }
+        }
+    }
+
+
+def test_transcript_segment_wraps_lines_without_word_timestamps():
+    response = transcript_plugin.run(
+        {
+            "tool_name": "segment",
+            "parameters": {
+                "max_chars_per_line": 12,
+                "max_lines": 2,
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": [
+                        {
+                            "start": 0.0,
+                            "end": 2.0,
+                            "text": "Hello OpenBBQ world today",
+                        }
+                    ],
+                }
+            },
+        }
+    )
+
+    assert (
+        response["outputs"]["subtitle_segments"]["content"][0]["text"]
+        == "Hello\nOpenBBQ world today"
+    )
+    assert response["outputs"]["subtitle_segments"]["content"][0]["source_segment_indexes"] == [0]
+
+
 def test_subtitle_export_writes_srt_from_transcript_segments():
     response = subtitle_plugin.run(
         {
@@ -719,7 +1079,7 @@ class FakeWhisperModel:
         self.device = device
         self.compute_type = compute_type
 
-    def transcribe(self, audio_path, language=None, word_timestamps=True, vad_filter=False):
+    def transcribe(self, audio_path, **kwargs):
         return [FakeSegment()], FakeInfo()
 
 
@@ -757,4 +1117,54 @@ def test_faster_whisper_transcribe_uses_backend_and_returns_segments(tmp_path):
         "compute_type": "int8",
         "language": "en",
         "duration_seconds": 1.0,
+    }
+
+
+def test_faster_whisper_transcribe_forwards_optional_decoder_controls(tmp_path):
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"audio")
+
+    captured = {}
+
+    class RecordingWhisperModel(FakeWhisperModel):
+        def transcribe(self, audio_path, **kwargs):
+            captured["audio_path"] = audio_path
+            captured["kwargs"] = kwargs
+            return [FakeSegment()], FakeInfo()
+
+    whisper_plugin.run(
+        {
+            "tool_name": "transcribe",
+            "parameters": {
+                "model": "base",
+                "device": "cpu",
+                "compute_type": "int8",
+                "language": "en",
+                "word_timestamps": True,
+                "vad_filter": True,
+                "initial_prompt": "OpenBBQ and Moonshot",
+                "hotwords": ["OpenBBQ", "Moonshot"],
+                "condition_on_previous_text": False,
+                "chunk_length": 30,
+                "hallucination_silence_threshold": 1.5,
+                "vad_parameters": {"min_silence_duration_ms": 350},
+            },
+            "inputs": {"audio": {"type": "audio", "file_path": str(audio)}},
+        },
+        model_factory=RecordingWhisperModel,
+    )
+
+    assert captured == {
+        "audio_path": str(audio),
+        "kwargs": {
+            "language": "en",
+            "word_timestamps": True,
+            "vad_filter": True,
+            "initial_prompt": "OpenBBQ and Moonshot",
+            "hotwords": "OpenBBQ, Moonshot",
+            "condition_on_previous_text": False,
+            "chunk_length": 30,
+            "hallucination_silence_threshold": 1.5,
+            "vad_parameters": {"min_silence_duration_ms": 350},
+        },
     }

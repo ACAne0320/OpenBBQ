@@ -27,6 +27,7 @@ def test_domain_models_exports_artifact_type_registry():
         "audio",
         "image",
         "asr_transcript",
+        "subtitle_segments",
         "glossary",
         "translation",
         "subtitle",

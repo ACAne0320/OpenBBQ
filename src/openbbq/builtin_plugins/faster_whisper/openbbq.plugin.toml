@@ -36,3 +36,24 @@ default = true
 [tools.parameter_schema.properties.vad_filter]
 type = "boolean"
 default = false
+
+[tools.parameter_schema.properties.initial_prompt]
+type = "string"
+
+[tools.parameter_schema.properties.hotwords]
+type = "array"
+items = { type = "string" }
+
+[tools.parameter_schema.properties.condition_on_previous_text]
+type = "boolean"
+
+[tools.parameter_schema.properties.chunk_length]
+type = "integer"
+minimum = 1
+
+[tools.parameter_schema.properties.hallucination_silence_threshold]
+type = "number"
+minimum = 0
+
+[tools.parameter_schema.properties.vad_parameters]
+type = "object"

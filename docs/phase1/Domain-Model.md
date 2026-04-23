@@ -220,6 +220,31 @@ Metadata:
 - `segment_count`: total number of segments.
 - `word_count`: total number of words across all segments.
 
+### `subtitle_segments`
+
+A subtitle-ready timed text representation derived from an `asr_transcript`.
+
+Content format: JSON array of segment objects, each with:
+
+- `start`: start time in seconds (float).
+- `end`: end time in seconds (float).
+- `text`: source-language or pre-translated subtitle text for this timed unit.
+
+Optional fields may include:
+
+- `source_segment_indexes`: indexes of source transcript segments that contributed to this subtitle unit.
+- `word_count`: number of source tokens or words grouped into this subtitle unit.
+- `line_count`: number of rendered lines after pre-wrapping.
+- `cps`: characters-per-second estimate for this subtitle unit.
+
+Metadata:
+
+- `segment_count`: total number of subtitle-ready units.
+- `duration_seconds`: total duration as a float.
+- `max_duration_seconds`: configured per-unit duration cap.
+- `max_chars_per_line`: configured line-width cap used during segmentation.
+- `max_lines`: configured maximum line count per unit.
+
 ### `glossary`
 
 A set of find-and-replace rules used as a project-level resource. Typically referenced by a step via `project.<artifact_id>` rather than produced by a step.

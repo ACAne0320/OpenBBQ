@@ -6,7 +6,7 @@ entrypoint = "plugin:run"
 [[tools]]
 name = "export"
 description = "Export transcript or translation segments as subtitle text."
-input_artifact_types = ["asr_transcript", "translation"]
+input_artifact_types = ["asr_transcript", "translation", "subtitle_segments"]
 output_artifact_types = ["subtitle"]
 effects = []
 

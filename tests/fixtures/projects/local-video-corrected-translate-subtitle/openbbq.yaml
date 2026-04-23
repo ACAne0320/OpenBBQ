@@ -1,0 +1,111 @@
+version: 1
+
+project:
+  id: local-video-corrected-translate-subtitle
+  name: Local Video Corrected Translate Subtitle
+
+workflows:
+  local-video-corrected-translate-subtitle:
+    name: Local Video Corrected Translate Subtitle
+    steps:
+      - id: extract_audio
+        name: Extract Audio
+        tool_ref: ffmpeg.extract_audio
+        inputs:
+          video: project.art_imported_video
+        outputs:
+          - name: audio
+            type: audio
+        parameters:
+          format: wav
+          sample_rate: 16000
+          channels: 1
+        on_error: abort
+        max_retries: 0
+
+      - id: transcribe
+        name: Transcribe
+        tool_ref: faster_whisper.transcribe
+        inputs:
+          audio: extract_audio.audio
+        outputs:
+          - name: transcript
+            type: asr_transcript
+        parameters:
+          model: base
+          device: cpu
+          compute_type: int8
+          language: en
+          word_timestamps: true
+          hotwords:
+            - OpenBBQ
+            - Moonshot
+          initial_prompt: This transcript may mention OpenBBQ and Moonshot.
+        on_error: abort
+        max_retries: 0
+
+      - id: correct
+        name: Correct Transcript
+        tool_ref: transcript.correct
+        inputs:
+          transcript: transcribe.transcript
+        outputs:
+          - name: transcript
+            type: asr_transcript
+        parameters:
+          source_lang: en
+          model: gpt-4o-mini
+          temperature: 0
+          domain_context: Product and anime discussion.
+          glossary_rules:
+            - find: Open BBQ
+              replace: OpenBBQ
+              aliases:
+                - Open Barbecue
+        on_error: abort
+        max_retries: 0
+
+      - id: segment
+        name: Segment Subtitle Units
+        tool_ref: transcript.segment
+        inputs:
+          transcript: correct.transcript
+        outputs:
+          - name: subtitle_segments
+            type: subtitle_segments
+        parameters:
+          pause_threshold_ms: 500
+          max_duration_seconds: 6
+          max_chars_per_line: 40
+          max_lines: 2
+        on_error: abort
+        max_retries: 0
+
+      - id: translate
+        name: Translate
+        tool_ref: llm.translate
+        inputs:
+          transcript: segment.subtitle_segments
+        outputs:
+          - name: translation
+            type: translation
+        parameters:
+          source_lang: en
+          target_lang: zh-Hans
+          model: gpt-4o-mini
+          temperature: 0
+        on_error: abort
+        max_retries: 0
+
+      - id: subtitle
+        name: Export Subtitle
+        tool_ref: subtitle.export
+        inputs:
+          translation: translate.translation
+        outputs:
+          - name: subtitle
+            type: subtitle
+        parameters:
+          format: srt
+        on_error: abort
+        max_retries: 0

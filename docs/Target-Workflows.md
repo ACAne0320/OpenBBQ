@@ -2,16 +2,16 @@
 
 This document describes concrete end-to-end workflow pipelines that OpenBBQ is designed to support. These workflows define the artifact types, plugin contracts, and parameter shapes the system must handle in production.
 
-Phase 1 proves the workflow engine contracts using mock plugins. Phase 2 introduces real remote video download, local media processing, glossary replacement, translation, and subtitle plugins for CLI-driven workflows.
+Phase 1 proves the workflow engine contracts using mock plugins. Phase 2 introduces real remote video download, local media processing, transcript correction, subtitle segmentation, translation, and subtitle plugins for CLI-driven workflows.
 
 ---
 
 ## Remote Video to Subtitle File
 
-A complete media language processing pipeline: download a remote video URL, extract audio, transcribe speech word-by-word, apply glossary rules, translate with an LLM, and export a subtitle file.
+A complete media language processing pipeline: download a remote video URL, extract audio, transcribe speech word-by-word, correct likely ASR errors, derive subtitle-ready segments, translate with an LLM, and export a subtitle file.
 
 ```
-remote_video.download → ffmpeg.extract_audio → faster_whisper.transcribe → glossary.replace → llm.translate → subtitle.export
+remote_video.download → ffmpeg.extract_audio → faster_whisper.transcribe → transcript.correct → transcript.segment → llm.translate → subtitle.export
 ```
 
 ### Steps
@@ -78,39 +78,75 @@ Parameters:
 | `language` | string | no | BCP-47 language code of the source audio. Auto-detected if absent. |
 | `model` | string | no | Model variant (`tiny`, `base`, `small`, `medium`, `large`). Defaults to `base`. |
 | `word_timestamps` | boolean | no | Emit per-word start/end timestamps. Defaults to `true`. |
+| `initial_prompt` | string | no | Optional source-language prompt that biases recognition toward expected vocabulary. |
+| `hotwords` | array[string] | no | Optional hotword list forwarded to `faster-whisper` to improve terminology recognition. |
+| `condition_on_previous_text` | boolean | no | Forwarded decoder control for previous-window conditioning. |
+| `chunk_length` | integer | no | Optional decoding chunk length in seconds. |
+| `hallucination_silence_threshold` | number | no | Optional silence threshold used when hallucination detection is enabled. |
+| `vad_filter` | boolean | no | Enable voice activity detection before decoding. Defaults to `false`. |
+| `vad_parameters` | object | no | Optional VAD parameter overrides forwarded to `faster-whisper`. |
 
 The output `asr_transcript` artifact contains an ordered list of word-level segments, each with `start`, `end`, `text`, and `confidence`.
 
 ---
 
-#### 4. Rule / Glossary Replacement
+#### 4. Transcript Correction
 
 | Field | Value |
 |---|---|
-| `tool_ref` | `glossary.replace` |
-| `effects` | `reads_files` |
-| Input artifacts | `asr_transcript` (from step 3), glossary resource via `project.<artifact_id>` |
-| Output artifact | `asr_transcript` (modified version) |
+| `tool_ref` | `transcript.correct` |
+| `effects` | `network` |
+| Input artifact | `asr_transcript` (from step 3) |
+| Output artifact | `asr_transcript` (corrected version) |
 
 Parameters:
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `glossary_id` | string | no | ID of a project-level glossary artifact. |
-| `rules` | array | no | Inline replacement rules: `[{"find": "...", "replace": "..."}]`. Supports plain strings and regular expressions. |
-| `case_sensitive` | boolean | no | Whether matching is case-sensitive. Defaults to `false`. |
+| `source_lang` | string | yes | BCP-47 source language code. |
+| `model` | string | yes | OpenAI-compatible correction model identifier. |
+| `temperature` | number | no | Sampling temperature. Defaults to `0`. |
+| `domain_context` | string | no | Free-text domain brief used to improve source-language correction. |
+| `glossary_rules` | array | no | Terminology hints in the form `[{"find": "...", "replace": "..."}]`, with optional aliases. |
+| `max_segments_per_request` | integer | no | Maximum segment count sent to the model per request. |
+| `uncertainty_threshold` | number | no | Optional threshold used to surface suspicious words or segments in the prompt. |
 
-At least one of `glossary_id` or `rules` must be provided. Both may be used together; inline `rules` are applied after glossary substitutions.
+This step preserves segment count and timing while correcting source-language text and retaining `source_text` for inspection.
 
 ---
 
-#### 5. Translation (LLM)
+#### 5. Subtitle Segmentation
+
+| Field | Value |
+|---|---|
+| `tool_ref` | `transcript.segment` |
+| `effects` | none |
+| Input artifact | `asr_transcript` (from step 4) |
+| Output artifact | `subtitle_segments` |
+
+Parameters:
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `max_duration_seconds` | number | no | Maximum duration for a subtitle unit. Defaults to `6`. |
+| `min_duration_seconds` | number | no | Minimum preferred duration before a pause or boundary split. Defaults to `0.8`. |
+| `max_lines` | integer | no | Maximum number of lines in each subtitle unit. Defaults to `2`. |
+| `max_chars_per_line` | integer | no | Maximum characters per line before pre-wrapping text. Defaults to `40`. |
+| `max_chars_per_second` | number | no | Maximum preferred reading speed used when deciding where to split. Defaults to `20`. |
+| `pause_threshold_ms` | integer | no | Silence gap threshold that encourages a subtitle boundary. Defaults to `500`. |
+| `prefer_sentence_boundaries` | boolean | no | Prefer punctuation boundaries when splitting. Defaults to `true`. |
+
+This step derives subtitle-ready timed units instead of treating Whisper decoding segments as final subtitle blocks.
+
+---
+
+#### 6. Translation (LLM)
 
 | Field | Value |
 |---|---|
 | `tool_ref` | `llm.translate` |
 | `effects` | `network` |
-| Input artifact | `asr_transcript` (from step 4) |
+| Input artifact | `subtitle_segments` (from step 5) |
 | Output artifact | `translation` |
 
 Parameters:
@@ -118,17 +154,19 @@ Parameters:
 | Name | Type | Required | Description |
 |---|---|---|---|
 | `target_lang` | string | yes | BCP-47 target language code. |
-| `source_lang` | string | no | BCP-47 source language. Inferred from the transcript if absent. |
-| `model` | string | no | LLM model identifier. Provider-specific; resolved from plugin config if absent. |
-| `context` | string | no | Optional system-level instructions for style, tone, or domain guidance. |
+| `source_lang` | string | yes | BCP-47 source language code. |
+| `model` | string | yes | OpenAI-compatible model identifier. |
+| `temperature` | number | no | Sampling temperature. Defaults to `0`. |
+| `system_prompt` | string | no | Optional system prompt override. |
+| `base_url` | string | no | Optional provider base URL override. |
 
-The output `translation` artifact preserves the segment structure and timing from the input `asr_transcript` while replacing text with translated content.
+The output `translation` artifact preserves the segment structure and timing from the input subtitle-ready segments while replacing text with translated content.
 
 > **Note:** This step requires outbound LLM API access. It is the only step in this pipeline that is non-deterministic.
 
 ---
 
-#### 6. Export Subtitle File
+#### 7. Export Subtitle File
 
 | Field | Value |
 |---|---|
@@ -141,9 +179,7 @@ Parameters:
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `format` | string | yes | Subtitle format: `srt`, `ass`, or `vtt`. |
-| `max_chars_per_line` | integer | no | Maximum characters per subtitle line. Defaults to `40`. |
-| `max_lines` | integer | no | Maximum lines per subtitle block (`1` or `2`). Defaults to `2`. |
+| `format` | string | yes | Subtitle format. The current built-in plugin supports `srt` only. |
 
 ---
 
@@ -161,10 +197,11 @@ url, format, quality
                                                 ▼
                           [faster_whisper.transcribe] ──► asr_transcript
                                                                  │
-                                                            ┌────┘
-                                                            │  glossary rules
-                                                            ▼
-                                         [glossary.replace] ──► asr_transcript (modified)
+                                                                 ▼
+                                        [transcript.correct] ──► asr_transcript (corrected)
+                                                                        │
+                                                                        ▼
+                                        [transcript.segment] ──► subtitle_segments
                                                                         │
                                                                         ▼
                                                     [llm.translate] ──► translation
@@ -180,7 +217,8 @@ url, format, quality
 | Download remote video | `remote_video.download` | Phase 2 Slice 3 |
 | Convert to audio | `ffmpeg.extract_audio` | Phase 2 Slice 1 |
 | ASR recognition | `faster_whisper.transcribe` | Phase 2 Slice 1 |
-| Rule / glossary replacement | `glossary.replace` | Phase 2 Slice 2 |
+| Transcript correction | `transcript.correct` | Phase 2 correction and segmentation slice |
+| Subtitle segmentation | `transcript.segment` | Phase 2 correction and segmentation slice |
 | Translation (LLM) | `llm.translate` | Phase 2 Slice 2 |
 | Export subtitle | `subtitle.export` | Phase 2 Slice 1 |
 

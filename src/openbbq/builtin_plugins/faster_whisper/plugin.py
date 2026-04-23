@@ -18,13 +18,36 @@ def run(request: dict, model_factory=None) -> dict:
     word_timestamps = bool(parameters.get("word_timestamps", True))
     vad_filter = bool(parameters.get("vad_filter", False))
     language = parameters.get("language")
+    initial_prompt = parameters.get("initial_prompt")
+    hotwords = _optional_hotwords(parameters.get("hotwords"))
+    condition_on_previous_text = parameters.get("condition_on_previous_text")
+    chunk_length = parameters.get("chunk_length")
+    hallucination_silence_threshold = parameters.get("hallucination_silence_threshold")
+    vad_parameters = parameters.get("vad_parameters")
     model_factory = _default_model_factory if model_factory is None else model_factory
     model = model_factory(model_name, device=device, compute_type=compute_type)
+    transcribe_kwargs: dict[str, Any] = {
+        "language": language,
+        "word_timestamps": word_timestamps,
+        "vad_filter": vad_filter,
+    }
+    if initial_prompt is not None:
+        transcribe_kwargs["initial_prompt"] = initial_prompt
+    if hotwords is not None:
+        transcribe_kwargs["hotwords"] = hotwords
+    if condition_on_previous_text is not None:
+        transcribe_kwargs["condition_on_previous_text"] = bool(condition_on_previous_text)
+    if chunk_length is not None:
+        transcribe_kwargs["chunk_length"] = int(chunk_length)
+    if hallucination_silence_threshold is not None:
+        transcribe_kwargs["hallucination_silence_threshold"] = float(
+            hallucination_silence_threshold
+        )
+    if vad_parameters is not None:
+        transcribe_kwargs["vad_parameters"] = vad_parameters
     segments, info = model.transcribe(
         audio_path,
-        language=language,
-        word_timestamps=word_timestamps,
-        vad_filter=vad_filter,
+        **transcribe_kwargs,
     )
     content = [_segment_payload(segment, include_words=word_timestamps) for segment in segments]
     return {
@@ -73,3 +96,21 @@ def _segment_payload(segment: Any, *, include_words: bool) -> dict[str, Any]:
             for word in words
         ]
     return payload
+
+
+def _optional_hotwords(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if not isinstance(value, list):
+        raise ValueError("faster_whisper.transcribe parameter 'hotwords' must be a string list.")
+    words: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(
+                "faster_whisper.transcribe parameter 'hotwords' must be a string list."
+            )
+        words.append(item.strip())
+    return ", ".join(words) if words else None

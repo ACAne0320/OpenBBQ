@@ -6,7 +6,7 @@ entrypoint = "plugin:run"
 [[tools]]
 name = "translate"
 description = "Translate transcript segments with an OpenAI-compatible chat completions API."
-input_artifact_types = ["asr_transcript"]
+input_artifact_types = ["asr_transcript", "subtitle_segments"]
 output_artifact_types = ["translation"]
 effects = ["network"]
 
