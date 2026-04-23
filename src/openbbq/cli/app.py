@@ -24,6 +24,8 @@ from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.plugins.registry import PluginRegistry, discover_plugins
 from openbbq.storage.project_store import ProjectStore
 
+FILE_BACKED_IMPORT_TYPES = frozenset({"audio", "video"})
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
@@ -375,6 +377,11 @@ def _artifact_import(args: argparse.Namespace) -> int:
         raise ValidationError(f"Artifact import source is not a file: {source}")
     if args.artifact_type not in ARTIFACT_TYPES:
         raise ValidationError(f"Artifact type '{args.artifact_type}' is not registered.")
+    if args.artifact_type not in FILE_BACKED_IMPORT_TYPES:
+        allowed = ", ".join(sorted(FILE_BACKED_IMPORT_TYPES))
+        raise ValidationError(
+            f"Artifact import supports file-backed artifact types only: {allowed}."
+        )
 
     config = _load_config(args)
     artifact, version = _project_store(config).write_artifact_version(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
+import tomllib
 
 
 def test_cli_app_does_not_keep_obsolete_slice_guard() -> None:
@@ -48,3 +49,22 @@ def test_obsolete_source_modules_are_removed() -> None:
     remaining = [path for path in obsolete_paths if (root / path).exists()]
 
     assert remaining == []
+
+
+def test_builtin_plugin_manifests_are_configured_as_package_data() -> None:
+    root = Path(__file__).resolve().parents[1]
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    package_data = pyproject["tool"]["setuptools"]["package-data"]
+
+    manifest_packages = {
+        f"openbbq.builtin_plugins.{manifest.parent.name}"
+        for manifest in (root / "src/openbbq/builtin_plugins").glob("*/openbbq.plugin.toml")
+    }
+
+    assert manifest_packages == {
+        "openbbq.builtin_plugins.faster_whisper",
+        "openbbq.builtin_plugins.ffmpeg",
+        "openbbq.builtin_plugins.subtitle",
+    }
+    for package_name in manifest_packages:
+        assert "openbbq.plugin.toml" in package_data[package_name]

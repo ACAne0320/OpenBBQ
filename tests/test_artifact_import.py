@@ -89,3 +89,29 @@ def test_cli_artifact_import_rejects_unknown_type(tmp_path, capsys):
     assert code == 3
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["code"] == "validation_error"
+
+
+def test_cli_artifact_import_rejects_non_file_backed_type(tmp_path, capsys):
+    project = write_project(tmp_path)
+    text_file = tmp_path / "sample.txt"
+    text_file.write_text("hello openbbq", encoding="utf-8")
+
+    code = main(
+        [
+            "--project",
+            str(project),
+            "--json",
+            "artifact",
+            "import",
+            str(text_file),
+            "--type",
+            "text",
+            "--name",
+            "source.text",
+        ]
+    )
+
+    assert code == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "validation_error"
+    assert "file-backed" in payload["error"]["message"]
