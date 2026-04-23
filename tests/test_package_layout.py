@@ -68,6 +68,7 @@ def test_builtin_plugin_manifests_are_configured_as_package_data() -> None:
         "llm",
         "remote_video",
         "subtitle",
+        "translation",
         "transcript",
     }
     assert package_data["openbbq.builtin_plugins"] == ["*/openbbq.plugin.toml"]

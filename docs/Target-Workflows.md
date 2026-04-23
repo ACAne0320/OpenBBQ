@@ -11,7 +11,7 @@ Phase 1 proves the workflow engine contracts using mock plugins. Phase 2 introdu
 A complete media language processing pipeline: download a remote video URL, extract audio, transcribe speech word-by-word, correct likely ASR errors, derive subtitle-ready segments, translate with an LLM, and export a subtitle file.
 
 ```
-remote_video.download → ffmpeg.extract_audio → faster_whisper.transcribe → transcript.correct → transcript.segment → llm.translate → subtitle.export
+remote_video.download → ffmpeg.extract_audio → faster_whisper.transcribe → transcript.correct → transcript.segment → translation.translate → subtitle.export
 ```
 
 ### Steps
@@ -140,11 +140,11 @@ This step derives subtitle-ready timed units instead of treating Whisper decodin
 
 ---
 
-#### 6. Translation (LLM)
+#### 6. Translation
 
 | Field | Value |
 |---|---|
-| `tool_ref` | `llm.translate` |
+| `tool_ref` | `translation.translate` |
 | `effects` | `network` |
 | Input artifact | `subtitle_segments` (from step 5) |
 | Output artifact | `translation` |
@@ -153,6 +153,7 @@ Parameters:
 
 | Name | Type | Required | Description |
 |---|---|---|---|
+| `provider` | string | no | Translation backend. The current built-in plugin supports `openai_compatible` only. |
 | `target_lang` | string | yes | BCP-47 target language code. |
 | `source_lang` | string | yes | BCP-47 source language code. |
 | `model` | string | yes | OpenAI-compatible model identifier. |
@@ -161,6 +162,8 @@ Parameters:
 | `base_url` | string | no | Optional provider base URL override. |
 
 The output `translation` artifact preserves the segment structure and timing from the input subtitle-ready segments while replacing text with translated content.
+
+`llm.translate` remains available as a compatibility alias for the older Phase 2 workflows.
 
 > **Note:** This step requires outbound LLM API access. It is the only step in this pipeline that is non-deterministic.
 
@@ -204,7 +207,7 @@ url, format, quality
                                         [transcript.segment] ──► subtitle_segments
                                                                         │
                                                                         ▼
-                                                    [llm.translate] ──► translation
+                                            [translation.translate] ──► translation
                                                                              │
                                                                              ▼
                                                        [subtitle.export] ──► subtitle
@@ -219,7 +222,8 @@ url, format, quality
 | ASR recognition | `faster_whisper.transcribe` | Phase 2 Slice 1 |
 | Transcript correction | `transcript.correct` | Phase 2 correction and segmentation slice |
 | Subtitle segmentation | `transcript.segment` | Phase 2 correction and segmentation slice |
-| Translation (LLM) | `llm.translate` | Phase 2 Slice 2 |
+| Translation | `translation.translate` | Phase 2 translation v1 |
+| Translation compatibility alias | `llm.translate` | Phase 2 Slice 2 |
 | Export subtitle | `subtitle.export` | Phase 2 Slice 1 |
 
 Phase 1 can validate the full workflow config and run it end-to-end using mock plugins that accept and emit the correct artifact types without performing real media operations.

@@ -1,0 +1,40 @@
+name = "translation"
+version = "0.1.0"
+runtime = "python"
+entrypoint = "plugin:run"
+
+[[tools]]
+name = "translate"
+description = "Translate subtitle-ready segments with an OpenAI-compatible chat completions API."
+input_artifact_types = ["subtitle_segments"]
+output_artifact_types = ["translation"]
+effects = ["network"]
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+required = ["source_lang", "target_lang", "model"]
+
+[tools.parameter_schema.properties.provider]
+type = "string"
+enum = ["openai_compatible"]
+default = "openai_compatible"
+
+[tools.parameter_schema.properties.source_lang]
+type = "string"
+
+[tools.parameter_schema.properties.target_lang]
+type = "string"
+
+[tools.parameter_schema.properties.model]
+type = "string"
+
+[tools.parameter_schema.properties.temperature]
+type = "number"
+default = 0
+
+[tools.parameter_schema.properties.system_prompt]
+type = "string"
+
+[tools.parameter_schema.properties.base_url]
+type = "string"

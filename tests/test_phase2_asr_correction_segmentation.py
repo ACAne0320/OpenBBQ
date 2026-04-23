@@ -69,7 +69,7 @@ def write_project(tmp_path: Path) -> Path:
 def test_cli_runs_local_video_correction_and_segmentation_flow(tmp_path, monkeypatch, capsys):
     from openbbq.builtin_plugins.faster_whisper import plugin as whisper_plugin
     from openbbq.builtin_plugins.ffmpeg import plugin as ffmpeg_plugin
-    from openbbq.builtin_plugins.llm import plugin as llm_plugin
+    from openbbq.builtin_plugins.translation import plugin as translation_plugin
     from openbbq.builtin_plugins.transcript import plugin as transcript_plugin
 
     def fake_runner(command):
@@ -118,7 +118,7 @@ def test_cli_runs_local_video_correction_and_segmentation_flow(tmp_path, monkeyp
     monkeypatch.setattr(ffmpeg_plugin, "_run_subprocess", fake_runner)
     monkeypatch.setattr(whisper_plugin, "_default_model_factory", FakeWhisperModel)
     monkeypatch.setattr(transcript_plugin, "_default_client_factory", fake_correction_factory)
-    monkeypatch.setattr(llm_plugin, "_default_client_factory", fake_translation_factory)
+    monkeypatch.setattr(translation_plugin, "_default_client_factory", fake_translation_factory)
     monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
     monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
 

@@ -9,6 +9,7 @@ from openbbq.builtin_plugins.glossary import plugin as glossary_plugin
 from openbbq.builtin_plugins.llm import plugin as llm_plugin
 from openbbq.builtin_plugins.remote_video import plugin as remote_video_plugin
 from openbbq.builtin_plugins.subtitle import plugin as subtitle_plugin
+from openbbq.builtin_plugins.translation import plugin as translation_plugin
 from openbbq.builtin_plugins.transcript import plugin as transcript_plugin
 from openbbq.config.loader import load_project_config
 from openbbq.plugins.registry import discover_plugins
@@ -54,6 +55,7 @@ def test_builtin_plugin_path_is_discovered_by_default(tmp_path):
     assert "llm.translate" in registry.tools
     assert "remote_video.download" in registry.tools
     assert "subtitle.export" in registry.tools
+    assert "translation.translate" in registry.tools
     assert "transcript.correct" in registry.tools
     assert "transcript.segment" in registry.tools
 
@@ -567,6 +569,81 @@ def test_llm_translate_uses_openai_client_and_returns_translation(monkeypatch):
             }
         }
     }
+
+
+def test_translation_translate_uses_openai_client_and_returns_translation(monkeypatch):
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
+    factory = RecordingOpenAIClientFactory(
+        '[{"index": 0, "text": "你好"}, {"index": 1, "text": "OpenBBQ"}]'
+    )
+
+    response = translation_plugin.run(
+        {
+            "tool_name": "translate",
+            "parameters": {
+                "provider": "openai_compatible",
+                "source_lang": "en",
+                "target_lang": "zh-Hans",
+                "model": "gpt-4o-mini",
+                "temperature": 0,
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "subtitle_segments",
+                    "content": [
+                        {"start": 0.0, "end": 1.5, "text": "Hello"},
+                        {"start": 1.5, "end": 3.0, "text": "OpenBBQ"},
+                    ],
+                }
+            },
+        },
+        client_factory=factory,
+    )
+
+    assert factory.calls == [{"api_key": "test-key", "base_url": "https://llm.example/v1"}]
+    assert response == {
+        "outputs": {
+            "translation": {
+                "type": "translation",
+                "content": [
+                    {"start": 0.0, "end": 1.5, "source_text": "Hello", "text": "你好"},
+                    {"start": 1.5, "end": 3.0, "source_text": "OpenBBQ", "text": "OpenBBQ"},
+                ],
+                "metadata": {
+                    "source_lang": "en",
+                    "target_lang": "zh-Hans",
+                    "model": "gpt-4o-mini",
+                    "provider": "openai_compatible",
+                    "segment_count": 2,
+                },
+            }
+        }
+    }
+
+
+def test_translation_translate_rejects_unknown_provider(monkeypatch):
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+
+    with pytest.raises(ValueError, match="parameter 'provider'"):
+        translation_plugin.run(
+            {
+                "tool_name": "translate",
+                "parameters": {
+                    "provider": "deepl",
+                    "source_lang": "en",
+                    "target_lang": "zh-Hans",
+                    "model": "gpt-4o-mini",
+                },
+                "inputs": {
+                    "transcript": {
+                        "type": "subtitle_segments",
+                        "content": [{"start": 0.0, "end": 1.0, "text": "Hello"}],
+                    }
+                },
+            },
+            client_factory=RecordingOpenAIClientFactory("[]"),
+        )
 
 
 def test_llm_translate_requires_api_key(monkeypatch):

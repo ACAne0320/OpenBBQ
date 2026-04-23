@@ -107,5 +107,5 @@ def test_local_video_corrected_translate_subtitle_fixture_uses_builtin_plugins()
     assert "faster_whisper.transcribe" in registry.tools
     assert "transcript.correct" in registry.tools
     assert "transcript.segment" in registry.tools
-    assert "llm.translate" in registry.tools
+    assert "translation.translate" in registry.tools
     assert "subtitle.export" in registry.tools
