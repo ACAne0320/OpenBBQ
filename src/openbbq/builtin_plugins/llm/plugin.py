@@ -10,6 +10,7 @@ DEFAULT_SYSTEM_PROMPT = (
     "segment order, and index values. Translate only the text field. Return a JSON "
     'array, where every item has integer "index" and string "text".'
 )
+DEFAULT_MAX_SEGMENTS_PER_REQUEST = 20
 
 
 def run(request: dict, client_factory=None) -> dict:
@@ -28,38 +29,19 @@ def run(request: dict, client_factory=None) -> dict:
     client_factory = _default_client_factory if client_factory is None else client_factory
     client = client_factory(api_key=api_key, base_url=base_url)
     segments = _segments(request)
-    request_segments = [
-        {
-            "index": index,
-            "start": float(segment["start"]),
-            "end": float(segment["end"]),
-            "text": str(segment.get("text", "")),
-        }
-        for index, segment in enumerate(segments)
-    ]
-    completion = client.chat.completions.create(
-        model=model,
-        temperature=temperature,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": _user_message(source_lang, target_lang, request_segments),
-            },
-        ],
-    )
-    translated_items = _parse_translation_response(
-        _completion_content(completion), expected_count=len(segments)
-    )
-    translated_segments = [
-        {
-            "start": float(segment["start"]),
-            "end": float(segment["end"]),
-            "source_text": str(segment.get("text", "")),
-            "text": translated_item["text"],
-        }
-        for segment, translated_item in zip(segments, translated_items, strict=True)
-    ]
+    translated_segments = []
+    for chunk in _segment_chunks(segments, DEFAULT_MAX_SEGMENTS_PER_REQUEST):
+        translated_segments.extend(
+            _translate_chunk(
+                client=client,
+                chunk=chunk,
+                model=model,
+                temperature=temperature,
+                system_prompt=system_prompt,
+                source_lang=source_lang,
+                target_lang=target_lang,
+            )
+        )
     return {
         "outputs": {
             "translation": {
@@ -84,6 +66,93 @@ def _default_client_factory(*, api_key: str, base_url: str | None):
             "openai is not installed. Install OpenBBQ with the llm optional dependencies."
         ) from exc
     return OpenAI(api_key=api_key, base_url=base_url)
+
+
+def _translate_chunk(
+    *,
+    client: Any,
+    chunk: list[dict[str, Any]],
+    model: str,
+    temperature: float,
+    system_prompt: str,
+    source_lang: str,
+    target_lang: str,
+) -> list[dict[str, Any]]:
+    try:
+        return _translate_chunk_once(
+            client=client,
+            chunk=chunk,
+            model=model,
+            temperature=temperature,
+            system_prompt=system_prompt,
+            source_lang=source_lang,
+            target_lang=target_lang,
+        )
+    except ValueError:
+        if len(chunk) <= 1:
+            raise
+    midpoint = len(chunk) // 2
+    return _translate_chunk(
+        client=client,
+        chunk=chunk[:midpoint],
+        model=model,
+        temperature=temperature,
+        system_prompt=system_prompt,
+        source_lang=source_lang,
+        target_lang=target_lang,
+    ) + _translate_chunk(
+        client=client,
+        chunk=chunk[midpoint:],
+        model=model,
+        temperature=temperature,
+        system_prompt=system_prompt,
+        source_lang=source_lang,
+        target_lang=target_lang,
+    )
+
+
+def _translate_chunk_once(
+    *,
+    client: Any,
+    chunk: list[dict[str, Any]],
+    model: str,
+    temperature: float,
+    system_prompt: str,
+    source_lang: str,
+    target_lang: str,
+) -> list[dict[str, Any]]:
+    request_segments = [
+        {
+            "index": index,
+            "start": float(segment["start"]),
+            "end": float(segment["end"]),
+            "text": str(segment.get("text", "")),
+        }
+        for index, segment in enumerate(chunk)
+    ]
+    completion = client.chat.completions.create(
+        model=model,
+        temperature=temperature,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": _user_message(source_lang, target_lang, request_segments),
+            },
+        ],
+    )
+    translated_items = _parse_translation_response(
+        _completion_content(completion), expected_count=len(chunk)
+    )
+    return [
+        {
+            "start": float(segment["start"]),
+            "end": float(segment["end"]),
+            "source_text": str(segment.get("text", "")),
+            "text": translated_item["text"],
+        }
+        for segment, translated_item in zip(chunk, translated_items, strict=True)
+    ]
 
 
 def _required_string(parameters: dict[str, Any], name: str) -> str:
@@ -124,6 +193,12 @@ def _completion_content(completion: Any) -> str:
     if not isinstance(content, str):
         raise ValueError("llm.translate model response content must be a string.")
     return content
+
+
+def _segment_chunks(segments: list[dict[str, Any]], chunk_size: int) -> list[list[dict[str, Any]]]:
+    if chunk_size <= 0:
+        raise ValueError("llm.translate chunk size must be positive.")
+    return [segments[index : index + chunk_size] for index in range(0, len(segments), chunk_size)]
 
 
 def _parse_translation_response(content: str, *, expected_count: int) -> list[dict[str, Any]]:

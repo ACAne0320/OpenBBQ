@@ -31,6 +31,15 @@ Parameters:
 | `url` | string | yes | Remote video URL supported by `yt-dlp`. |
 | `format` | string | no | Output container. Currently only `mp4` is supported. Defaults to `mp4`. |
 | `quality` | string | no | `yt-dlp` format selector. Defaults to `best`. |
+| `auth` | string | no | Download auth strategy: `auto`, `anonymous`, or `browser_cookies`. Defaults to `auto`. |
+| `browser` | string | no | Browser name for cookie loading when `auth` uses browser cookies. |
+| `browser_profile` | string | no | Browser profile name/path for cookie loading when `auth` uses browser cookies. |
+
+Behavior notes:
+
+- `auth: auto` tries an anonymous download first, then retries with browser cookies for supported browsers when the site or error indicates authentication is required.
+- For YouTube URLs, OpenBBQ retries browser cookies automatically to reduce user-visible login steps when a local browser session is available.
+- For YouTube URLs, OpenBBQ also enables available local JavaScript runtimes and yt-dlp EJS remote components automatically when needed for challenge solving.
 
 ---
 

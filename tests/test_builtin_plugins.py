@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -156,6 +157,37 @@ class RecordingOpenAIClientFactory:
         return self.client
 
 
+class SequencedRecordingChatCompletions:
+    def __init__(self, response_contents):
+        self.response_contents = list(response_contents)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        index = len(self.calls) - 1
+        return FakeCompletion(self.response_contents[index])
+
+
+class SequencedRecordingChat:
+    def __init__(self, response_contents):
+        self.completions = SequencedRecordingChatCompletions(response_contents)
+
+
+class SequencedRecordingOpenAIClient:
+    def __init__(self, response_contents):
+        self.chat = SequencedRecordingChat(response_contents)
+
+
+class SequencedRecordingOpenAIClientFactory:
+    def __init__(self, response_contents):
+        self.calls = []
+        self.client = SequencedRecordingOpenAIClient(response_contents)
+
+    def __call__(self, *, api_key, base_url):
+        self.calls.append({"api_key": api_key, "base_url": base_url})
+        return self.client
+
+
 class RecordingDownloader:
     def __init__(self, options, output_bytes=b"video"):
         self.options = options
@@ -215,6 +247,49 @@ class CustomDownloaderFactory:
         return self.downloader
 
 
+class BrowserCookieAwareDownloader(RecordingDownloader):
+    def __init__(self, options, *, success_browser, output_bytes=b"video"):
+        super().__init__(options, output_bytes=output_bytes)
+        self.success_browser = success_browser
+
+    def extract_info(self, url, download=True):
+        self.extract_calls.append({"url": url, "download": download})
+        cookie_spec = self.options.get("cookiesfrombrowser")
+        if cookie_spec is None:
+            raise RuntimeError("Sign in to confirm you're not a bot")
+        if cookie_spec[0] != self.success_browser:
+            raise FileNotFoundError(f"browser cookies unavailable for {cookie_spec[0]}")
+        output = Path(self.options["outtmpl"].replace("%(ext)s", "mp4"))
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(self.output_bytes)
+        return {
+            "id": "source-123",
+            "title": "Remote Video",
+            "extractor": "youtube",
+        }
+
+
+class BrowserCookieAwareDownloaderFactory:
+    def __init__(self, *, success_browser):
+        self.success_browser = success_browser
+        self.calls = []
+        self.downloaders = []
+
+    def __call__(self, options):
+        self.calls.append(options)
+        downloader = BrowserCookieAwareDownloader(options, success_browser=self.success_browser)
+        self.downloaders.append(downloader)
+        return downloader
+
+
+def _mock_js_runtime(monkeypatch, *, node_path="/usr/bin/node"):
+    monkeypatch.setattr(
+        remote_video_plugin.shutil,
+        "which",
+        lambda name: node_path if name == "node" else None,
+    )
+
+
 def test_remote_video_download_uses_yt_dlp_factory_and_returns_file_output(tmp_path):
     factory = RecordingDownloaderFactory()
 
@@ -253,6 +328,7 @@ def test_remote_video_download_uses_yt_dlp_factory_and_returns_file_output(tmp_p
                     "url": "https://video.example/watch/123",
                     "format": "mp4",
                     "quality": "best",
+                    "auth_strategy": "anonymous",
                     "title": "Remote Video",
                     "source_id": "source-123",
                     "extractor": "generic",
@@ -260,6 +336,78 @@ def test_remote_video_download_uses_yt_dlp_factory_and_returns_file_output(tmp_p
             }
         }
     }
+
+
+def test_remote_video_download_falls_back_to_browser_cookies_for_youtube(monkeypatch, tmp_path):
+    _mock_js_runtime(monkeypatch)
+    factory = BrowserCookieAwareDownloaderFactory(success_browser="chrome")
+
+    response = remote_video_plugin.run(
+        {
+            "tool_name": "download",
+            "work_dir": str(tmp_path / "work"),
+            "parameters": {
+                "url": "https://www.youtube.com/watch?v=test-video",
+                "format": "mp4",
+            },
+            "inputs": {},
+        },
+        downloader_factory=factory,
+    )
+
+    expected_output = tmp_path / "work/video.mp4"
+    assert expected_output.read_bytes() == b"video"
+    assert factory.calls[0] == {
+        "outtmpl": str(tmp_path / "work/video.%(ext)s"),
+        "merge_output_format": "mp4",
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "js_runtimes": {"node": {"path": "/usr/bin/node"}},
+        "remote_components": ["ejs:github"],
+    }
+    assert factory.calls[1] == {
+        "outtmpl": str(tmp_path / "work/video.%(ext)s"),
+        "merge_output_format": "mp4",
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "js_runtimes": {"node": {"path": "/usr/bin/node"}},
+        "remote_components": ["ejs:github"],
+        "cookiesfrombrowser": ("chrome",),
+    }
+    assert response["outputs"]["video"]["metadata"]["auth_strategy"] == "browser_cookies"
+    assert response["outputs"]["video"]["metadata"]["cookie_browser"] == "chrome"
+    assert response["outputs"]["video"]["metadata"]["extractor"] == "youtube"
+
+
+def test_remote_video_download_can_start_with_explicit_browser_cookies(monkeypatch, tmp_path):
+    _mock_js_runtime(monkeypatch)
+    factory = BrowserCookieAwareDownloaderFactory(success_browser="firefox")
+
+    response = remote_video_plugin.run(
+        {
+            "tool_name": "download",
+            "work_dir": str(tmp_path / "work"),
+            "parameters": {
+                "url": "https://www.youtube.com/watch?v=test-video",
+                "auth": "browser_cookies",
+                "browser": "firefox",
+                "browser_profile": "default",
+            },
+            "inputs": {},
+        },
+        downloader_factory=factory,
+    )
+
+    assert len(factory.calls) == 1
+    assert factory.calls[0] == {
+        "outtmpl": str(tmp_path / "work/video.%(ext)s"),
+        "merge_output_format": "mp4",
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "js_runtimes": {"node": {"path": "/usr/bin/node"}},
+        "remote_components": ["ejs:github"],
+        "cookiesfrombrowser": ("firefox", "default"),
+    }
+    assert response["outputs"]["video"]["metadata"]["auth_strategy"] == "browser_cookies"
+    assert response["outputs"]["video"]["metadata"]["cookie_browser"] == "firefox"
+    assert response["outputs"]["video"]["metadata"]["cookie_browser_profile"] == "default"
 
 
 def test_remote_video_download_requires_url(tmp_path):
@@ -291,8 +439,28 @@ def test_remote_video_download_rejects_non_mp4_format(tmp_path):
         )
 
 
+def test_remote_video_download_rejects_unknown_auth_mode(tmp_path):
+    with pytest.raises(ValueError, match="parameter 'auth'"):
+        remote_video_plugin.run(
+            {
+                "tool_name": "download",
+                "work_dir": str(tmp_path / "work"),
+                "parameters": {
+                    "url": "https://video.example/watch/123",
+                    "auth": "interactive_browser",
+                },
+                "inputs": {},
+            },
+            downloader_factory=RecordingDownloaderFactory(),
+        )
+
+
 def test_remote_video_download_wraps_downloader_failures(tmp_path):
-    with pytest.raises(RuntimeError, match="yt-dlp failed: download unavailable"):
+    factory = CustomDownloaderFactory(FailingDownloader)
+
+    with pytest.raises(
+        RuntimeError, match="yt-dlp failed: anonymous attempt failed: download unavailable"
+    ):
         remote_video_plugin.run(
             {
                 "tool_name": "download",
@@ -300,8 +468,9 @@ def test_remote_video_download_wraps_downloader_failures(tmp_path):
                 "parameters": {"url": "https://video.example/watch/123"},
                 "inputs": {},
             },
-            downloader_factory=CustomDownloaderFactory(FailingDownloader),
+            downloader_factory=factory,
         )
+    assert len(factory.calls) == 1
 
 
 def test_remote_video_download_requires_expected_output_file(tmp_path):

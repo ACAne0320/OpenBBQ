@@ -26,3 +26,14 @@ default = "mp4"
 [tools.parameter_schema.properties.quality]
 type = "string"
 default = "best"
+
+[tools.parameter_schema.properties.auth]
+type = "string"
+enum = ["auto", "anonymous", "browser_cookies"]
+default = "auto"
+
+[tools.parameter_schema.properties.browser]
+type = "string"
+
+[tools.parameter_schema.properties.browser_profile]
+type = "string"
