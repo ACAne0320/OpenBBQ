@@ -156,6 +156,88 @@ class RecordingOpenAIClientFactory:
         return self.client
 
 
+class RecordingDownloader:
+    def __init__(self, options, output_bytes=b"video"):
+        self.options = options
+        self.output_bytes = output_bytes
+        self.extract_calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def extract_info(self, url, download=True):
+        self.extract_calls.append({"url": url, "download": download})
+        output = Path(self.options["outtmpl"].replace("%(ext)s", "mp4"))
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(self.output_bytes)
+        return {
+            "id": "source-123",
+            "title": "Remote Video",
+            "extractor": "generic",
+        }
+
+
+class RecordingDownloaderFactory:
+    def __init__(self):
+        self.calls = []
+        self.downloader = None
+
+    def __call__(self, options):
+        self.calls.append(options)
+        self.downloader = RecordingDownloader(options)
+        return self.downloader
+
+
+def test_remote_video_download_uses_yt_dlp_factory_and_returns_file_output(tmp_path):
+    factory = RecordingDownloaderFactory()
+
+    response = remote_video_plugin.run(
+        {
+            "tool_name": "download",
+            "work_dir": str(tmp_path / "work"),
+            "parameters": {
+                "url": "https://video.example/watch/123",
+                "format": "mp4",
+                "quality": "best",
+            },
+            "inputs": {},
+        },
+        downloader_factory=factory,
+    )
+
+    expected_output = tmp_path / "work/video.mp4"
+    assert expected_output.read_bytes() == b"video"
+    assert factory.calls == [
+        {
+            "outtmpl": str(tmp_path / "work/video.%(ext)s"),
+            "merge_output_format": "mp4",
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        }
+    ]
+    assert factory.downloader.extract_calls == [
+        {"url": "https://video.example/watch/123", "download": True}
+    ]
+    assert response == {
+        "outputs": {
+            "video": {
+                "type": "video",
+                "file_path": str(expected_output),
+                "metadata": {
+                    "url": "https://video.example/watch/123",
+                    "format": "mp4",
+                    "quality": "best",
+                    "title": "Remote Video",
+                    "source_id": "source-123",
+                    "extractor": "generic",
+                },
+            }
+        }
+    }
+
+
 def test_llm_translate_uses_openai_client_and_returns_translation(monkeypatch):
     monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
     monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
