@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from openbbq.builtin_plugins.faster_whisper import plugin as whisper_plugin
 from openbbq.builtin_plugins.ffmpeg import plugin as ffmpeg_plugin
 from openbbq.builtin_plugins.glossary import plugin as glossary_plugin
@@ -207,6 +209,53 @@ def test_llm_translate_uses_openai_client_and_returns_translation(monkeypatch):
             }
         }
     }
+
+
+def test_llm_translate_requires_api_key(monkeypatch):
+    monkeypatch.delenv("OPENBBQ_LLM_API_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="OPENBBQ_LLM_API_KEY"):
+        llm_plugin.run(
+            {
+                "tool_name": "translate",
+                "parameters": {
+                    "source_lang": "en",
+                    "target_lang": "zh-Hans",
+                    "model": "gpt-4o-mini",
+                },
+                "inputs": {
+                    "transcript": {
+                        "type": "asr_transcript",
+                        "content": [{"start": 0.0, "end": 1.0, "text": "Hello"}],
+                    }
+                },
+            },
+            client_factory=RecordingOpenAIClientFactory("[]"),
+        )
+
+
+def test_llm_translate_rejects_malformed_model_json(monkeypatch):
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+    factory = RecordingOpenAIClientFactory('[{"index": 1, "text": "错位"}]')
+
+    with pytest.raises(ValueError, match="expected translated segment index 0"):
+        llm_plugin.run(
+            {
+                "tool_name": "translate",
+                "parameters": {
+                    "source_lang": "en",
+                    "target_lang": "zh-Hans",
+                    "model": "gpt-4o-mini",
+                },
+                "inputs": {
+                    "transcript": {
+                        "type": "asr_transcript",
+                        "content": [{"start": 0.0, "end": 1.0, "text": "Hello"}],
+                    }
+                },
+            },
+            client_factory=factory,
+        )
 
 
 def test_subtitle_export_writes_srt_from_transcript_segments():
