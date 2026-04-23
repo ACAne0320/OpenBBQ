@@ -43,6 +43,8 @@ def test_builtin_plugin_path_is_discovered_by_default(tmp_path):
 
     assert "ffmpeg.extract_audio" in registry.tools
     assert "faster_whisper.transcribe" in registry.tools
+    assert "glossary.replace" in registry.tools
+    assert "llm.translate" in registry.tools
     assert "subtitle.export" in registry.tools
 
 

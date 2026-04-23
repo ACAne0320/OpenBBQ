@@ -64,9 +64,18 @@ def test_builtin_plugin_manifests_are_configured_as_package_data() -> None:
     assert {manifest.parent.name for manifest in manifests} == {
         "faster_whisper",
         "ffmpeg",
+        "glossary",
+        "llm",
         "subtitle",
     }
     assert package_data["openbbq.builtin_plugins"] == ["*/openbbq.plugin.toml"]
+
+
+def test_llm_extra_declares_openai_sdk_dependency() -> None:
+    root = Path(__file__).resolve().parents[1]
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert pyproject["project"]["optional-dependencies"]["llm"] == ["openai>=1.0"]
 
 
 def test_builtin_plugin_manifests_are_included_in_wheel(tmp_path) -> None:

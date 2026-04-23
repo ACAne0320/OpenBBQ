@@ -1,0 +1,38 @@
+name = "glossary"
+version = "0.1.0"
+runtime = "python"
+entrypoint = "plugin:run"
+
+[[tools]]
+name = "replace"
+description = "Apply deterministic glossary replacements to transcript segments."
+input_artifact_types = ["asr_transcript"]
+output_artifact_types = ["asr_transcript"]
+effects = []
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+
+[tools.parameter_schema.properties.rules]
+type = "array"
+default = []
+
+[tools.parameter_schema.properties.rules.items]
+type = "object"
+additionalProperties = false
+required = ["find", "replace"]
+
+[tools.parameter_schema.properties.rules.items.properties.find]
+type = "string"
+
+[tools.parameter_schema.properties.rules.items.properties.replace]
+type = "string"
+
+[tools.parameter_schema.properties.rules.items.properties.is_regex]
+type = "boolean"
+default = false
+
+[tools.parameter_schema.properties.rules.items.properties.case_sensitive]
+type = "boolean"
+default = false

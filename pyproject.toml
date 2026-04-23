@@ -10,6 +10,7 @@ dependencies = ["PyYAML>=6.0", "jsonschema>=4.0"]
 
 [project.optional-dependencies]
 media = ["faster-whisper>=1.2"]
+llm = ["openai>=1.0"]
 
 [project.scripts]
 openbbq = "openbbq.cli.app:main"
