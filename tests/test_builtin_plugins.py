@@ -6,6 +6,7 @@ from openbbq.builtin_plugins.faster_whisper import plugin as whisper_plugin
 from openbbq.builtin_plugins.ffmpeg import plugin as ffmpeg_plugin
 from openbbq.builtin_plugins.glossary import plugin as glossary_plugin
 from openbbq.builtin_plugins.llm import plugin as llm_plugin
+from openbbq.builtin_plugins.remote_video import plugin as remote_video_plugin
 from openbbq.builtin_plugins.subtitle import plugin as subtitle_plugin
 from openbbq.config.loader import load_project_config
 from openbbq.plugins.registry import discover_plugins
@@ -49,6 +50,7 @@ def test_builtin_plugin_path_is_discovered_by_default(tmp_path):
     assert "faster_whisper.transcribe" in registry.tools
     assert "glossary.replace" in registry.tools
     assert "llm.translate" in registry.tools
+    assert "remote_video.download" in registry.tools
     assert "subtitle.export" in registry.tools
 
 

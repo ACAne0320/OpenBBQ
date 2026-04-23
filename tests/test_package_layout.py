@@ -66,6 +66,7 @@ def test_builtin_plugin_manifests_are_configured_as_package_data() -> None:
         "ffmpeg",
         "glossary",
         "llm",
+        "remote_video",
         "subtitle",
     }
     assert package_data["openbbq.builtin_plugins"] == ["*/openbbq.plugin.toml"]
@@ -76,6 +77,15 @@ def test_llm_extra_declares_openai_sdk_dependency() -> None:
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert pyproject["project"]["optional-dependencies"]["llm"] == ["openai>=1.0"]
+
+
+def test_download_extra_declares_yt_dlp_dependency() -> None:
+    root = Path(__file__).resolve().parents[1]
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert pyproject["project"]["optional-dependencies"]["download"] == [
+        "yt-dlp>=2024.12.0"
+    ]
 
 
 def test_builtin_plugin_manifests_are_included_in_wheel(tmp_path) -> None:
