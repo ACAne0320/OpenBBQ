@@ -191,6 +191,30 @@ class RecordingDownloaderFactory:
         return self.downloader
 
 
+class NoOutputDownloader(RecordingDownloader):
+    def extract_info(self, url, download=True):
+        self.extract_calls.append({"url": url, "download": download})
+        return {"id": "source-123"}
+
+
+class FailingDownloader(RecordingDownloader):
+    def extract_info(self, url, download=True):
+        self.extract_calls.append({"url": url, "download": download})
+        raise RuntimeError("download unavailable")
+
+
+class CustomDownloaderFactory:
+    def __init__(self, downloader_class):
+        self.downloader_class = downloader_class
+        self.calls = []
+        self.downloader = None
+
+    def __call__(self, options):
+        self.calls.append(options)
+        self.downloader = self.downloader_class(options)
+        return self.downloader
+
+
 def test_remote_video_download_uses_yt_dlp_factory_and_returns_file_output(tmp_path):
     factory = RecordingDownloaderFactory()
 
@@ -236,6 +260,84 @@ def test_remote_video_download_uses_yt_dlp_factory_and_returns_file_output(tmp_p
             }
         }
     }
+
+
+def test_remote_video_download_requires_url(tmp_path):
+    with pytest.raises(ValueError, match="url"):
+        remote_video_plugin.run(
+            {
+                "tool_name": "download",
+                "work_dir": str(tmp_path / "work"),
+                "parameters": {"url": ""},
+                "inputs": {},
+            },
+            downloader_factory=RecordingDownloaderFactory(),
+        )
+
+
+def test_remote_video_download_rejects_non_mp4_format(tmp_path):
+    with pytest.raises(ValueError, match="mp4 output only"):
+        remote_video_plugin.run(
+            {
+                "tool_name": "download",
+                "work_dir": str(tmp_path / "work"),
+                "parameters": {
+                    "url": "https://video.example/watch/123",
+                    "format": "webm",
+                },
+                "inputs": {},
+            },
+            downloader_factory=RecordingDownloaderFactory(),
+        )
+
+
+def test_remote_video_download_wraps_downloader_failures(tmp_path):
+    with pytest.raises(RuntimeError, match="yt-dlp failed: download unavailable"):
+        remote_video_plugin.run(
+            {
+                "tool_name": "download",
+                "work_dir": str(tmp_path / "work"),
+                "parameters": {"url": "https://video.example/watch/123"},
+                "inputs": {},
+            },
+            downloader_factory=CustomDownloaderFactory(FailingDownloader),
+        )
+
+
+def test_remote_video_download_requires_expected_output_file(tmp_path):
+    with pytest.raises(RuntimeError, match="expected video output"):
+        remote_video_plugin.run(
+            {
+                "tool_name": "download",
+                "work_dir": str(tmp_path / "work"),
+                "parameters": {"url": "https://video.example/watch/123"},
+                "inputs": {},
+            },
+            downloader_factory=CustomDownloaderFactory(NoOutputDownloader),
+        )
+
+
+def test_remote_video_download_missing_dependency_message(monkeypatch, tmp_path):
+    import builtins
+
+    original_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "yt_dlp":
+            raise ImportError("missing yt-dlp")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with pytest.raises(RuntimeError, match="download optional dependencies"):
+        remote_video_plugin.run(
+            {
+                "tool_name": "download",
+                "work_dir": str(tmp_path / "work"),
+                "parameters": {"url": "https://video.example/watch/123"},
+                "inputs": {},
+            }
+        )
 
 
 def test_llm_translate_uses_openai_client_and_returns_translation(monkeypatch):
