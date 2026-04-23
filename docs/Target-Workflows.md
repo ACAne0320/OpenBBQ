@@ -2,25 +2,25 @@
 
 This document describes concrete end-to-end workflow pipelines that OpenBBQ is designed to support. These workflows define the artifact types, plugin contracts, and parameter shapes the system must handle in production.
 
-Phase 1 proves the workflow engine contracts using mock plugins. Phase 2 introduces real local media, glossary, translation, and subtitle plugins for CLI-driven workflows while remote video retrieval remains later-phase work.
+Phase 1 proves the workflow engine contracts using mock plugins. Phase 2 introduces real remote video download, local media processing, glossary replacement, translation, and subtitle plugins for CLI-driven workflows.
 
 ---
 
-## YouTube Video to Subtitle File
+## Remote Video to Subtitle File
 
-A complete media language processing pipeline: retrieve a YouTube video, extract audio, transcribe speech word-by-word, apply glossary rules, translate with an LLM, and export a subtitle file.
+A complete media language processing pipeline: download a remote video URL, extract audio, transcribe speech word-by-word, apply glossary rules, translate with an LLM, and export a subtitle file.
 
 ```
-youtube.download → ffmpeg.extract_audio → asr.transcribe → glossary.replace → llm.translate → subtitle.export
+remote_video.download → ffmpeg.extract_audio → faster_whisper.transcribe → glossary.replace → llm.translate → subtitle.export
 ```
 
 ### Steps
 
-#### 1. Retrieve YouTube Video
+#### 1. Download Remote Video
 
 | Field | Value |
 |---|---|
-| `tool_ref` | `youtube.download` |
+| `tool_ref` | `remote_video.download` |
 | `effects` | `network`, `writes_files` |
 | Output artifact | `video` |
 
@@ -28,9 +28,9 @@ Parameters:
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `url` | string | yes | YouTube video URL |
-| `format` | string | no | Container format preference (`mp4`, `webm`). Defaults to `mp4`. |
-| `quality` | string | no | Quality preference (`best`, `worst`, `720p`, `1080p`, etc.). Defaults to `best`. |
+| `url` | string | yes | Remote video URL supported by `yt-dlp`. |
+| `format` | string | no | Output container. Currently only `mp4` is supported. Defaults to `mp4`. |
+| `quality` | string | no | `yt-dlp` format selector. Defaults to `best`. |
 
 ---
 
@@ -57,7 +57,7 @@ Parameters:
 
 | Field | Value |
 |---|---|
-| `tool_ref` | `asr.transcribe` |
+| `tool_ref` | `faster_whisper.transcribe` |
 | `effects` | `reads_files` |
 | Input artifact | `audio` (from step 2) |
 | Output artifact | `asr_transcript` |
@@ -144,31 +144,31 @@ Parameters:
 url, format, quality
         │
         ▼
-[youtube.download] ──► video
-                          │
-                          ▼
-              [ffmpeg.extract_audio] ──► audio
-                                           │
-                                           ▼
-                            [asr.transcribe] ──► asr_transcript
-                                                       │
-                                                  ┌────┘
-                                                  │  glossary (project asset)
-                                                  ▼
-                               [glossary.replace] ──► asr_transcript (modified)
-                                                              │
-                                                              ▼
-                                          [llm.translate] ──► translation
-                                                                   │
-                                                                   ▼
-                                             [subtitle.export] ──► subtitle
+[remote_video.download] ──► video
+                               │
+                               ▼
+                   [ffmpeg.extract_audio] ──► audio
+                                                │
+                                                ▼
+                          [faster_whisper.transcribe] ──► asr_transcript
+                                                                 │
+                                                            ┌────┘
+                                                            │  glossary rules
+                                                            ▼
+                                         [glossary.replace] ──► asr_transcript (modified)
+                                                                        │
+                                                                        ▼
+                                                    [llm.translate] ──► translation
+                                                                             │
+                                                                             ▼
+                                                       [subtitle.export] ──► subtitle
 ```
 
 ### Phase Availability
 
 | Step | Plugin | Phase |
 |---|---|---|
-| Retrieve YouTube video | `youtube.download` | Later phase |
+| Download remote video | `remote_video.download` | Phase 2 Slice 3 |
 | Convert to audio | `ffmpeg.extract_audio` | Phase 2 Slice 1 |
 | ASR recognition | `faster_whisper.transcribe` | Phase 2 Slice 1 |
 | Rule / glossary replacement | `glossary.replace` | Phase 2 Slice 2 |

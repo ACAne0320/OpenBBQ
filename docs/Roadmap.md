@@ -36,6 +36,7 @@ See [Phase 1 Documentation](./phase1/README.md) and [Backend & CLI Goals](./phas
 **Goal:** Make the CLI run real local media language workflows before adding an API or desktop surface.
 
 - Local file import and file-backed media artifacts
+- Built-in yt-dlp remote video download
 - Built-in ffmpeg audio extraction
 - Built-in faster-whisper transcription
 - Built-in glossary replacement

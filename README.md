@@ -85,3 +85,18 @@ uv run openbbq run local-video-translate-subtitle --project ./demo-translate
 ```
 
 Default CI uses fake media and fake OpenAI clients; it does not require LLM credentials or network access.
+
+## Phase 2 Remote Video Preview
+
+Slice 3 adds remote video download through `yt-dlp` and a full remote translated subtitle workflow. Install the download, media, and LLM optional dependency groups before running a real remote smoke test:
+
+```bash
+uv sync --extra download --extra media --extra llm
+export OPENBBQ_LLM_API_KEY=sk-your-key
+export OPENBBQ_LLM_BASE_URL=https://api.openai.com/v1
+cp -R tests/fixtures/projects/remote-video-translate-subtitle ./demo-remote
+# Edit ./demo-remote/openbbq.yaml and set download.parameters.url to the source URL.
+uv run openbbq run remote-video-translate-subtitle --project ./demo-remote
+```
+
+Default CI uses fake downloaders, fake media, and fake OpenAI clients; it does not require network access, ffmpeg, Whisper models, or LLM credentials.
