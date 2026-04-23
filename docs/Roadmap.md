@@ -31,18 +31,19 @@ See [Phase 1 Documentation](./phase1/README.md) and [Backend & CLI Goals](./phas
 
 > The [YouTube → Subtitle pipeline](./Target-Workflows.md) is the production target workflow. Phase 1 validates this pipeline's full config and artifact type contracts using mock plugins; real plugin implementations are introduced in Phase 2.
 
-## Phase 2 — Agent Interface
+## Phase 2 — Real Local Media and Translation Plugins
 
-**Goal:** Enable LLM agents and automation scripts to drive OpenBBQ workflows programmatically.
+**Goal:** Make the CLI run real local media language workflows before adding an API or desktop surface.
 
-- Stable HTTP/gRPC API layer over the backend core
-- Authentication and authorization (API keys, scoped tokens)
-- Webhook / callback support for async step completion
-- Streaming events (workflow progress, artifact changes)
-- Agent-friendly error responses with structured context
-- Batch operations (submit multiple workflows, bulk artifact queries)
-- SDK / client library for common agent frameworks
-- Rate limiting and concurrency controls
+- Local file import and file-backed media artifacts
+- Built-in ffmpeg audio extraction
+- Built-in faster-whisper transcription
+- Built-in glossary replacement
+- Built-in OpenAI-compatible LLM translation
+- Built-in subtitle export
+- Deterministic tests with optional local real-media and real-LLM smoke runs
+
+> Agent and API surfaces move to a later phase after real CLI-driven workflows are stable.
 
 ## Phase 3 — Desktop Application
 

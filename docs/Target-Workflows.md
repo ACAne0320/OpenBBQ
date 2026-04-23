@@ -2,7 +2,7 @@
 
 This document describes concrete end-to-end workflow pipelines that OpenBBQ is designed to support. These workflows define the artifact types, plugin contracts, and parameter shapes the system must handle in production.
 
-Phase 1 proves the workflow engine contracts using mock plugins. Real plugin implementations are introduced in later phases as the platform matures.
+Phase 1 proves the workflow engine contracts using mock plugins. Phase 2 introduces real local media, glossary, translation, and subtitle plugins for CLI-driven workflows while remote video retrieval remains later-phase work.
 
 ---
 
@@ -168,11 +168,11 @@ url, format, quality
 
 | Step | Plugin | Phase |
 |---|---|---|
-| Retrieve YouTube video | `youtube.download` | Phase 2 (real network access) |
-| Convert to audio | `ffmpeg.extract_audio` | Phase 2 (real media processing) |
-| ASR recognition | `asr.transcribe` | Phase 2 (real speech recognition) |
-| Glossary replacement | `glossary.replace` | Phase 1 compatible (pure text transform) |
-| Translation (LLM) | `llm.translate` | Phase 2 (requires LLM API access) |
-| Export subtitle | `subtitle.export` | Phase 1 compatible (pure text serialization) |
+| Retrieve YouTube video | `youtube.download` | Later phase |
+| Convert to audio | `ffmpeg.extract_audio` | Phase 2 Slice 1 |
+| ASR recognition | `faster_whisper.transcribe` | Phase 2 Slice 1 |
+| Rule / glossary replacement | `glossary.replace` | Phase 2 Slice 2 |
+| Translation (LLM) | `llm.translate` | Phase 2 Slice 2 |
+| Export subtitle | `subtitle.export` | Phase 2 Slice 1 |
 
 Phase 1 can validate the full workflow config and run it end-to-end using mock plugins that accept and emit the correct artifact types without performing real media operations.

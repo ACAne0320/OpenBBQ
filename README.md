@@ -53,7 +53,7 @@ uv run openbbq artifact list --project tests/fixtures/projects/text-basic
 uv run openbbq artifact diff <from-version-id> <to-version-id> --project tests/fixtures/projects/text-basic
 ```
 
-Phase 1 still uses deterministic mock plugins. Real transcription, translation, subtitle rendering, API service layers, and desktop UI are later-phase work.
+Phase 1 fixtures still use deterministic mock plugins. Phase 2 adds real local media and translation plugins while API service layers and desktop UI remain later-phase work.
 
 ## Phase 2 Local Media Preview
 
@@ -69,3 +69,19 @@ uv run openbbq run local-video-subtitle --project ./demo
 ```
 
 Default CI does not download Whisper models or require ffmpeg.
+
+## Phase 2 Translation Preview
+
+Slice 2 adds deterministic glossary replacement and OpenAI-compatible LLM translation to the local video subtitle workflow. Install both optional dependency groups before running real local translated subtitle smoke tests:
+
+```bash
+uv sync --extra media --extra llm
+export OPENBBQ_LLM_API_KEY=sk-your-key
+export OPENBBQ_LLM_BASE_URL=https://api.openai.com/v1
+cp -R tests/fixtures/projects/local-video-translate-subtitle ./demo-translate
+uv run openbbq artifact import ./sample.mp4 --type video --name source.video --project ./demo-translate
+# Replace project.art_imported_video in ./demo-translate/openbbq.yaml with the returned project.<artifact-id>.
+uv run openbbq run local-video-translate-subtitle --project ./demo-translate
+```
+
+Default CI uses fake media and fake OpenAI clients; it does not require LLM credentials or network access.
