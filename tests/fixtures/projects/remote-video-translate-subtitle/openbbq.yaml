@@ -1,0 +1,100 @@
+version: 1
+
+project:
+  id: remote-video-translate-subtitle
+  name: Remote Video Translate Subtitle
+
+workflows:
+  remote-video-translate-subtitle:
+    name: Remote Video Translate Subtitle
+    steps:
+      - id: download
+        name: Download Video
+        tool_ref: remote_video.download
+        inputs: {}
+        outputs:
+          - name: video
+            type: video
+        parameters:
+          url: https://example.com/video
+          format: mp4
+          quality: best
+        on_error: abort
+        max_retries: 0
+
+      - id: extract_audio
+        name: Extract Audio
+        tool_ref: ffmpeg.extract_audio
+        inputs:
+          video: download.video
+        outputs:
+          - name: audio
+            type: audio
+        parameters:
+          format: wav
+          sample_rate: 16000
+          channels: 1
+        on_error: abort
+        max_retries: 0
+
+      - id: transcribe
+        name: Transcribe
+        tool_ref: faster_whisper.transcribe
+        inputs:
+          audio: extract_audio.audio
+        outputs:
+          - name: transcript
+            type: asr_transcript
+        parameters:
+          model: base
+          device: cpu
+          compute_type: int8
+          word_timestamps: true
+        on_error: abort
+        max_retries: 0
+
+      - id: glossary
+        name: Apply Glossary
+        tool_ref: glossary.replace
+        inputs:
+          transcript: transcribe.transcript
+        outputs:
+          - name: transcript
+            type: asr_transcript
+        parameters:
+          rules:
+            - find: Open BBQ
+              replace: OpenBBQ
+              is_regex: false
+              case_sensitive: false
+        on_error: abort
+        max_retries: 0
+
+      - id: translate
+        name: Translate
+        tool_ref: llm.translate
+        inputs:
+          transcript: glossary.transcript
+        outputs:
+          - name: translation
+            type: translation
+        parameters:
+          source_lang: en
+          target_lang: zh-Hans
+          model: gpt-4o-mini
+          temperature: 0
+        on_error: abort
+        max_retries: 0
+
+      - id: subtitle
+        name: Export Subtitle
+        tool_ref: subtitle.export
+        inputs:
+          translation: translate.translation
+        outputs:
+          - name: subtitle
+            type: subtitle
+        parameters:
+          format: srt
+        on_error: abort
+        max_retries: 0
