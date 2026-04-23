@@ -2,6 +2,7 @@ from pathlib import Path
 
 from openbbq.builtin_plugins.faster_whisper import plugin as whisper_plugin
 from openbbq.builtin_plugins.ffmpeg import plugin as ffmpeg_plugin
+from openbbq.builtin_plugins.glossary import plugin as glossary_plugin
 from openbbq.builtin_plugins.subtitle import plugin as subtitle_plugin
 from openbbq.config.loader import load_project_config
 from openbbq.plugins.registry import discover_plugins
@@ -46,6 +47,62 @@ def test_builtin_plugin_path_is_discovered_by_default(tmp_path):
     assert "glossary.replace" in registry.tools
     assert "llm.translate" in registry.tools
     assert "subtitle.export" in registry.tools
+
+
+def test_glossary_replace_updates_segment_text_and_preserves_other_fields():
+    response = glossary_plugin.run(
+        {
+            "tool_name": "replace",
+            "parameters": {
+                "rules": [
+                    {
+                        "find": "Open BBQ",
+                        "replace": "OpenBBQ",
+                        "is_regex": False,
+                        "case_sensitive": False,
+                    },
+                    {
+                        "find": r"frieren",
+                        "replace": "Frieren",
+                        "is_regex": True,
+                        "case_sensitive": False,
+                    },
+                ]
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": [
+                        {
+                            "start": 0.0,
+                            "end": 1.5,
+                            "text": "open bbq talks about frieren",
+                            "confidence": -0.1,
+                            "words": [{"start": 0.0, "end": 0.4, "text": "open"}],
+                        },
+                        {"start": 1.5, "end": 2.0, "text": "No match"},
+                    ],
+                }
+            },
+        }
+    )
+
+    assert response["outputs"]["transcript"]["type"] == "asr_transcript"
+    assert response["outputs"]["transcript"]["content"] == [
+        {
+            "start": 0.0,
+            "end": 1.5,
+            "text": "OpenBBQ talks about Frieren",
+            "confidence": -0.1,
+            "words": [{"start": 0.0, "end": 0.4, "text": "open"}],
+        },
+        {"start": 1.5, "end": 2.0, "text": "No match"},
+    ]
+    assert response["outputs"]["transcript"]["metadata"] == {
+        "segment_count": 2,
+        "word_count": 6,
+        "rule_count": 2,
+    }
 
 
 def test_subtitle_export_writes_srt_from_transcript_segments():
