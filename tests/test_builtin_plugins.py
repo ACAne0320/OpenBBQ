@@ -3,6 +3,7 @@ from pathlib import Path
 from openbbq.builtin_plugins.faster_whisper import plugin as whisper_plugin
 from openbbq.builtin_plugins.ffmpeg import plugin as ffmpeg_plugin
 from openbbq.builtin_plugins.glossary import plugin as glossary_plugin
+from openbbq.builtin_plugins.llm import plugin as llm_plugin
 from openbbq.builtin_plugins.subtitle import plugin as subtitle_plugin
 from openbbq.config.loader import load_project_config
 from openbbq.plugins.registry import discover_plugins
@@ -102,6 +103,109 @@ def test_glossary_replace_updates_segment_text_and_preserves_other_fields():
         "segment_count": 2,
         "word_count": 6,
         "rule_count": 2,
+    }
+
+
+class FakeMessage:
+    def __init__(self, content):
+        self.content = content
+
+
+class FakeChoice:
+    def __init__(self, content):
+        self.message = FakeMessage(content)
+
+
+class FakeCompletion:
+    def __init__(self, content):
+        self.choices = [FakeChoice(content)]
+
+
+class RecordingChatCompletions:
+    def __init__(self, response_content):
+        self.response_content = response_content
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return FakeCompletion(self.response_content)
+
+
+class RecordingChat:
+    def __init__(self, response_content):
+        self.completions = RecordingChatCompletions(response_content)
+
+
+class RecordingOpenAIClient:
+    def __init__(self, response_content):
+        self.chat = RecordingChat(response_content)
+
+
+class RecordingOpenAIClientFactory:
+    def __init__(self, response_content):
+        self.response_content = response_content
+        self.calls = []
+        self.client = RecordingOpenAIClient(response_content)
+
+    def __call__(self, *, api_key, base_url):
+        self.calls.append({"api_key": api_key, "base_url": base_url})
+        return self.client
+
+
+def test_llm_translate_uses_openai_client_and_returns_translation(monkeypatch):
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
+    factory = RecordingOpenAIClientFactory(
+        '[{"index": 0, "text": "你好"}, {"index": 1, "text": "OpenBBQ"}]'
+    )
+
+    response = llm_plugin.run(
+        {
+            "tool_name": "translate",
+            "parameters": {
+                "source_lang": "en",
+                "target_lang": "zh-Hans",
+                "model": "gpt-4o-mini",
+                "temperature": 0,
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": [
+                        {"start": 0.0, "end": 1.5, "text": "Hello"},
+                        {"start": 1.5, "end": 3.0, "text": "OpenBBQ"},
+                    ],
+                }
+            },
+        },
+        client_factory=factory,
+    )
+
+    assert factory.calls == [{"api_key": "test-key", "base_url": "https://llm.example/v1"}]
+    call = factory.client.chat.completions.calls[0]
+    assert call["model"] == "gpt-4o-mini"
+    assert call["temperature"] == 0
+    assert "response_format" not in call
+    assert len(call["messages"]) == 2
+    assert "Return JSON only" in call["messages"][0]["content"]
+    assert '"target_lang":"zh-Hans"' in call["messages"][1]["content"]
+
+    assert response == {
+        "outputs": {
+            "translation": {
+                "type": "translation",
+                "content": [
+                    {"start": 0.0, "end": 1.5, "source_text": "Hello", "text": "你好"},
+                    {"start": 1.5, "end": 3.0, "source_text": "OpenBBQ", "text": "OpenBBQ"},
+                ],
+                "metadata": {
+                    "source_lang": "en",
+                    "target_lang": "zh-Hans",
+                    "model": "gpt-4o-mini",
+                    "segment_count": 2,
+                },
+            }
+        }
     }
 
 
