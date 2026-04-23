@@ -25,6 +25,7 @@ def test_domain_models_exports_artifact_type_registry():
         "text",
         "video",
         "audio",
+        "image",
         "asr_transcript",
         "glossary",
         "translation",

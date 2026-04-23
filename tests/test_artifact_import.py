@@ -66,6 +66,36 @@ def test_cli_artifact_import_creates_file_backed_project_artifact(tmp_path, caps
     assert Path(version.content["file_path"]).read_bytes() == b"fake-video"
 
 
+def test_cli_artifact_import_accepts_image_as_file_backed_artifact(tmp_path, capsys):
+    project = write_project(tmp_path)
+    image = tmp_path / "sample.png"
+    image.write_bytes(b"fake-image")
+
+    code = main(
+        [
+            "--project",
+            str(project),
+            "--json",
+            "artifact",
+            "import",
+            str(image),
+            "--type",
+            "image",
+            "--name",
+            "source.image",
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["artifact"]["type"] == "image"
+    assert payload["version"]["content_encoding"] == "file"
+
+    store = ProjectStore(project / ".openbbq")
+    version = store.read_artifact_version(payload["version"]["id"])
+    assert Path(version.content["file_path"]).read_bytes() == b"fake-image"
+
+
 def test_cli_artifact_import_rejects_unknown_type(tmp_path, capsys):
     project = write_project(tmp_path)
     video = tmp_path / "sample.bin"

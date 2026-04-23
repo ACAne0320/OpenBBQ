@@ -190,6 +190,17 @@ Metadata:
 - `channels`: number of audio channels.
 - `codec`: audio codec identifier.
 
+### `image`
+
+An image file imported as a project-level resource or produced by a media step.
+
+Metadata:
+
+- `format`: image format (e.g., `png`, `jpeg`, `webp`).
+- `width`: image width in pixels.
+- `height`: image height in pixels.
+- `color_space`: color space identifier, if known.
+
 ### `asr_transcript`
 
 A word-level automatic speech recognition result.

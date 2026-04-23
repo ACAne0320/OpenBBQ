@@ -145,6 +145,7 @@ Behavior:
 
 - validate that `<path>` exists and is a file;
 - validate that `--type` is registered in `ARTIFACT_TYPES`;
+- validate that `--type` is a file-backed import type: `audio`, `image`, or `video`;
 - copy the source file into the artifact version directory;
 - create a project-level artifact with no workflow step creator;
 - return artifact and version records in JSON output;

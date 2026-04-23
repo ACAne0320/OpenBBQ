@@ -24,9 +24,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-"openbbq.builtin_plugins.faster_whisper" = ["openbbq.plugin.toml"]
-"openbbq.builtin_plugins.ffmpeg" = ["openbbq.plugin.toml"]
-"openbbq.builtin_plugins.subtitle" = ["openbbq.plugin.toml"]
+"openbbq.builtin_plugins" = ["*/openbbq.plugin.toml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

@@ -9,6 +9,7 @@ ARTIFACT_TYPES: frozenset[str] = frozenset(
         "text",
         "video",
         "audio",
+        "image",
         "asr_transcript",
         "glossary",
         "translation",

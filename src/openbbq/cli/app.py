@@ -24,7 +24,7 @@ from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.plugins.registry import PluginRegistry, discover_plugins
 from openbbq.storage.project_store import ProjectStore
 
-FILE_BACKED_IMPORT_TYPES = frozenset({"audio", "video"})
+FILE_BACKED_IMPORT_TYPES = frozenset({"audio", "image", "video"})
 
 
 def main(argv: list[str] | None = None) -> int:
