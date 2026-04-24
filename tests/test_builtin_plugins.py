@@ -1389,10 +1389,11 @@ class FakeInfo:
 
 
 class FakeWhisperModel:
-    def __init__(self, model, device, compute_type):
+    def __init__(self, model, device, compute_type, download_root=None):
         self.model = model
         self.device = device
         self.compute_type = compute_type
+        self.download_root = download_root
 
     def transcribe(self, audio_path, **kwargs):
         return [FakeSegment()], FakeInfo()
@@ -1430,9 +1431,50 @@ def test_faster_whisper_transcribe_uses_backend_and_returns_segments(tmp_path):
         "model": "base",
         "device": "cpu",
         "compute_type": "int8",
+        "model_cache_dir": None,
         "language": "en",
         "duration_seconds": 1.0,
     }
+
+
+def test_faster_whisper_transcribe_uses_runtime_cache_dir(tmp_path):
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"audio")
+    calls = []
+
+    class RuntimeCacheWhisperModel:
+        def transcribe(self, audio_path, **kwargs):
+            return [FakeSegment()], FakeInfo()
+
+    def fake_model_factory(model_name, *, device, compute_type, download_root=None):
+        calls.append(
+            {
+                "model_name": model_name,
+                "device": device,
+                "compute_type": compute_type,
+                "download_root": download_root,
+            }
+        )
+        return RuntimeCacheWhisperModel()
+
+    whisper_plugin.run(
+        {
+            "tool_name": "transcribe",
+            "parameters": {"model": "base", "device": "cpu", "compute_type": "int8"},
+            "runtime": {"cache": {"faster_whisper": str(tmp_path / "models/fw")}},
+            "inputs": {"audio": {"type": "audio", "file_path": str(audio)}},
+        },
+        model_factory=fake_model_factory,
+    )
+
+    assert calls == [
+        {
+            "model_name": "base",
+            "device": "cpu",
+            "compute_type": "int8",
+            "download_root": str(tmp_path / "models/fw"),
+        }
+    ]
 
 
 def test_faster_whisper_transcribe_forwards_optional_decoder_controls(tmp_path):

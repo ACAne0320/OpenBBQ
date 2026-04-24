@@ -24,8 +24,14 @@ def run(request: dict, model_factory=None) -> dict:
     chunk_length = parameters.get("chunk_length")
     hallucination_silence_threshold = parameters.get("hallucination_silence_threshold")
     vad_parameters = parameters.get("vad_parameters")
+    download_root = _runtime_faster_whisper_cache(request)
     model_factory = _default_model_factory if model_factory is None else model_factory
-    model = model_factory(model_name, device=device, compute_type=compute_type)
+    model = model_factory(
+        model_name,
+        device=device,
+        compute_type=compute_type,
+        download_root=download_root,
+    )
     transcribe_kwargs: dict[str, Any] = {
         "language": language,
         "word_timestamps": word_timestamps,
@@ -59,6 +65,7 @@ def run(request: dict, model_factory=None) -> dict:
                     "model": model_name,
                     "device": device,
                     "compute_type": compute_type,
+                    "model_cache_dir": download_root,
                     "language": getattr(info, "language", language),
                     "duration_seconds": getattr(info, "duration", None),
                 },
@@ -67,14 +74,36 @@ def run(request: dict, model_factory=None) -> dict:
     }
 
 
-def _default_model_factory(model_name: str, *, device: str, compute_type: str):
+def _default_model_factory(
+    model_name: str,
+    *,
+    device: str,
+    compute_type: str,
+    download_root: str | None = None,
+):
     try:
         from faster_whisper import WhisperModel
     except ImportError as exc:
         raise RuntimeError(
             "faster-whisper is not installed. Install OpenBBQ with the media optional dependencies."
         ) from exc
-    return WhisperModel(model_name, device=device, compute_type=compute_type)
+    return WhisperModel(
+        model_name,
+        device=device,
+        compute_type=compute_type,
+        download_root=download_root,
+    )
+
+
+def _runtime_faster_whisper_cache(request: dict) -> str | None:
+    runtime = request.get("runtime", {})
+    if not isinstance(runtime, dict):
+        return None
+    cache = runtime.get("cache", {})
+    if not isinstance(cache, dict):
+        return None
+    value = cache.get("faster_whisper")
+    return value if isinstance(value, str) and value else None
 
 
 def _segment_payload(segment: Any, *, include_words: bool) -> dict[str, Any]:

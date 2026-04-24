@@ -103,7 +103,7 @@ def test_cli_runs_local_video_correction_and_segmentation_flow(tmp_path, monkeyp
         duration = 1.0
 
     class FakeWhisperModel:
-        def __init__(self, model, device, compute_type):
+        def __init__(self, model, device, compute_type, download_root=None):
             pass
 
         def transcribe(self, audio_path, **kwargs):

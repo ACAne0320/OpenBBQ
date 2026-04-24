@@ -68,7 +68,7 @@ def test_cli_runs_local_video_translate_subtitle_with_fake_plugins(tmp_path, mon
         duration = 1.0
 
     class FakeWhisperModel:
-        def __init__(self, model, device, compute_type):
+        def __init__(self, model, device, compute_type, download_root=None):
             pass
 
         def transcribe(self, audio_path, language=None, word_timestamps=True, vad_filter=False):
