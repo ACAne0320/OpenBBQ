@@ -90,6 +90,21 @@ def write_runtime_settings(settings: RuntimeSettings) -> None:
     settings.config_path.write_text(runtime_settings_to_toml(settings), encoding="utf-8")
 
 
+def with_provider_profile(
+    settings: RuntimeSettings,
+    provider: ProviderProfile,
+) -> RuntimeSettings:
+    providers = dict(settings.providers)
+    providers[provider.name] = provider
+    return RuntimeSettings(
+        version=settings.version,
+        config_path=settings.config_path,
+        cache=settings.cache,
+        providers=providers,
+        models=settings.models,
+    )
+
+
 def _load_toml_mapping(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
