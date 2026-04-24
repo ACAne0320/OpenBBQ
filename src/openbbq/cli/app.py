@@ -23,6 +23,7 @@ from openbbq.engine.service import (
 from openbbq.engine.validation import validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.plugins.registry import PluginRegistry, discover_plugins
+from openbbq.runtime.context import build_runtime_context
 from openbbq.runtime.doctor import check_workflow
 from openbbq.runtime.models import ProviderProfile
 from openbbq.runtime.models_assets import faster_whisper_model_status
@@ -300,7 +301,14 @@ def _validate(args: argparse.Namespace) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     config, registry = _load_config_and_plugins(args)
-    result = run_workflow(config, registry, args.workflow, force=args.force, step_id=args.step)
+    result = run_workflow(
+        config,
+        registry,
+        args.workflow,
+        force=args.force,
+        step_id=args.step,
+        runtime_context=_runtime_context(),
+    )
     payload = {
         "ok": True,
         "workflow_id": result.workflow_id,
@@ -314,7 +322,12 @@ def _run(args: argparse.Namespace) -> int:
 
 def _resume(args: argparse.Namespace) -> int:
     config, registry = _load_config_and_plugins(args)
-    result = resume_workflow(config, registry, args.workflow)
+    result = resume_workflow(
+        config,
+        registry,
+        args.workflow,
+        runtime_context=_runtime_context(),
+    )
     payload = {
         "ok": True,
         "workflow_id": result.workflow_id,
@@ -608,6 +621,10 @@ def _doctor(args: argparse.Namespace) -> int:
     }
     _emit(payload, args.json_output, "\n".join(check.message for check in checks))
     return 0
+
+
+def _runtime_context():
+    return build_runtime_context(load_runtime_settings())
 
 
 def _load_config(args: argparse.Namespace):
