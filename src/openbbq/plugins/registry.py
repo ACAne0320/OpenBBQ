@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
 import importlib
 import importlib.util
 from pathlib import Path
@@ -13,7 +12,10 @@ from uuid import uuid4
 import tomllib
 from jsonschema import Draft7Validator
 from jsonschema.exceptions import SchemaError
+from pydantic import Field, field_validator
+from pydantic import ValidationError as PydanticValidationError
 
+from openbbq.domain.base import JsonObject, OpenBBQModel, format_pydantic_error
 from openbbq.errors import PluginError
 
 
@@ -28,40 +30,57 @@ ENTRYPOINT_PATTERN = re.compile(
 )
 
 
-@dataclass(frozen=True, slots=True)
-class ToolSpec:
+class ToolSpec(OpenBBQModel):
     plugin_name: str
     name: str
     description: str
     input_artifact_types: list[str]
     output_artifact_types: list[str]
-    parameter_schema: dict[str, Any]
+    parameter_schema: JsonObject
     effects: list[str]
     manifest_path: Path
 
+    @field_validator("plugin_name", "name", "description")
+    @classmethod
+    def nonempty_string(cls, value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("must be a non-empty string")
+        return value
 
-@dataclass(frozen=True, slots=True)
-class PluginSpec:
+    @field_validator("input_artifact_types", "output_artifact_types", "effects")
+    @classmethod
+    def list_of_strings(cls, value: list[str]) -> list[str]:
+        if any(not isinstance(item, str) for item in value):
+            raise ValueError("must be a list of strings")
+        return value
+
+    @field_validator("output_artifact_types")
+    @classmethod
+    def nonempty_output_types(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("must not be empty")
+        return value
+
+
+class PluginSpec(OpenBBQModel):
     name: str
     version: str
     runtime: str
     entrypoint: str
     manifest_path: Path
-    tools: tuple[ToolSpec, ...] = field(default_factory=tuple)
+    tools: tuple[ToolSpec, ...] = ()
 
 
-@dataclass(frozen=True, slots=True)
-class InvalidPlugin:
+class InvalidPlugin(OpenBBQModel):
     path: Path
     error: str
 
 
-@dataclass(frozen=True, slots=True)
-class PluginRegistry:
-    plugins: dict[str, PluginSpec] = field(default_factory=dict)
-    tools: dict[str, ToolSpec] = field(default_factory=dict)
-    invalid_plugins: list[InvalidPlugin] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+class PluginRegistry(OpenBBQModel):
+    plugins: dict[str, PluginSpec] = Field(default_factory=dict)
+    tools: dict[str, ToolSpec] = Field(default_factory=dict)
+    invalid_plugins: list[InvalidPlugin] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 def discover_plugins(plugin_paths: Iterable[Path | str]) -> PluginRegistry:
@@ -225,14 +244,17 @@ def _parse_plugin_manifest(manifest_path: Path, manifest: Any) -> PluginSpec:
         seen_tool_names.add(tool.name)
         tools.append(tool)
 
-    return PluginSpec(
-        name=name,
-        version=version,
-        runtime=runtime,
-        entrypoint=entrypoint,
-        manifest_path=manifest_path,
-        tools=tuple(tools),
-    )
+    try:
+        return PluginSpec(
+            name=name,
+            version=version,
+            runtime=runtime,
+            entrypoint=entrypoint,
+            manifest_path=manifest_path,
+            tools=tuple(tools),
+        )
+    except PydanticValidationError as exc:
+        raise ValueError(format_pydantic_error("plugin manifest", exc)) from exc
 
 
 def _parse_tool_manifest(
@@ -261,20 +283,25 @@ def _parse_tool_manifest(
     if not isinstance(schema, dict):
         raise ValueError(f"tools[{index}].parameter_schema must be a table.")
     try:
-        Draft7Validator.check_schema(schema)
+        tool = ToolSpec(
+            plugin_name=plugin_name,
+            name=name,
+            description=description,
+            input_artifact_types=input_artifact_types,
+            output_artifact_types=output_artifact_types,
+            parameter_schema=schema,
+            effects=effects,
+            manifest_path=manifest_path,
+        )
+    except PydanticValidationError as exc:
+        raise ValueError(format_pydantic_error(f"tools[{index}]", exc)) from exc
+
+    try:
+        Draft7Validator.check_schema(tool.parameter_schema)
     except SchemaError as exc:
         raise ValueError(_format_schema_error(index, exc)) from exc
 
-    return ToolSpec(
-        plugin_name=plugin_name,
-        name=name,
-        description=description,
-        input_artifact_types=input_artifact_types,
-        output_artifact_types=output_artifact_types,
-        parameter_schema=schema,
-        effects=effects,
-        manifest_path=manifest_path,
-    )
+    return tool
 
 
 def _require_nonempty_string(value: Any, field_name: str) -> str:

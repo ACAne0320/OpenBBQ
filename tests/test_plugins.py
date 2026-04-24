@@ -2,9 +2,10 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from openbbq.config.loader import load_project_config
-from openbbq.plugins.registry import discover_plugins
+from openbbq.plugins.registry import PluginRegistry, ToolSpec, discover_plugins
 
 
 def _write_plugin(directory: Path, manifest: str, plugin_py: str | None = None) -> Path:
@@ -20,6 +21,31 @@ def test_discovers_mock_text_tools_without_importing_plugin_code():
     registry = discover_plugins(config.plugin_paths)
     assert "mock_text.uppercase" in registry.tools
     assert registry.tools["mock_text.uppercase"].output_artifact_types == ["text"]
+
+
+def test_tool_spec_rejects_non_object_parameter_schema(tmp_path):
+    with pytest.raises(PydanticValidationError) as exc:
+        ToolSpec(
+            plugin_name="demo",
+            name="echo",
+            description="Echo text.",
+            input_artifact_types=[],
+            output_artifact_types=["text"],
+            parameter_schema=[],
+            effects=[],
+            manifest_path=tmp_path / "openbbq.plugin.toml",
+        )
+
+    assert "parameter_schema" in str(exc.value)
+
+
+def test_plugin_registry_defaults_to_empty_collections():
+    registry = PluginRegistry()
+
+    assert registry.plugins == {}
+    assert registry.tools == {}
+    assert registry.invalid_plugins == []
+    assert registry.warnings == []
 
 
 def test_discovers_plugin_roots_and_child_directories(tmp_path):
