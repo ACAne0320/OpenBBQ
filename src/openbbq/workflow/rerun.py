@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Iterable
 
+from openbbq.storage.models import OutputBinding
 from openbbq.storage.project_store import ProjectStore
 
 
@@ -48,6 +49,8 @@ def mark_running_step_runs_failed(
 
 
 def _artifact_id(binding: Any) -> str | None:
+    if isinstance(binding, OutputBinding):
+        return binding.artifact_id
     if not isinstance(binding, dict):
         return None
     artifact_id = binding.get("artifact_id")

@@ -7,20 +7,21 @@ from typing import Any, Iterable
 from openbbq.domain.base import dump_jsonable
 from openbbq.errors import ExecutionError
 from openbbq.domain.models import ProjectConfig, WorkflowConfig
+from openbbq.storage.models import OutputBindings, WorkflowState
 from openbbq.storage.project_store import ProjectStore
 
 
-def build_pending_state(workflow: WorkflowConfig) -> dict[str, Any]:
-    return {
-        "id": workflow.id,
-        "name": workflow.name,
-        "status": "pending",
-        "current_step_id": workflow.steps[0].id if workflow.steps else None,
-        "step_run_ids": [],
-    }
+def build_pending_state(workflow: WorkflowConfig) -> WorkflowState:
+    return WorkflowState(
+        id=workflow.id,
+        name=workflow.name,
+        status="pending",
+        current_step_id=workflow.steps[0].id if workflow.steps else None,
+        step_run_ids=(),
+    )
 
 
-def read_effective_workflow_state(store: ProjectStore, workflow: WorkflowConfig) -> dict[str, Any]:
+def read_effective_workflow_state(store: ProjectStore, workflow: WorkflowConfig) -> WorkflowState:
     try:
         return store.read_workflow_state(workflow.id)
     except FileNotFoundError:
@@ -51,17 +52,19 @@ def compute_workflow_config_hash(config: ProjectConfig, workflow_id: str) -> str
 
 def rebuild_output_bindings(
     store: ProjectStore, workflow_id: str, step_run_ids: Iterable[str]
-) -> dict[str, dict[str, str]]:
-    bindings: dict[str, dict[str, str]] = {}
+) -> OutputBindings:
+    bindings: OutputBindings = {}
     for step_run_id in step_run_ids:
         try:
             step_run = store.read_step_run(workflow_id, step_run_id)
         except FileNotFoundError:
             continue
-        if step_run.get("status") != "completed":
+        if step_run.status != "completed":
             continue
-        step_id = step_run["step_id"]
-        for output_name, binding in step_run.get("output_bindings", {}).items():
-            bindings[f"{step_id}.{output_name}"] = dict(binding)
+        step_id = step_run.step_id
+        if step_id is None:
+            continue
+        for output_name, binding in step_run.output_bindings.items():
+            bindings[f"{step_id}.{output_name}"] = binding
     return bindings
 

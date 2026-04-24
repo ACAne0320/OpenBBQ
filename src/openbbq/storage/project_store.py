@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -9,7 +8,17 @@ from tempfile import NamedTemporaryFile
 from typing import Any, Mapping
 from uuid import uuid4
 
+from openbbq.domain.base import dump_jsonable
 from openbbq.errors import ArtifactNotFoundError
+from openbbq.storage.models import (
+    ArtifactRecord,
+    ArtifactVersionRecord,
+    StoredArtifact,
+    StoredArtifactVersion,
+    StepRunRecord,
+    WorkflowEvent,
+    WorkflowState,
+)
 
 
 class IdGenerator:
@@ -24,29 +33,6 @@ class IdGenerator:
 
     def workflow_event_id(self) -> str:
         return f"evt_{uuid4().hex}"
-
-
-@dataclass(frozen=True, slots=True)
-class StoredArtifact:
-    record: dict[str, Any]
-
-    @property
-    def id(self) -> str:
-        return self.record["id"]
-
-
-@dataclass(frozen=True, slots=True)
-class StoredArtifactVersion:
-    record: dict[str, Any]
-    content: Any
-
-    @property
-    def id(self) -> str:
-        return self.record["id"]
-
-    @property
-    def artifact_id(self) -> str:
-        return self.record["artifact_id"]
 
 
 class ProjectStore:
@@ -69,7 +55,9 @@ class ProjectStore:
 
     def write_json_atomic(self, path: Path, data: Mapping[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        payload = json.dumps(
+            dump_jsonable(data), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
         with NamedTemporaryFile(
             "w",
             encoding="utf-8",
@@ -85,7 +73,7 @@ class ProjectStore:
         temp_path.replace(path)
         self._fsync_parent(path.parent)
 
-    def append_event(self, workflow_id: str, event: Mapping[str, Any]) -> dict[str, Any]:
+    def append_event(self, workflow_id: str, event: Mapping[str, Any]) -> WorkflowEvent:
         events_path = self._workflow_dir(workflow_id) / "events.jsonl"
         events_path.parent.mkdir(parents=True, exist_ok=True)
         self._truncate_trailing_partial_jsonl_line(events_path)
@@ -100,65 +88,77 @@ class ProjectStore:
             handle.flush()
             os.fsync(handle.fileno())
         self._fsync_parent(events_path.parent)
-        return record
+        return WorkflowEvent.model_validate(record)
 
-    def write_workflow_state(self, workflow_id: str, state: Mapping[str, Any]) -> dict[str, Any]:
+    def write_workflow_state(
+        self, workflow_id: str, state: Mapping[str, Any] | WorkflowState
+    ) -> WorkflowState:
         state_path = self._workflow_dir(workflow_id) / "state.json"
-        record = dict(state)
+        record = dict(dump_jsonable(state))
         record["id"] = workflow_id
-        self.write_json_atomic(state_path, record)
-        return record
+        workflow_state = WorkflowState.model_validate(record)
+        self.write_json_atomic(state_path, workflow_state.model_dump(mode="json"))
+        return workflow_state
 
-    def read_workflow_state(self, workflow_id: str) -> dict[str, Any]:
+    def read_workflow_state(self, workflow_id: str) -> WorkflowState:
         state_path = self._workflow_dir(workflow_id) / "state.json"
         if not state_path.exists():
             raise FileNotFoundError(state_path)
-        return json.loads(state_path.read_text(encoding="utf-8"))
+        return WorkflowState.model_validate(json.loads(state_path.read_text(encoding="utf-8")))
 
-    def write_step_run(self, workflow_id: str, step_run: Mapping[str, Any]) -> dict[str, Any]:
-        record = dict(step_run)
+    def write_step_run(
+        self, workflow_id: str, step_run: Mapping[str, Any] | StepRunRecord
+    ) -> StepRunRecord:
+        record = dict(dump_jsonable(step_run))
         record["workflow_id"] = workflow_id
         step_run_id = record.get("id")
         if not step_run_id:
             step_run_id = self.id_generator.step_run_id()
             record["id"] = step_run_id
+        typed = StepRunRecord.model_validate(record)
         path = self._workflow_dir(workflow_id) / "step-runs" / f"{step_run_id}.json"
-        self.write_json_atomic(path, record)
-        return record
+        self.write_json_atomic(path, typed.model_dump(mode="json"))
+        return typed
 
-    def read_step_run(self, workflow_id: str, step_run_id: str) -> dict[str, Any]:
+    def read_step_run(self, workflow_id: str, step_run_id: str) -> StepRunRecord:
         path = self._workflow_dir(workflow_id) / "step-runs" / f"{step_run_id}.json"
         if not path.exists():
             raise FileNotFoundError(path)
-        return json.loads(path.read_text(encoding="utf-8"))
+        return StepRunRecord.model_validate(json.loads(path.read_text(encoding="utf-8")))
 
-    def list_artifacts(self) -> list[dict[str, Any]]:
-        artifacts: list[dict[str, Any]] = []
+    def list_artifacts(self) -> list[ArtifactRecord]:
+        artifacts: list[ArtifactRecord] = []
         for artifact_dir in sorted(self.artifacts_root.iterdir(), key=lambda path: path.name):
             artifact_file = artifact_dir / "artifact.json"
             if artifact_file.exists():
-                artifacts.append(json.loads(artifact_file.read_text(encoding="utf-8")))
-        artifacts.sort(key=lambda record: (record.get("created_at", ""), record["id"]))
+                artifacts.append(
+                    ArtifactRecord.model_validate(
+                        json.loads(artifact_file.read_text(encoding="utf-8"))
+                    )
+                )
+        artifacts.sort(key=lambda record: (record.created_at, record.id))
         return artifacts
 
-    def read_artifact(self, artifact_id: str) -> dict[str, Any]:
+    def read_artifact(self, artifact_id: str) -> ArtifactRecord:
         artifact_file = self._artifact_dir(artifact_id) / "artifact.json"
         if not artifact_file.exists():
             raise ArtifactNotFoundError(f"artifact not found: {artifact_id}")
-        return json.loads(artifact_file.read_text(encoding="utf-8"))
+        return ArtifactRecord.model_validate(json.loads(artifact_file.read_text(encoding="utf-8")))
 
     def read_artifact_version(self, version_id: str) -> StoredArtifactVersion:
         version_path = self._find_version_path(version_id)
         if version_path is None:
             raise ArtifactNotFoundError(f"artifact version not found: {version_id}")
-        record = json.loads((version_path / "version.json").read_text(encoding="utf-8"))
-        content_path = Path(record["content_path"])
-        encoding = record.get("content_encoding", "text")
+        record = ArtifactVersionRecord.model_validate(
+            json.loads((version_path / "version.json").read_text(encoding="utf-8"))
+        )
+        content_path = record.content_path
+        encoding = record.content_encoding
         if encoding == "file":
             content = {
                 "file_path": str(content_path),
-                "size": record["content_size"],
-                "sha256": record["content_hash"],
+                "size": record.content_size,
+                "sha256": record.content_hash,
             }
         elif encoding == "bytes":
             content = content_path.read_bytes()
@@ -229,9 +229,12 @@ class ProjectStore:
         artifact["current_version_id"] = version_id
         artifact["updated_at"] = timestamp
         self.write_json_atomic(self._artifact_dir(artifact["id"]) / "artifact.json", artifact)
-        return StoredArtifact(record=artifact), StoredArtifactVersion(
-            record=version_record,
-            content=stored_content,
+        return (
+            StoredArtifact(record=ArtifactRecord.model_validate(artifact)),
+            StoredArtifactVersion(
+                record=ArtifactVersionRecord.model_validate(version_record),
+                content=stored_content,
+            ),
         )
 
     def _load_or_create_artifact(
@@ -243,7 +246,7 @@ class ProjectStore:
         created_by_step_id: str | None,
     ) -> dict[str, Any]:
         if artifact_id is not None:
-            artifact = self.read_artifact(artifact_id)
+            artifact = self.read_artifact(artifact_id).model_dump(mode="json")
             if artifact["type"] != artifact_type:
                 raise ValueError(
                     f"artifact type mismatch for {artifact_id}: {artifact['type']} != {artifact_type}"

@@ -9,20 +9,12 @@ import sys
 from types import TracebackType
 
 from openbbq.errors import ExecutionError
+from openbbq.storage.models import WorkflowLockInfo
 from openbbq.storage.project_store import ProjectStore
 
 
 def workflow_lock_path(store: ProjectStore, workflow_id: str) -> Path:
     return store.state_root / f"{workflow_id}.lock"
-
-
-@dataclass(frozen=True, slots=True)
-class WorkflowLockInfo:
-    path: Path
-    workflow_id: str
-    pid: int | None
-    created_at: str | None
-    stale: bool
 
 
 @dataclass(frozen=True, slots=True)

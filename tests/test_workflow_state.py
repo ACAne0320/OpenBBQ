@@ -23,7 +23,8 @@ def test_build_pending_state_for_missing_workflow_state():
     assert state["id"] == "text-demo"
     assert state["status"] == "pending"
     assert state["current_step_id"] == "seed"
-    assert state["step_run_ids"] == []
+    assert state["step_run_ids"] == ()
+    assert state.model_dump(mode="json")["step_run_ids"] == []
 
 
 def test_read_effective_workflow_state_returns_pending_when_missing(tmp_path):

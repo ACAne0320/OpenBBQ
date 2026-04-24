@@ -131,7 +131,7 @@ def _run_workflow_step(
     raw_step_run_ids = existing_state.get("step_run_ids", [])
     step_run_ids = (
         [step_run_id for step_run_id in raw_step_run_ids if isinstance(step_run_id, str)]
-        if isinstance(raw_step_run_ids, list)
+        if isinstance(raw_step_run_ids, (list, tuple))
         else []
     )
     with WorkflowLock.acquire(store, workflow.id):
@@ -167,7 +167,7 @@ def _force_run_workflow(
     raw_step_run_ids = existing_state.get("step_run_ids", [])
     step_run_ids = (
         [step_run_id for step_run_id in raw_step_run_ids if isinstance(step_run_id, str)]
-        if isinstance(raw_step_run_ids, list)
+        if isinstance(raw_step_run_ids, (list, tuple))
         else []
     )
     with WorkflowLock.acquire(store, workflow.id):
