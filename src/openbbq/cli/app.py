@@ -177,6 +177,13 @@ def _build_parser() -> argparse.ArgumentParser:
     doctor = subparsers.add_parser("doctor", parents=[subcommand_global_options])
     doctor.add_argument("--workflow")
 
+    api = subparsers.add_parser("api", parents=[subcommand_global_options])
+    api_sub = api.add_subparsers(dest="api_command", required=True)
+    api_serve = api_sub.add_parser("serve", parents=[subcommand_global_options])
+    api_serve.add_argument("--host", default="127.0.0.1")
+    api_serve.add_argument("--port", type=int, default=0)
+    api_serve.add_argument("--token")
+
     subtitle = subparsers.add_parser("subtitle", parents=[subcommand_global_options])
     subtitle_sub = subtitle.add_subparsers(dest="subtitle_command", required=True)
     subtitle_local = subtitle_sub.add_parser("local", parents=[subcommand_global_options])
@@ -316,6 +323,25 @@ def _dispatch(args: argparse.Namespace) -> int:
             return _models_list(args)
     if args.command == "doctor":
         return _doctor(args)
+    if args.command == "api":
+        if args.api_command == "serve":
+            from openbbq.api.server import main as api_server_main
+
+            argv = [
+                "--project",
+                str(args.project),
+                "--host",
+                args.host,
+                "--port",
+                str(args.port),
+            ]
+            if args.config:
+                argv.extend(["--config", str(args.config)])
+            for plugin_path in args.plugins:
+                argv.extend(["--plugins", str(plugin_path)])
+            if args.token:
+                argv.extend(["--token", args.token])
+            return api_server_main(argv)
     if args.command == "subtitle":
         if args.subtitle_command == "local":
             return _subtitle_local(args)
