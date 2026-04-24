@@ -28,7 +28,7 @@ def test_runtime_context_is_passed_to_plugin_request_without_persistence(
     tmp_path,
     monkeypatch,
 ):
-    from openbbq.workflow import execution
+    from openbbq.workflow import steps
 
     captured = {}
 
@@ -44,7 +44,7 @@ def test_runtime_context_is_passed_to_plugin_request_without_persistence(
             }
         }
 
-    monkeypatch.setattr(execution, "execute_plugin_tool", fake_execute_plugin_tool)
+    monkeypatch.setattr(steps, "execute_plugin_tool", fake_execute_plugin_tool)
     project = write_project(tmp_path, "text-basic")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
@@ -61,12 +61,13 @@ def test_runtime_context_is_passed_to_plugin_request_without_persistence(
 
 
 def test_plugin_error_is_redacted_before_state_and_cli_error(tmp_path, monkeypatch):
-    from openbbq.workflow import execution
+    from openbbq.errors import PluginError
+    from openbbq.workflow import steps
 
     def fake_execute_plugin_tool(plugin, tool, request, redactor=None):
-        raise execution.PluginError(redactor("failed with sk-secret"))
+        raise PluginError(redactor("failed with sk-secret"))
 
-    monkeypatch.setattr(execution, "execute_plugin_tool", fake_execute_plugin_tool)
+    monkeypatch.setattr(steps, "execute_plugin_tool", fake_execute_plugin_tool)
     project = write_project(tmp_path, "text-basic")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
@@ -85,7 +86,7 @@ def test_plugin_error_is_redacted_before_state_and_cli_error(tmp_path, monkeypat
 
 
 def test_plugin_events_are_wrapped_and_redacted(tmp_path, monkeypatch):
-    from openbbq.workflow import execution
+    from openbbq.workflow import steps
 
     def fake_execute_plugin_tool(plugin, tool, request, redactor=None):
         return {
@@ -105,7 +106,7 @@ def test_plugin_events_are_wrapped_and_redacted(tmp_path, monkeypatch):
             ],
         }
 
-    monkeypatch.setattr(execution, "execute_plugin_tool", fake_execute_plugin_tool)
+    monkeypatch.setattr(steps, "execute_plugin_tool", fake_execute_plugin_tool)
     project = write_project(tmp_path, "text-basic")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
