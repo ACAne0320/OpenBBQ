@@ -19,6 +19,13 @@ from openbbq.application.artifacts import (
     list_artifacts as list_artifacts_command,
     show_artifact,
 )
+from openbbq.application.plugins import plugin_info as plugin_info_command
+from openbbq.application.plugins import plugin_list as plugin_list_command
+from openbbq.application.projects import (
+    ProjectInitRequest,
+    init_project as init_project_command,
+    project_info as project_info_command,
+)
 from openbbq.application.workflows import (
     WorkflowCommandRequest,
     WorkflowRunRequest,
@@ -313,23 +320,16 @@ def _dispatch(args: argparse.Namespace) -> int:
 
 
 def _init_project(args: argparse.Namespace) -> int:
-    project_root = Path(args.project).expanduser().resolve()
-    project_root.mkdir(parents=True, exist_ok=True)
-    config_path = (
-        Path(args.config).expanduser().resolve() if args.config else project_root / "openbbq.yaml"
+    result = init_project_command(
+        ProjectInitRequest(
+            project_root=Path(args.project),
+            config_path=Path(args.config) if args.config else None,
+        )
     )
-    if config_path.exists():
-        raise ValidationError(f"Project config already exists: {config_path}", exit_code=1)
-    config_path.write_text(
-        "version: 1\n\nproject:\n  name: OpenBBQ Project\n\nworkflows: {}\n",
-        encoding="utf-8",
-    )
-    (project_root / ".openbbq" / "artifacts").mkdir(parents=True, exist_ok=True)
-    (project_root / ".openbbq" / "state").mkdir(parents=True, exist_ok=True)
     _emit(
-        {"ok": True, "config_path": str(config_path)},
+        {"ok": True, "config_path": str(result.config_path)},
         args.json_output,
-        f"Initialized {config_path}",
+        f"Initialized {result.config_path}",
     )
     return 0
 
@@ -351,17 +351,21 @@ def _project_list(args: argparse.Namespace) -> int:
 
 
 def _project_info(args: argparse.Namespace) -> int:
-    config = _load_config(args)
+    info = project_info_command(
+        project_root=Path(args.project),
+        config_path=Path(args.config) if args.config else None,
+        plugin_paths=tuple(Path(path) for path in args.plugins),
+    )
     payload = {
         "ok": True,
-        "project": {"id": config.project.id, "name": config.project.name},
-        "root_path": str(config.root_path),
-        "config_path": str(config.config_path),
-        "workflow_count": len(config.workflows),
-        "plugin_paths": [str(path) for path in config.plugin_paths],
-        "artifact_storage_path": str(config.storage.artifacts),
+        "project": {"id": info.id, "name": info.name},
+        "root_path": str(info.root_path),
+        "config_path": str(info.config_path),
+        "workflow_count": info.workflow_count,
+        "plugin_paths": [str(path) for path in info.plugin_paths],
+        "artifact_storage_path": str(info.artifact_storage_path),
     }
-    _emit(payload, args.json_output, f"{config.project.name}: {len(config.workflows)} workflow(s)")
+    _emit(payload, args.json_output, f"{info.name}: {info.workflow_count} workflow(s)")
     return 0
 
 
@@ -586,57 +590,30 @@ def _default_provider_keyring_reference(name: str) -> str:
 
 
 def _plugin_list(args: argparse.Namespace) -> int:
-    registry = _load_registry(args)
-    plugins = [
-        {
-            "name": plugin.name,
-            "version": plugin.version,
-            "runtime": plugin.runtime,
-            "manifest_path": str(plugin.manifest_path),
-        }
-        for plugin in registry.plugins.values()
-    ]
-    invalid = [
-        {"path": str(invalid_plugin.path), "error": invalid_plugin.error}
-        for invalid_plugin in registry.invalid_plugins
-    ]
+    result = plugin_list_command(
+        project_root=Path(args.project),
+        config_path=Path(args.config) if args.config else None,
+        plugin_paths=tuple(Path(path) for path in args.plugins),
+    )
     payload = {
         "ok": True,
-        "plugins": plugins,
-        "invalid_plugins": invalid,
-        "warnings": registry.warnings,
+        "plugins": list(result.plugins),
+        "invalid_plugins": list(result.invalid_plugins),
+        "warnings": list(result.warnings),
     }
-    _emit(payload, args.json_output, "\n".join(plugin["name"] for plugin in plugins))
+    _emit(payload, args.json_output, "\n".join(plugin["name"] for plugin in result.plugins))
     return 0
 
 
 def _plugin_info(args: argparse.Namespace) -> int:
-    registry = _load_registry(args)
-    plugin = registry.plugins.get(args.name)
-    if plugin is None:
-        raise ValidationError(f"Plugin '{args.name}' was not found.", exit_code=4)
-    payload = {
-        "ok": True,
-        "plugin": {
-            "name": plugin.name,
-            "version": plugin.version,
-            "runtime": plugin.runtime,
-            "entrypoint": plugin.entrypoint,
-            "manifest_path": str(plugin.manifest_path),
-            "tools": [
-                {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "input_artifact_types": tool.input_artifact_types,
-                    "output_artifact_types": tool.output_artifact_types,
-                    "parameter_schema": tool.parameter_schema,
-                    "effects": tool.effects,
-                }
-                for tool in plugin.tools
-            ],
-        },
-    }
-    _emit(payload, args.json_output, plugin.name)
+    result = plugin_info_command(
+        project_root=Path(args.project),
+        config_path=Path(args.config) if args.config else None,
+        plugin_paths=tuple(Path(path) for path in args.plugins),
+        plugin_name=args.name,
+    )
+    payload = {"ok": True, "plugin": result.plugin}
+    _emit(payload, args.json_output, result.plugin["name"])
     return 0
 
 
