@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import re
 from typing import Any
+
+from .rules import apply_text_rules, normalize_rules
 
 
 def run(request: dict) -> dict:
     if request.get("tool_name") != "replace":
         raise ValueError(f"Unsupported tool: {request.get('tool_name')}")
     segments = _segments(request)
-    rules = request.get("parameters", {}).get("rules", [])
+    rules = normalize_rules(
+        request.get("parameters", {}).get("rules", []),
+        parameter_name="rules",
+        tool_name="glossary.replace",
+    )
     updated = [_apply_rules(segment, rules) for segment in segments]
     return {
         "outputs": {
@@ -40,17 +45,5 @@ def _segments(request: dict) -> list[dict[str, Any]]:
 
 def _apply_rules(segment: dict[str, Any], rules: list[dict[str, Any]]) -> dict[str, Any]:
     next_segment = deepcopy(segment)
-    text = str(next_segment.get("text", ""))
-    for rule in rules:
-        find = str(rule["find"])
-        replace = str(rule["replace"])
-        if rule.get("is_regex", False):
-            flags = 0 if rule.get("case_sensitive", False) else re.IGNORECASE
-            text = re.sub(find, replace, text, flags=flags)
-            continue
-        if rule.get("case_sensitive", False):
-            text = text.replace(find, replace)
-        else:
-            text = re.sub(re.escape(find), replace, text, flags=re.IGNORECASE)
-    next_segment["text"] = text
+    next_segment["text"] = apply_text_rules(str(next_segment.get("text", "")), rules)
     return next_segment

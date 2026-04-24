@@ -30,5 +30,6 @@ def test_domain_models_exports_artifact_type_registry():
         "subtitle_segments",
         "glossary",
         "translation",
+        "translation_qa",
         "subtitle",
     }.issubset(models.ARTIFACT_TYPES)

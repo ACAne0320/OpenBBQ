@@ -56,6 +56,7 @@ def test_builtin_plugin_path_is_discovered_by_default(tmp_path):
     assert "remote_video.download" in registry.tools
     assert "subtitle.export" in registry.tools
     assert "translation.translate" in registry.tools
+    assert "translation.qa" in registry.tools
     assert "transcript.correct" in registry.tools
     assert "transcript.segment" in registry.tools
 
@@ -67,10 +68,10 @@ def test_glossary_replace_updates_segment_text_and_preserves_other_fields():
             "parameters": {
                 "rules": [
                     {
-                        "find": "Open BBQ",
-                        "replace": "OpenBBQ",
-                        "is_regex": False,
-                        "case_sensitive": False,
+                        "source": "OpenBBQ",
+                        "target": "OpenBBQ",
+                        "aliases": ["Open BBQ", "Open Barbecue"],
+                        "protected": True,
                     },
                     {
                         "find": r"frieren",
@@ -87,7 +88,7 @@ def test_glossary_replace_updates_segment_text_and_preserves_other_fields():
                         {
                             "start": 0.0,
                             "end": 1.5,
-                            "text": "open bbq talks about frieren",
+                            "text": "open barbecue talks about frieren",
                             "confidence": -0.1,
                             "words": [{"start": 0.0, "end": 0.4, "text": "open"}],
                         },
@@ -561,6 +562,7 @@ def test_llm_translate_uses_openai_client_and_returns_translation(monkeypatch):
                     {"start": 1.5, "end": 3.0, "source_text": "OpenBBQ", "text": "OpenBBQ"},
                 ],
                 "metadata": {
+                    "glossary_rule_count": 0,
                     "source_lang": "en",
                     "target_lang": "zh-Hans",
                     "model": "gpt-4o-mini",
@@ -587,13 +589,20 @@ def test_translation_translate_uses_openai_client_and_returns_translation(monkey
                 "target_lang": "zh-Hans",
                 "model": "gpt-4o-mini",
                 "temperature": 0,
+                "glossary_rules": [
+                    {
+                        "find": "Open BBQ",
+                        "replace": "OpenBBQ",
+                        "aliases": ["Open Barbecue"],
+                    }
+                ],
             },
             "inputs": {
                 "transcript": {
                     "type": "subtitle_segments",
                     "content": [
                         {"start": 0.0, "end": 1.5, "text": "Hello"},
-                        {"start": 1.5, "end": 3.0, "text": "OpenBBQ"},
+                        {"start": 1.5, "end": 3.0, "text": "Open BBQ"},
                     ],
                 }
             },
@@ -602,15 +611,21 @@ def test_translation_translate_uses_openai_client_and_returns_translation(monkey
     )
 
     assert factory.calls == [{"api_key": "test-key", "base_url": "https://llm.example/v1"}]
+    call = factory.client.chat.completions.calls[0]
+    payload = json.loads(call["messages"][1]["content"])
+    assert payload["glossary_rules"] == [
+        {"source": "Open BBQ", "target": "OpenBBQ", "aliases": ["Open Barbecue"]}
+    ]
     assert response == {
         "outputs": {
             "translation": {
                 "type": "translation",
                 "content": [
                     {"start": 0.0, "end": 1.5, "source_text": "Hello", "text": "你好"},
-                    {"start": 1.5, "end": 3.0, "source_text": "OpenBBQ", "text": "OpenBBQ"},
+                    {"start": 1.5, "end": 3.0, "source_text": "Open BBQ", "text": "OpenBBQ"},
                 ],
                 "metadata": {
+                    "glossary_rule_count": 1,
                     "source_lang": "en",
                     "target_lang": "zh-Hans",
                     "model": "gpt-4o-mini",
@@ -782,6 +797,127 @@ def test_llm_translate_splits_chunk_when_model_returns_too_few_segments(monkeypa
     assert response["outputs"]["translation"]["content"][-1]["text"] == "right-9"
 
 
+def test_translation_qa_reports_term_number_and_readability_issues():
+    response = translation_plugin.run(
+        {
+            "tool_name": "qa",
+            "parameters": {
+                "max_lines": 2,
+                "max_chars_per_line": 12,
+                "max_chars_per_second": 10,
+                "glossary_rules": [
+                    {
+                        "source": "OpenBBQ",
+                        "target": "OpenBBQ",
+                        "aliases": ["Open BBQ"],
+                        "protected": True,
+                    }
+                ],
+            },
+            "inputs": {
+                "translation": {
+                    "type": "translation",
+                    "content": [
+                        {
+                            "start": 0.0,
+                            "end": 1.0,
+                            "source_text": "Open BBQ ships in 2026",
+                            "text": "产品会在 2025 年发布，而且这一行非常长",
+                        },
+                        {
+                            "start": 1.0,
+                            "end": 3.0,
+                            "source_text": "Stable output",
+                            "text": "one\ntwo\nthree",
+                        },
+                    ],
+                }
+            },
+        }
+    )
+
+    assert response == {
+        "outputs": {
+            "qa": {
+                "type": "translation_qa",
+                "content": {
+                    "issues": [
+                        {
+                            "segment_index": 0,
+                            "code": "line_too_long",
+                            "severity": "warning",
+                            "message": "Translated subtitle line length 22 exceeds the configured maximum of 12.",
+                            "details": {
+                                "longest_line_length": 22,
+                                "max_chars_per_line": 12,
+                            },
+                        },
+                        {
+                            "segment_index": 0,
+                            "code": "cps_too_high",
+                            "severity": "warning",
+                            "message": "Translated subtitle reads at 20.00 chars/s; configured maximum is 10.00.",
+                            "details": {
+                                "chars_per_second": 20.0,
+                                "max_chars_per_second": 10.0,
+                            },
+                        },
+                        {
+                            "segment_index": 0,
+                            "code": "number_mismatch",
+                            "severity": "warning",
+                            "message": "Translated subtitle numbers do not match the source segment.",
+                            "details": {
+                                "source_numbers": ["2026"],
+                                "translated_numbers": ["2025"],
+                            },
+                        },
+                        {
+                            "segment_index": 0,
+                            "code": "term_mismatch",
+                            "severity": "warning",
+                            "message": "Translated subtitle did not preserve expected terminology 'OpenBBQ'.",
+                            "details": {
+                                "source_term": "OpenBBQ",
+                                "expected_target": "OpenBBQ",
+                            },
+                        },
+                        {
+                            "segment_index": 1,
+                            "code": "too_many_lines",
+                            "severity": "warning",
+                            "message": "Translated subtitle uses 3 lines; configured maximum is 2.",
+                            "details": {"line_count": 3, "max_lines": 2},
+                        },
+                    ],
+                    "summary": {
+                        "segment_count": 2,
+                        "issue_count": 5,
+                        "segments_with_issues": 2,
+                        "glossary_rule_count": 1,
+                        "cps_too_high_count": 1,
+                        "line_too_long_count": 1,
+                        "number_mismatch_count": 1,
+                        "term_mismatch_count": 1,
+                        "too_many_lines_count": 1,
+                    },
+                },
+                "metadata": {
+                    "segment_count": 2,
+                    "issue_count": 5,
+                    "segments_with_issues": 2,
+                    "glossary_rule_count": 1,
+                    "cps_too_high_count": 1,
+                    "line_too_long_count": 1,
+                    "number_mismatch_count": 1,
+                    "term_mismatch_count": 1,
+                    "too_many_lines_count": 1,
+                },
+            }
+        }
+    }
+
+
 def test_transcript_correct_uses_openai_client_and_returns_corrected_transcript(monkeypatch):
     monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
     monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
@@ -845,7 +981,7 @@ def test_transcript_correct_uses_openai_client_and_returns_corrected_transcript(
     assert payload["source_lang"] == "en"
     assert payload["domain_context"] == "Anime and software discussion."
     assert payload["glossary_rules"] == [
-        {"find": "Open BBQ", "replace": "OpenBBQ", "aliases": ["Open Barbecue"]}
+        {"source": "Open BBQ", "target": "OpenBBQ", "aliases": ["Open Barbecue"]}
     ]
     assert payload["segments"][0]["low_confidence_words"] == [
         {"text": "Open", "start": 0.3, "end": 0.6, "confidence": 0.45},

@@ -38,3 +38,101 @@ type = "string"
 
 [tools.parameter_schema.properties.base_url]
 type = "string"
+
+[tools.parameter_schema.properties.glossary_rules]
+type = "array"
+default = []
+
+[tools.parameter_schema.properties.glossary_rules.items]
+type = "object"
+additionalProperties = false
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.source]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.target]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.find]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.replace]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.aliases]
+type = "array"
+items = { type = "string" }
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.protected]
+type = "boolean"
+default = false
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.case_sensitive]
+type = "boolean"
+default = false
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.is_regex]
+type = "boolean"
+default = false
+
+[[tools]]
+name = "qa"
+description = "Check translated segments for terminology misses, numeric drift, and subtitle readability risks."
+input_artifact_types = ["translation"]
+output_artifact_types = ["translation_qa"]
+effects = []
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+
+[tools.parameter_schema.properties.max_lines]
+type = "integer"
+minimum = 1
+default = 2
+
+[tools.parameter_schema.properties.max_chars_per_line]
+type = "integer"
+minimum = 1
+default = 42
+
+[tools.parameter_schema.properties.max_chars_per_second]
+type = "number"
+exclusiveMinimum = 0
+default = 20
+
+[tools.parameter_schema.properties.glossary_rules]
+type = "array"
+default = []
+
+[tools.parameter_schema.properties.glossary_rules.items]
+type = "object"
+additionalProperties = false
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.source]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.target]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.find]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.replace]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.aliases]
+type = "array"
+items = { type = "string" }
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.protected]
+type = "boolean"
+default = false
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.case_sensitive]
+type = "boolean"
+default = false
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.is_regex]
+type = "boolean"
+default = false

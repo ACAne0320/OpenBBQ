@@ -49,7 +49,12 @@ default = []
 [tools.parameter_schema.properties.glossary_rules.items]
 type = "object"
 additionalProperties = false
-required = ["find", "replace"]
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.source]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.target]
+type = "string"
 
 [tools.parameter_schema.properties.glossary_rules.items.properties.find]
 type = "string"
@@ -60,6 +65,10 @@ type = "string"
 [tools.parameter_schema.properties.glossary_rules.items.properties.aliases]
 type = "array"
 items = { type = "string" }
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.protected]
+type = "boolean"
+default = false
 
 [[tools]]
 name = "segment"

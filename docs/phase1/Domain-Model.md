@@ -251,8 +251,11 @@ A set of find-and-replace rules used as a project-level resource. Typically refe
 
 Content format: JSON array of rule objects, each with:
 
-- `find`: string or regex pattern to match.
-- `replace`: replacement string.
+- `source`: canonical source-language term.
+- `target`: expected translated or normalized term.
+- `aliases`: optional list of alternate source spellings.
+- `protected`: optional boolean that means the target term should be preserved literally.
+- Legacy `find` and `replace` fields remain accepted for compatibility with earlier workflows.
 - `is_regex`: boolean, defaults to `false`.
 - `case_sensitive`: boolean, defaults to `false`.
 
@@ -273,6 +276,31 @@ Metadata:
 - `target_lang`: BCP-47 target language code.
 - `model`: LLM or translation model identifier.
 - `segment_count`: total number of translated segments.
+- `glossary_rule_count`: number of terminology rules forwarded to the translation step.
+
+### `translation_qa`
+
+Structured warnings derived from a `translation` artifact.
+
+Content: JSON object with:
+
+- `issues`: array of issue objects
+- `summary`: aggregate counts
+
+Issue objects include:
+
+- `segment_index`: zero-based segment index
+- `code`: stable issue code such as `term_mismatch`, `number_mismatch`, `line_too_long`, `too_many_lines`, or `cps_too_high`
+- `severity`: current built-in QA emits `warning`
+- `message`: human-readable summary
+- `details`: structured per-issue metadata
+
+Metadata:
+
+- `segment_count`: total number of translated segments checked
+- `issue_count`: total issue count
+- `segments_with_issues`: count of segments that produced at least one warning
+- per-code counters such as `term_mismatch_count`
 
 ### `subtitle`
 

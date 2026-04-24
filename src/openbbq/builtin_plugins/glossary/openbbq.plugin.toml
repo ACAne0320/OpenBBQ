@@ -21,7 +21,12 @@ default = []
 [tools.parameter_schema.properties.rules.items]
 type = "object"
 additionalProperties = false
-required = ["find", "replace"]
+
+[tools.parameter_schema.properties.rules.items.properties.source]
+type = "string"
+
+[tools.parameter_schema.properties.rules.items.properties.target]
+type = "string"
 
 [tools.parameter_schema.properties.rules.items.properties.find]
 type = "string"
@@ -34,5 +39,13 @@ type = "boolean"
 default = false
 
 [tools.parameter_schema.properties.rules.items.properties.case_sensitive]
+type = "boolean"
+default = false
+
+[tools.parameter_schema.properties.rules.items.properties.aliases]
+type = "array"
+items = { type = "string" }
+
+[tools.parameter_schema.properties.rules.items.properties.protected]
 type = "boolean"
 default = false

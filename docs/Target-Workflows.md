@@ -107,7 +107,7 @@ Parameters:
 | `model` | string | yes | OpenAI-compatible correction model identifier. |
 | `temperature` | number | no | Sampling temperature. Defaults to `0`. |
 | `domain_context` | string | no | Free-text domain brief used to improve source-language correction. |
-| `glossary_rules` | array | no | Terminology hints in the form `[{"find": "...", "replace": "..."}]`, with optional aliases. |
+| `glossary_rules` | array | no | Terminology hints in the form `[{"source": "...", "target": "...", "aliases": [...] }]`. Legacy `find` / `replace` fields remain accepted for compatibility. |
 | `max_segments_per_request` | integer | no | Maximum segment count sent to the model per request. |
 | `uncertainty_threshold` | number | no | Optional threshold used to surface suspicious words or segments in the prompt. |
 
@@ -160,6 +160,7 @@ Parameters:
 | `temperature` | number | no | Sampling temperature. Defaults to `0`. |
 | `system_prompt` | string | no | Optional system prompt override. |
 | `base_url` | string | no | Optional provider base URL override. |
+| `glossary_rules` | array | no | Optional terminology rules forwarded to the translation prompt. Accepts `{source,target,aliases,protected}` and legacy `{find,replace}` forms. |
 
 The output `translation` artifact preserves the segment structure and timing from the input subtitle-ready segments while replacing text with translated content.
 
@@ -169,13 +170,35 @@ The output `translation` artifact preserves the segment structure and timing fro
 
 ---
 
-#### 7. Export Subtitle File
+#### 7. Translation QA (Optional)
+
+| Field | Value |
+|---|---|
+| `tool_ref` | `translation.qa` |
+| `effects` | none |
+| Input artifact | `translation` (from step 6) |
+| Output artifact | `translation_qa` |
+
+Parameters:
+
+| Name | Type | Required | Description |
+|---|---|---|---|
+| `max_lines` | integer | no | Maximum allowed line count in a translated subtitle unit. Defaults to `2`. |
+| `max_chars_per_line` | integer | no | Maximum allowed line length before the QA step flags a risk. Defaults to `42`. |
+| `max_chars_per_second` | number | no | Maximum preferred reading speed before the QA step flags a risk. Defaults to `20`. |
+| `glossary_rules` | array | no | Optional terminology rules used to detect missing protected or expected target terms. |
+
+This step emits structured warnings for terminology misses, numeric drift, and subtitle readability issues without modifying the translation itself.
+
+---
+
+#### 8. Export Subtitle File
 
 | Field | Value |
 |---|---|
 | `tool_ref` | `subtitle.export` |
 | `effects` | `writes_files` |
-| Input artifact | `translation` (from step 5) |
+| Input artifact | `translation` (from step 6) |
 | Output artifact | `subtitle` |
 
 Parameters:
@@ -208,6 +231,11 @@ url, format, quality
                                                                         │
                                                                         ▼
                                             [translation.translate] ──► translation
+                                                                             │
+                                                                             ▼
+                                                  [translation.qa] ──► translation_qa
+                                                                             │
+                                                                             └── optional review gate
                                                                              │
                                                                              ▼
                                                        [subtitle.export] ──► subtitle

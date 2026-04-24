@@ -6,6 +6,8 @@ import os
 import re
 from typing import Any
 
+from openbbq.builtin_plugins.glossary.rules import normalize_rules
+
 
 DEFAULT_CORRECTION_SYSTEM_PROMPT = (
     "You are a transcript correction engine. Return JSON only. Preserve segment count, "
@@ -354,28 +356,11 @@ def _parse_correction_response(content: str, *, expected_count: int) -> list[dic
 
 
 def _glossary_rules(value: Any) -> list[dict[str, Any]]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValueError("transcript.correct parameter 'glossary_rules' must be a list.")
-    rules: list[dict[str, Any]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            raise ValueError("transcript.correct parameter 'glossary_rules' must be a list.")
-        find = _required_string(item, "find", tool_name="transcript.correct glossary rule")
-        replace = _required_string(item, "replace", tool_name="transcript.correct glossary rule")
-        rule: dict[str, Any] = {"find": find, "replace": replace}
-        aliases = item.get("aliases")
-        if aliases is not None:
-            if not isinstance(aliases, list) or any(
-                not isinstance(alias, str) or not alias.strip() for alias in aliases
-            ):
-                raise ValueError(
-                    "transcript.correct glossary rule 'aliases' must be a string list."
-                )
-            rule["aliases"] = [alias.strip() for alias in aliases]
-        rules.append(rule)
-    return rules
+    return normalize_rules(
+        value,
+        parameter_name="glossary_rules",
+        tool_name="transcript.correct",
+    )
 
 
 def _run_text(block_units: list[dict[str, Any]]) -> str:

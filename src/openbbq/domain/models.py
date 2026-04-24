@@ -14,6 +14,7 @@ ARTIFACT_TYPES: frozenset[str] = frozenset(
         "subtitle_segments",
         "glossary",
         "translation",
+        "translation_qa",
         "subtitle",
     }
 )
