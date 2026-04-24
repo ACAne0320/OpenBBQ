@@ -7,6 +7,9 @@ import re
 import tomllib
 from typing import Any
 
+from pydantic import ValidationError as PydanticValidationError
+
+from openbbq.domain.base import format_pydantic_error
 from openbbq.errors import ValidationError
 from openbbq.runtime.models import (
     CacheSettings,
@@ -49,13 +52,16 @@ def load_runtime_settings(
     cache_root = _cache_root(raw, env, path.parent)
     faster_whisper = _faster_whisper_settings(raw, cache_root, path.parent)
     providers = _provider_profiles(raw)
-    return RuntimeSettings(
-        version=1,
-        config_path=path,
-        cache=CacheSettings(root=cache_root),
-        providers=providers,
-        models=ModelsSettings(faster_whisper=faster_whisper),
-    )
+    try:
+        return RuntimeSettings(
+            version=1,
+            config_path=path,
+            cache=CacheSettings(root=cache_root),
+            providers=providers,
+            models=ModelsSettings(faster_whisper=faster_whisper),
+        )
+    except PydanticValidationError as exc:
+        raise ValidationError(format_pydantic_error("runtime settings", exc)) from exc
 
 
 def runtime_settings_to_toml(settings: RuntimeSettings) -> str:
@@ -94,19 +100,9 @@ def with_provider_profile(
     settings: RuntimeSettings,
     provider: ProviderProfile,
 ) -> RuntimeSettings:
-    _validate_provider_name(provider.name)
-    _validate_provider_type(provider.type, f"providers.{provider.name}.type")
-    if provider.api_key is not None:
-        _validate_secret_reference(provider.api_key, f"providers.{provider.name}.api_key")
     providers = dict(settings.providers)
     providers[provider.name] = provider
-    return RuntimeSettings(
-        version=settings.version,
-        config_path=settings.config_path,
-        cache=settings.cache,
-        providers=providers,
-        models=settings.models,
-    )
+    return settings.model_copy(update={"providers": providers})
 
 
 def _load_toml_mapping(path: Path) -> dict[str, Any]:
@@ -170,19 +166,24 @@ def _provider_profiles(raw: Mapping[str, Any]) -> dict[str, ProviderProfile]:
         api_key = _optional_string(profile_raw.get("api_key"), f"providers.{name}.api_key")
         if api_key is not None:
             _validate_secret_reference(api_key, f"providers.{name}.api_key")
-        providers[name] = ProviderProfile(
-            name=name,
-            type=provider_type,
-            base_url=_optional_string(profile_raw.get("base_url"), f"providers.{name}.base_url"),
-            api_key=api_key,
-            default_chat_model=_optional_string(
-                profile_raw.get("default_chat_model"),
-                f"providers.{name}.default_chat_model",
-            ),
-            display_name=_optional_string(
-                profile_raw.get("display_name"), f"providers.{name}.display_name"
-            ),
-        )
+        try:
+            providers[name] = ProviderProfile(
+                name=name,
+                type=provider_type,
+                base_url=_optional_string(
+                    profile_raw.get("base_url"), f"providers.{name}.base_url"
+                ),
+                api_key=api_key,
+                default_chat_model=_optional_string(
+                    profile_raw.get("default_chat_model"),
+                    f"providers.{name}.default_chat_model",
+                ),
+                display_name=_optional_string(
+                    profile_raw.get("display_name"), f"providers.{name}.display_name"
+                ),
+            )
+        except PydanticValidationError as exc:
+            raise ValidationError(format_pydantic_error(f"providers.{name}", exc)) from exc
     return providers
 
 

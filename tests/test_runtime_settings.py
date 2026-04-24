@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from openbbq.errors import ValidationError
 from openbbq.runtime.models import CacheSettings, ProviderProfile, RuntimeSettings
@@ -138,25 +139,31 @@ api_key = "sk-should-not-be-here"
         load_runtime_settings(config_path=config, env={})
 
 
-def test_with_provider_profile_validates_profile(tmp_path):
+def test_provider_profile_rejects_unknown_type():
+    with pytest.raises(PydanticValidationError) as exc:
+        ProviderProfile(name="openai", type="custom")
+
+    assert "type" in str(exc.value)
+
+
+def test_with_provider_profile_adds_profile(tmp_path):
     settings = RuntimeSettings(
         version=1,
         config_path=tmp_path / "config.toml",
         cache=CacheSettings(root=tmp_path / "cache"),
     )
 
-    with pytest.raises(ValidationError, match="providers.openai.type"):
-        with_provider_profile(settings, ProviderProfile(name="openai", type="custom"))
+    updated = with_provider_profile(
+        settings,
+        ProviderProfile(
+            name="openai",
+            type="openai_compatible",
+            api_key="env:OPENBBQ_LLM_API_KEY",
+        ),
+    )
 
-    with pytest.raises(ValidationError, match="providers.openai.api_key"):
-        with_provider_profile(
-            settings,
-            ProviderProfile(
-                name="openai",
-                type="openai_compatible",
-                api_key="sk-should-not-be-here",
-            ),
-        )
+    assert updated.providers["openai"].api_key == "env:OPENBBQ_LLM_API_KEY"
+    assert settings.providers == {}
 
 
 def test_runtime_settings_to_toml_round_trips_provider(tmp_path):
@@ -180,3 +187,33 @@ default_chat_model = "gpt-4o-mini"
     assert "[providers.openai]" in rendered
     assert 'type = "openai_compatible"' in rendered
     assert 'api_key = "env:OPENBBQ_LLM_API_KEY"' in rendered
+
+
+def test_provider_profile_rejects_literal_api_key():
+    with pytest.raises(PydanticValidationError) as exc:
+        ProviderProfile(
+            name="openai",
+            type="openai_compatible",
+            api_key="sk-not-allowed",
+        )
+
+    assert "api_key" in str(exc.value)
+
+
+def test_runtime_settings_model_copy_preserves_provider_models(tmp_path):
+    settings = RuntimeSettings(
+        version=1,
+        config_path=tmp_path / "config.toml",
+        cache=CacheSettings(root=tmp_path / "cache"),
+        providers={
+            "openai": ProviderProfile(
+                name="openai",
+                type="openai_compatible",
+                api_key="env:OPENBBQ_LLM_API_KEY",
+            )
+        },
+    )
+
+    copied = settings.model_copy()
+
+    assert copied.providers["openai"].api_key == "env:OPENBBQ_LLM_API_KEY"

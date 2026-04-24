@@ -1,16 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
+import re
+from typing import TypeAlias
+
+from pydantic import Field, field_validator
+
+from openbbq.domain.base import JsonObject, OpenBBQModel
+
+SUPPORTED_PROVIDER_TYPES: frozenset[str] = frozenset({"openai_compatible"})
+PROVIDER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+ProviderMap: TypeAlias = dict[str, "ProviderProfile"]
+ResolvedProviderMap: TypeAlias = dict[str, "ResolvedProvider"]
 
 
-@dataclass(frozen=True, slots=True)
-class CacheSettings:
+class CacheSettings(OpenBBQModel):
     root: Path
 
 
-@dataclass(frozen=True, slots=True)
-class ProviderProfile:
+class ProviderProfile(OpenBBQModel):
     name: str
     type: str
     base_url: str | None = None
@@ -18,62 +26,69 @@ class ProviderProfile:
     default_chat_model: str | None = None
     display_name: str | None = None
 
-    def public_dict(self) -> dict[str, object]:
-        return {
-            "name": self.name,
-            "type": self.type,
-            "base_url": self.base_url,
-            "api_key": self.api_key,
-            "default_chat_model": self.default_chat_model,
-            "display_name": self.display_name,
-        }
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value: str) -> str:
+        if not value or PROVIDER_NAME_PATTERN.fullmatch(value) is None:
+            raise ValueError("Provider names must use only letters, digits, '_' or '-'")
+        return value
+
+    @field_validator("type")
+    @classmethod
+    def valid_type(cls, value: str) -> str:
+        if value not in SUPPORTED_PROVIDER_TYPES:
+            allowed = ", ".join(sorted(SUPPORTED_PROVIDER_TYPES))
+            raise ValueError(f"must be one of: {allowed}")
+        return value
+
+    @field_validator("api_key")
+    @classmethod
+    def valid_secret_reference(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        if value.startswith("env:") and value != "env:":
+            return value
+        if value.startswith("keyring:"):
+            payload = value.removeprefix("keyring:")
+            service, separator, username = payload.partition("/")
+            if separator and service and username:
+                return value
+        raise ValueError("must use an env: or keyring: secret reference")
+
+    def public_dict(self) -> JsonObject:
+        return self.model_dump(mode="json")
 
 
-@dataclass(frozen=True, slots=True)
-class FasterWhisperSettings:
+class FasterWhisperSettings(OpenBBQModel):
     cache_dir: Path
     default_model: str = "base"
     default_device: str = "cpu"
     default_compute_type: str = "int8"
 
 
-@dataclass(frozen=True, slots=True)
-class ModelsSettings:
+class ModelsSettings(OpenBBQModel):
     faster_whisper: FasterWhisperSettings
 
 
-@dataclass(frozen=True, slots=True)
-class RuntimeSettings:
+class RuntimeSettings(OpenBBQModel):
     version: int
     config_path: Path
     cache: CacheSettings
-    providers: dict[str, ProviderProfile] = field(default_factory=dict)
+    providers: ProviderMap = Field(default_factory=dict)
     models: ModelsSettings | None = None
 
-    def public_dict(self) -> dict[str, object]:
-        models = self.models
-        return {
-            "version": self.version,
-            "config_path": str(self.config_path),
-            "cache": {"root": str(self.cache.root)},
-            "providers": {
-                name: provider.public_dict() for name, provider in sorted(self.providers.items())
-            },
-            "models": {
-                "faster_whisper": {
-                    "cache_dir": str(models.faster_whisper.cache_dir),
-                    "default_model": models.faster_whisper.default_model,
-                    "default_device": models.faster_whisper.default_device,
-                    "default_compute_type": models.faster_whisper.default_compute_type,
-                }
-            }
-            if models is not None
-            else {},
-        }
+    @field_validator("version")
+    @classmethod
+    def version_one(cls, value: int) -> int:
+        if type(value) is not int or value != 1:
+            raise ValueError("Runtime settings version must be 1")
+        return value
+
+    def public_dict(self) -> JsonObject:
+        return self.model_dump(mode="json")
 
 
-@dataclass(frozen=True, slots=True)
-class SecretCheck:
+class SecretCheck(OpenBBQModel):
     reference: str
     resolved: bool
     display: str
@@ -81,32 +96,24 @@ class SecretCheck:
     error: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class ResolvedProvider:
+class ResolvedProvider(OpenBBQModel):
     name: str
     type: str
     api_key: str | None
     base_url: str | None
     default_chat_model: str | None = None
 
-    def request_payload(self) -> dict[str, object]:
-        return {
-            "name": self.name,
-            "type": self.type,
-            "api_key": self.api_key,
-            "base_url": self.base_url,
-            "default_chat_model": self.default_chat_model,
-        }
+    def request_payload(self) -> JsonObject:
+        return self.model_dump(mode="json")
 
 
-@dataclass(frozen=True, slots=True)
-class RuntimeContext:
-    providers: dict[str, ResolvedProvider] = field(default_factory=dict)
+class RuntimeContext(OpenBBQModel):
+    providers: ResolvedProviderMap = Field(default_factory=dict)
     cache_root: Path | None = None
     faster_whisper_cache_dir: Path | None = None
     redaction_values: tuple[str, ...] = ()
 
-    def request_payload(self) -> dict[str, object]:
+    def request_payload(self) -> JsonObject:
         return {
             "providers": {
                 name: provider.request_payload()
@@ -121,8 +128,7 @@ class RuntimeContext:
         }
 
 
-@dataclass(frozen=True, slots=True)
-class ModelAssetStatus:
+class ModelAssetStatus(OpenBBQModel):
     provider: str
     model: str
     cache_dir: Path
@@ -130,28 +136,15 @@ class ModelAssetStatus:
     size_bytes: int = 0
     error: str | None = None
 
-    def public_dict(self) -> dict[str, object]:
-        return {
-            "provider": self.provider,
-            "model": self.model,
-            "cache_dir": str(self.cache_dir),
-            "present": self.present,
-            "size_bytes": self.size_bytes,
-            "error": self.error,
-        }
+    def public_dict(self) -> JsonObject:
+        return self.model_dump(mode="json")
 
 
-@dataclass(frozen=True, slots=True)
-class DoctorCheck:
+class DoctorCheck(OpenBBQModel):
     id: str
     status: str
     severity: str
     message: str
 
     def public_dict(self) -> dict[str, str]:
-        return {
-            "id": self.id,
-            "status": self.status,
-            "severity": self.severity,
-            "message": self.message,
-        }
+        return self.model_dump(mode="json")
