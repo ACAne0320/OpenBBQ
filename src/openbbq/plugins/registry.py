@@ -80,7 +80,10 @@ def discover_plugins(plugin_paths: Iterable[Path | str]) -> PluginRegistry:
 
 
 def execute_plugin_tool(
-    plugin: PluginSpec, tool: ToolSpec, request: dict[str, Any]
+    plugin: PluginSpec,
+    tool: ToolSpec,
+    request: dict[str, Any],
+    redactor=None,
 ) -> dict[str, Any]:
     module_name, function_name = plugin.entrypoint.split(":", 1)
     module_path = plugin.manifest_path.parent / f"{module_name.replace('.', '/')}.py"
@@ -98,7 +101,10 @@ def execute_plugin_tool(
     try:
         response = entrypoint(request)
     except Exception as exc:
-        raise PluginError(f"Plugin '{plugin.name}' tool '{tool.name}' failed: {exc}") from exc
+        message = f"Plugin '{plugin.name}' tool '{tool.name}' failed: {exc}"
+        if redactor is not None:
+            message = redactor(message)
+        raise PluginError(message) from exc
     if not isinstance(response, dict):
         raise PluginError(
             f"Plugin '{plugin.name}' tool '{tool.name}' returned a non-object response."

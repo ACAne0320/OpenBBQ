@@ -10,6 +10,8 @@ from openbbq.workflow.state import compute_workflow_config_hash
 from openbbq.errors import ExecutionError, PluginError, ValidationError
 from openbbq.domain.models import ProjectConfig, WorkflowConfig
 from openbbq.plugins.registry import PluginRegistry, execute_plugin_tool
+from openbbq.runtime.models import RuntimeContext
+from openbbq.runtime.redaction import redact_values
 from openbbq.storage.project_store import ProjectStore
 
 
@@ -27,6 +29,7 @@ def execute_workflow_from_start(
     store: ProjectStore,
     workflow: WorkflowConfig,
     artifact_reuse: dict[str, str] | None = None,
+    runtime_context: RuntimeContext | None = None,
 ) -> ExecutionResult:
     config_hash = compute_workflow_config_hash(config, workflow.id)
     step_run_ids: list[str] = []
@@ -55,6 +58,7 @@ def execute_workflow_from_start(
         config_hash=config_hash,
         skip_pause_before_step_id=None,
         artifact_reuse=artifact_reuse or {},
+        runtime_context=runtime_context,
     )
 
 
@@ -67,6 +71,7 @@ def execute_workflow_from_resume(
     current_step_id: str,
     step_run_ids: list[str],
     output_bindings: dict[str, dict[str, Any]],
+    runtime_context: RuntimeContext | None = None,
 ) -> ExecutionResult:
     start_index = _step_index(workflow, current_step_id)
     config_hash = compute_workflow_config_hash(config, workflow.id)
@@ -95,6 +100,7 @@ def execute_workflow_from_resume(
         config_hash=config_hash,
         skip_pause_before_step_id=current_step_id,
         artifact_reuse={},
+        runtime_context=runtime_context,
     )
 
 
@@ -108,6 +114,7 @@ def execute_workflow_step(
     step_run_ids: list[str],
     output_bindings: dict[str, dict[str, Any]],
     artifact_reuse: dict[str, str],
+    runtime_context: RuntimeContext | None = None,
 ) -> ExecutionResult:
     start_index = _step_index(workflow, step_id)
     config_hash = compute_workflow_config_hash(config, workflow.id)
@@ -141,6 +148,7 @@ def execute_workflow_step(
         config_hash=config_hash,
         skip_pause_before_step_id=step_id,
         artifact_reuse=artifact_reuse,
+        runtime_context=runtime_context,
     )
 
 
@@ -157,8 +165,15 @@ def execute_steps(
     skip_pause_before_step_id: str | None = None,
     artifact_reuse: dict[str, str] | None = None,
     end_index: int | None = None,
+    runtime_context: RuntimeContext | None = None,
 ) -> ExecutionResult:
     final_index = len(workflow.steps) if end_index is None else end_index
+    runtime_payload = runtime_context.request_payload() if runtime_context is not None else {}
+    redaction_values = runtime_context.redaction_values if runtime_context is not None else ()
+
+    def redact_runtime_secrets(message: str) -> str:
+        return redact_values(message, redaction_values)
+
     for index in range(start_index, final_index):
         step = workflow.steps[index]
         if step.pause_before and step.id != skip_pause_before_step_id:
@@ -242,9 +257,15 @@ def execute_steps(
                     "tool_name": tool.name,
                     "parameters": step.parameters,
                     "inputs": plugin_inputs,
+                    "runtime": runtime_payload,
                     "work_dir": str(config.storage.root / "work" / workflow.id / step.id),
                 }
-                response = execute_plugin_tool(plugin, tool, request)
+                response = execute_plugin_tool(
+                    plugin,
+                    tool,
+                    request,
+                    redactor=redact_runtime_secrets,
+                )
                 output_bindings_for_step = persist_step_outputs(
                     store,
                     workflow.id,
@@ -255,11 +276,18 @@ def execute_steps(
                     artifact_reuse=artifact_reuse,
                 )
             except (PluginError, ValidationError) as exc:
+                redacted_message = redact_runtime_secrets(exc.message)
                 failed = dict(step_run)
                 failed["status"] = "failed"
                 failed["input_artifact_version_ids"] = input_artifact_version_ids
                 failed["error"] = _step_error(
-                    exc, step.id, plugin.name, plugin.version, tool.name, attempt
+                    exc,
+                    step.id,
+                    plugin.name,
+                    plugin.version,
+                    tool.name,
+                    attempt,
+                    message=redacted_message,
                 )
                 failed["completed_at"] = _timestamp()
                 if step.on_error == "skip":
@@ -272,7 +300,7 @@ def execute_steps(
                             "type": "step.skipped",
                             "step_id": step.id,
                             "attempt": attempt,
-                            "message": exc.message,
+                            "message": redacted_message,
                         },
                     )
                     skipped = True
@@ -284,7 +312,7 @@ def execute_steps(
                         "type": "step.failed",
                         "step_id": step.id,
                         "attempt": attempt,
-                        "message": exc.message,
+                        "message": redacted_message,
                     },
                 )
                 if step.on_error == "retry" and attempt < max_attempts:
@@ -300,7 +328,7 @@ def execute_steps(
                         "step_run_ids": step_run_ids,
                     },
                 )
-                raise ExecutionError(exc.message) from exc
+                raise ExecutionError(redacted_message) from exc
 
             completed = dict(step_run)
             completed["status"] = "completed"
@@ -410,10 +438,12 @@ def _step_error(
     plugin_version: str,
     tool_name: str,
     attempt: int,
+    *,
+    message: str | None = None,
 ) -> dict[str, object]:
     return {
         "code": error.code,
-        "message": error.message,
+        "message": error.message if message is None else message,
         "step_id": step_id,
         "plugin_name": plugin_name,
         "plugin_version": plugin_version,

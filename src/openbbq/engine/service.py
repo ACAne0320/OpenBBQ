@@ -20,6 +20,7 @@ from openbbq.workflow.state import (
 from openbbq.domain.models import ProjectConfig, WorkflowConfig
 from openbbq.errors import ExecutionError, ValidationError
 from openbbq.plugins.registry import PluginRegistry
+from openbbq.runtime.models import RuntimeContext
 from openbbq.storage.project_store import ProjectStore
 
 
@@ -38,6 +39,7 @@ def run_workflow(
     *,
     force: bool = False,
     step_id: str | None = None,
+    runtime_context: RuntimeContext | None = None,
 ) -> WorkflowRunResult:
     validate_workflow(config, registry, workflow_id)
     workflow = config.workflows[workflow_id]
@@ -54,7 +56,15 @@ def run_workflow(
             exit_code=2,
         )
     if step_id is not None:
-        result = _run_workflow_step(config, registry, store, workflow, existing_state, step_id)
+        result = _run_workflow_step(
+            config,
+            registry,
+            store,
+            workflow,
+            existing_state,
+            step_id,
+            runtime_context=runtime_context,
+        )
         return WorkflowRunResult(
             workflow_id=result.workflow_id,
             status=result.status,
@@ -62,7 +72,14 @@ def run_workflow(
             artifact_count=result.artifact_count,
         )
     if force:
-        result = _force_run_workflow(config, registry, store, workflow, existing_state)
+        result = _force_run_workflow(
+            config,
+            registry,
+            store,
+            workflow,
+            existing_state,
+            runtime_context=runtime_context,
+        )
         return WorkflowRunResult(
             workflow_id=result.workflow_id,
             status=result.status,
@@ -77,7 +94,13 @@ def run_workflow(
         )
 
     with WorkflowLock.acquire(store, workflow.id):
-        result = execute_workflow_from_start(config, registry, store, workflow)
+        result = execute_workflow_from_start(
+            config,
+            registry,
+            store,
+            workflow,
+            runtime_context=runtime_context,
+        )
     return WorkflowRunResult(
         workflow_id=result.workflow_id,
         status=result.status,
@@ -93,6 +116,8 @@ def _run_workflow_step(
     workflow: WorkflowConfig,
     existing_state: dict[str, object],
     step_id: str,
+    *,
+    runtime_context: RuntimeContext | None = None,
 ):
     status = existing_state.get("status")
     if status not in {"completed", "failed"}:
@@ -119,6 +144,7 @@ def _run_workflow_step(
             step_run_ids=step_run_ids,
             output_bindings=rebuild_output_bindings(store, workflow.id, step_run_ids),
             artifact_reuse=build_artifact_reuse_map(store, workflow.id, step_run_ids),
+            runtime_context=runtime_context,
         )
 
 
@@ -128,6 +154,8 @@ def _force_run_workflow(
     store: ProjectStore,
     workflow: WorkflowConfig,
     existing_state: dict[str, object],
+    *,
+    runtime_context: RuntimeContext | None = None,
 ):
     status = existing_state.get("status")
     if status not in {"completed", "running"}:
@@ -161,6 +189,7 @@ def _force_run_workflow(
             store,
             workflow,
             artifact_reuse=artifact_reuse,
+            runtime_context=runtime_context,
         )
 
 
@@ -168,6 +197,8 @@ def resume_workflow(
     config: ProjectConfig,
     registry: PluginRegistry,
     workflow_id: str,
+    *,
+    runtime_context: RuntimeContext | None = None,
 ) -> WorkflowRunResult:
     validate_workflow(config, registry, workflow_id)
     workflow = config.workflows[workflow_id]
@@ -200,6 +231,7 @@ def resume_workflow(
             current_step_id=current_step_id,
             step_run_ids=step_run_ids,
             output_bindings=rebuild_output_bindings(store, workflow.id, step_run_ids),
+            runtime_context=runtime_context,
         )
     return WorkflowRunResult(
         workflow_id=result.workflow_id,
