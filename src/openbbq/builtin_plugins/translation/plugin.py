@@ -33,6 +33,7 @@ def run(request: dict, client_factory=None) -> dict:
             client_factory=effective_client_factory,
             error_prefix="translation.translate",
             include_provider_metadata=True,
+            input_names=("subtitle_segments", "transcript"),
         )
     if tool_name == "qa":
         return run_qa(request)
@@ -45,6 +46,7 @@ def run_translation(
     client_factory,
     error_prefix: str,
     include_provider_metadata: bool,
+    input_names: tuple[str, ...],
 ) -> dict:
     if request.get("tool_name") != "translate":
         raise ValueError(f"Unsupported tool: {request.get('tool_name')}")
@@ -67,7 +69,7 @@ def run_translation(
         raise RuntimeError(f"OPENBBQ_LLM_API_KEY is required for {error_prefix}.")
     base_url = parameters.get("base_url") or os.environ.get("OPENBBQ_LLM_BASE_URL")
     client = client_factory(api_key=api_key, base_url=base_url)
-    segments = _timed_segments(request, input_name="transcript", error_prefix=error_prefix)
+    segments = _timed_segments_any(request, input_names=input_names, error_prefix=error_prefix)
     translated_segments = []
     for chunk in _segment_chunks(
         segments, DEFAULT_MAX_SEGMENTS_PER_REQUEST, error_prefix=error_prefix
@@ -389,6 +391,16 @@ def _timed_segments(request: dict, *, input_name: str, error_prefix: str) -> lis
         if "start" not in segment or "end" not in segment:
             raise ValueError(f"{error_prefix} {input_name} segments must include start and end.")
     return content
+
+
+def _timed_segments_any(
+    request: dict, *, input_names: tuple[str, ...], error_prefix: str
+) -> list[dict[str, Any]]:
+    for input_name in input_names:
+        artifact = request.get("inputs", {}).get(input_name)
+        if isinstance(artifact, dict) and "content" in artifact:
+            return _timed_segments(request, input_name=input_name, error_prefix=error_prefix)
+    return _timed_segments(request, input_name=input_names[0], error_prefix=error_prefix)
 
 
 def _user_message(

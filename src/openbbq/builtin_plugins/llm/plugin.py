@@ -13,4 +13,5 @@ def run(request: dict, client_factory=None) -> dict:
         client_factory=effective_client_factory,
         error_prefix="llm.translate",
         include_provider_metadata=False,
+        input_names=("transcript", "subtitle_segments"),
     )

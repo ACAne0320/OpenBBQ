@@ -56,7 +56,7 @@ Parameters:
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `format` | string | no | Audio format (`mp3`, `wav`, `flac`, `m4a`). Defaults to `mp3`. |
+| `format` | string | no | Audio format. Currently only `wav` is supported. Defaults to `wav`. |
 | `sample_rate` | integer | no | Sample rate in Hz (`16000`, `44100`, etc.). Defaults to `16000` for ASR compatibility. |
 | `channels` | integer | no | Number of audio channels. Defaults to `1` (mono). |
 

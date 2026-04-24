@@ -304,7 +304,7 @@ Inputs:
 
 Outputs:
 
-- `audio` artifact as a file-backed WAV or configured audio format.
+- `audio` artifact as a file-backed WAV file.
 
 Parameters:
 

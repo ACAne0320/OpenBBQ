@@ -598,7 +598,7 @@ def test_translation_translate_uses_openai_client_and_returns_translation(monkey
                 ],
             },
             "inputs": {
-                "transcript": {
+                "subtitle_segments": {
                     "type": "subtitle_segments",
                     "content": [
                         {"start": 0.0, "end": 1.5, "text": "Hello"},
@@ -651,7 +651,7 @@ def test_translation_translate_rejects_unknown_provider(monkeypatch):
                     "model": "gpt-4o-mini",
                 },
                 "inputs": {
-                    "transcript": {
+                    "subtitle_segments": {
                         "type": "subtitle_segments",
                         "content": [{"start": 0.0, "end": 1.0, "text": "Hello"}],
                     }

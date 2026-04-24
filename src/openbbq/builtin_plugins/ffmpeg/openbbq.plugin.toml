@@ -16,6 +16,7 @@ additionalProperties = false
 
 [tools.parameter_schema.properties.format]
 type = "string"
+enum = ["wav"]
 default = "wav"
 
 [tools.parameter_schema.properties.sample_rate]

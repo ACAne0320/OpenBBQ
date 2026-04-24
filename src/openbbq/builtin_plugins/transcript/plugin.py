@@ -429,6 +429,7 @@ def _segmentation_units(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
             isinstance(words, list) and words and (source_text is None or str(source_text) == text)
         )
         if can_split_by_words:
+            word_units: list[dict[str, Any]] = []
             for word in words:
                 if not isinstance(word, dict):
                     continue
@@ -437,7 +438,7 @@ def _segmentation_units(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     continue
                 start = float(word.get("start", segment["start"]))
                 end = float(word.get("end", start))
-                units.append(
+                word_units.append(
                     {
                         "start": start,
                         "end": end,
@@ -445,7 +446,8 @@ def _segmentation_units(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         "source_segment_indexes": [segment_index],
                     }
                 )
-            if units:
+            units.extend(word_units)
+            if word_units:
                 continue
         if text:
             units.append(

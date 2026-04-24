@@ -85,7 +85,7 @@ workflows:
         name: Translate
         tool_ref: translation.translate
         inputs:
-          transcript: segment.subtitle_segments
+          subtitle_segments: segment.subtitle_segments
         outputs:
           - name: translation
             type: translation
