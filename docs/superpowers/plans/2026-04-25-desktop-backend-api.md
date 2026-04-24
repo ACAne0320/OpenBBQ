@@ -2820,7 +2820,7 @@ Expected: all commands PASS.
 Run:
 
 ```bash
-rg -n "openbbq\\.cli\\.quickstart|from openbbq.cli import quickstart" src tests docs
+rg -n "openbbq\\.cli\\.quickstart|from openbbq.cli import quickstart" src tests docs --glob '!docs/superpowers/plans/**'
 ```
 
 Expected: no matches.

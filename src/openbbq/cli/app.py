@@ -49,7 +49,7 @@ from openbbq.application.workflows import (
     workflow_logs,
     workflow_status,
 )
-from openbbq.cli.quickstart import (
+from openbbq.application.quickstart import (
     DEFAULT_YOUTUBE_QUALITY,
     write_local_subtitle_workflow,
     write_youtube_subtitle_workflow,
