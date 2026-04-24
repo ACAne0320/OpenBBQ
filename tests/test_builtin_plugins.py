@@ -61,6 +61,20 @@ def test_builtin_plugin_path_is_discovered_by_default(tmp_path):
     assert "transcript.segment" in registry.tools
 
 
+def test_translation_parameters_reject_empty_target_lang():
+    from openbbq.builtin_plugins.translation.models import TranslationParameters
+
+    with pytest.raises(ValueError, match="target_lang"):
+        TranslationParameters(source_lang="en", target_lang="", model="gpt-4o-mini")
+
+
+def test_segmentation_parameters_reject_zero_max_lines():
+    from openbbq.builtin_plugins.transcript.models import SegmentationParameters
+
+    with pytest.raises(ValueError, match="max_lines"):
+        SegmentationParameters(max_lines=0)
+
+
 def test_glossary_replace_updates_segment_text_and_preserves_other_fields():
     response = glossary_plugin.run(
         {

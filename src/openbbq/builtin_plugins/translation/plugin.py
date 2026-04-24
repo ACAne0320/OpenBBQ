@@ -25,19 +25,21 @@ WHITESPACE_RE = re.compile(r"\s+")
 def run(request: dict, client_factory=None) -> dict:
     tool_name = request.get("tool_name")
     if tool_name == "translate":
-        effective_client_factory = (
-            _default_client_factory if client_factory is None else client_factory
-        )
-        return run_translation(
-            request,
-            client_factory=effective_client_factory,
-            error_prefix="translation.translate",
-            include_provider_metadata=True,
-            input_names=("subtitle_segments", "transcript"),
-        )
+        return run_translate(request, client_factory=client_factory)
     if tool_name == "qa":
         return run_qa(request)
     raise ValueError(f"Unsupported tool: {tool_name}")
+
+
+def run_translate(request: dict, client_factory=None) -> dict:
+    effective_client_factory = _default_client_factory if client_factory is None else client_factory
+    return run_translation(
+        request,
+        client_factory=effective_client_factory,
+        error_prefix="translation.translate",
+        include_provider_metadata=True,
+        input_names=("subtitle_segments", "transcript"),
+    )
 
 
 def run_translation(

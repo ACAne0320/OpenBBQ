@@ -28,10 +28,18 @@ SENTENCE_BOUNDARY_RE = re.compile(r"[.!?;:。！？；：]$")
 def run(request: dict, client_factory=None) -> dict:
     tool_name = request.get("tool_name")
     if tool_name == "correct":
-        return _run_correct(request, client_factory=client_factory)
+        return run_correct(request, client_factory=client_factory)
     if tool_name == "segment":
-        return _run_segment(request)
+        return run_segment(request)
     raise ValueError(f"Unsupported tool: {tool_name}")
+
+
+def run_correct(request: dict, client_factory=None) -> dict:
+    return _run_correct(request, client_factory=client_factory)
+
+
+def run_segment(request: dict) -> dict:
+    return _run_segment(request)
 
 
 def _run_correct(request: dict, *, client_factory=None) -> dict:

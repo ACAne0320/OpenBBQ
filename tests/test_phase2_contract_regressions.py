@@ -48,6 +48,44 @@ def fake_client_factory(*, api_key, base_url):
     return FakeOpenAIClient()
 
 
+def test_translation_plugin_entrypoint_dispatches_to_translate_module(monkeypatch):
+    calls = []
+
+    def fake_translate(request, client_factory=None):
+        calls.append(request["tool_name"])
+        return {"outputs": {"translation": {"type": "translation", "content": [], "metadata": {}}}}
+
+    monkeypatch.setattr(translation_plugin, "run_translate", fake_translate)
+
+    response = translation_plugin.run({"tool_name": "translate", "parameters": {}, "inputs": {}})
+
+    assert calls == ["translate"]
+    assert response["outputs"]["translation"]["type"] == "translation"
+
+
+def test_transcript_plugin_entrypoint_dispatches_to_segment_module(monkeypatch):
+    calls = []
+
+    def fake_segment(request):
+        calls.append(request["tool_name"])
+        return {
+            "outputs": {
+                "subtitle_segments": {
+                    "type": "subtitle_segments",
+                    "content": [],
+                    "metadata": {},
+                }
+            }
+        }
+
+    monkeypatch.setattr(transcript_plugin, "run_segment", fake_segment)
+
+    response = transcript_plugin.run({"tool_name": "segment", "parameters": {}, "inputs": {}})
+
+    assert calls == ["segment"]
+    assert response["outputs"]["subtitle_segments"]["type"] == "subtitle_segments"
+
+
 def test_translation_translate_accepts_subtitle_segments_input_name(monkeypatch):
     monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
 
