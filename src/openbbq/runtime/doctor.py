@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 import importlib.util
 import os
 from pathlib import Path
 import shutil
 
+from openbbq.domain.base import OpenBBQModel
 from openbbq.domain.models import ProjectConfig, WorkflowConfig
 from openbbq.errors import ValidationError
 from openbbq.plugins.registry import PluginRegistry
@@ -17,8 +17,7 @@ from openbbq.runtime.secrets import SecretResolver
 LLM_TOOL_REFS = {"translation.translate", "llm.translate", "transcript.correct"}
 
 
-@dataclass(frozen=True, slots=True)
-class DoctorProbes:
+class DoctorProbes(OpenBBQModel):
     env: Mapping[str, str] | None = None
     which: Callable[[str], str | None] = shutil.which
     importable: Callable[[str], bool] | None = None

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 import os
 from typing import Protocol
 
+from openbbq.domain.base import OpenBBQModel
 from openbbq.errors import ValidationError
 from openbbq.runtime.models import SecretCheck
 
@@ -15,8 +15,7 @@ class KeyringBackend(Protocol):
     def set_password(self, service_name: str, username: str, password: str) -> None: ...
 
 
-@dataclass(frozen=True, slots=True)
-class ResolvedSecret:
+class ResolvedSecret(OpenBBQModel):
     reference: str
     resolved: bool
     value: str | None

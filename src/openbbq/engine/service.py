@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
+from openbbq.domain.base import OpenBBQModel
 from openbbq.engine.validation import validate_workflow
 from openbbq.workflow.aborts import write_abort_request
 from openbbq.workflow.execution import (
@@ -24,8 +23,7 @@ from openbbq.runtime.models import RuntimeContext
 from openbbq.storage.project_store import ProjectStore
 
 
-@dataclass(frozen=True, slots=True)
-class WorkflowRunResult:
+class WorkflowRunResult(OpenBBQModel):
     workflow_id: str
     status: str
     step_count: int

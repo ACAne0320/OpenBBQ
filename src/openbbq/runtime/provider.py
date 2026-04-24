@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
 from typing import Any
+
+from openbbq.domain.base import OpenBBQModel
 
 
 LEGACY_PROVIDER_NAME = "openai_compatible"
 
 
-@dataclass(frozen=True, slots=True)
-class LlmProviderCredentials:
+class LlmProviderCredentials(OpenBBQModel):
     name: str
     type: str
     api_key: str

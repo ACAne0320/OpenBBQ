@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
 import os
@@ -8,6 +7,7 @@ from pathlib import Path
 import sys
 from types import TracebackType
 
+from openbbq.domain.base import OpenBBQModel
 from openbbq.errors import ExecutionError
 from openbbq.storage.models import WorkflowLockInfo
 from openbbq.storage.project_store import ProjectStore
@@ -17,8 +17,7 @@ def workflow_lock_path(store: ProjectStore, workflow_id: str) -> Path:
     return store.state_root / f"{workflow_id}.lock"
 
 
-@dataclass(frozen=True, slots=True)
-class WorkflowLock:
+class WorkflowLock(OpenBBQModel):
     path: Path
 
     @classmethod

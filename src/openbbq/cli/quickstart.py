@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from openbbq.domain.base import OpenBBQModel
 
 YOUTUBE_SUBTITLE_TEMPLATE_ID = "youtube-subtitle"
 YOUTUBE_SUBTITLE_WORKFLOW_ID = "youtube-to-srt"
@@ -14,8 +15,7 @@ YOUTUBE_SUBTITLE_TEMPLATE_PACKAGE = "openbbq.workflow_templates.youtube_subtitle
 YOUTUBE_SUBTITLE_TEMPLATE_NAME = "openbbq.yaml"
 
 
-@dataclass(frozen=True, slots=True)
-class GeneratedWorkflow:
+class GeneratedWorkflow(OpenBBQModel):
     project_root: Path
     config_path: Path
     workflow_id: str

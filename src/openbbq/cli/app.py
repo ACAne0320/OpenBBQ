@@ -14,6 +14,7 @@ from openbbq.cli.quickstart import DEFAULT_YOUTUBE_QUALITY, write_youtube_subtit
 from openbbq.config.loader import load_project_config
 from openbbq.workflow.diff import diff_artifact_versions
 from openbbq.workflow.state import read_effective_workflow_state
+from openbbq.domain.base import dump_jsonable
 from openbbq.domain.models import ProjectConfig
 from openbbq.engine.service import (
     abort_workflow,
@@ -424,7 +425,7 @@ def _status(args: argparse.Namespace) -> int:
         raise ValidationError(f"Workflow '{args.workflow}' is not defined.")
     store = _project_store(config)
     state = read_effective_workflow_state(store, workflow)
-    payload = {"ok": True, **state}
+    payload = {"ok": True, **dump_jsonable(state)}
     _emit(payload, args.json_output, f"{args.workflow}: {state.get('status')}")
     return 0
 
@@ -875,6 +876,7 @@ def _jsonable_content(content: Any) -> Any:
 
 
 def _emit(payload: dict[str, Any], json_output: bool, text: Any) -> None:
+    payload = dump_jsonable(payload)
     if json_output:
         print(json.dumps(payload, ensure_ascii=False))
         return

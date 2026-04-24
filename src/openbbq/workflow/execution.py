@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from openbbq.domain.base import OpenBBQModel
 from openbbq.workflow.aborts import consume_abort_request
 from openbbq.workflow.bindings import build_plugin_inputs, persist_step_outputs
 from openbbq.workflow.state import compute_workflow_config_hash
@@ -16,8 +16,7 @@ from openbbq.runtime.redaction import redact_values
 from openbbq.storage.project_store import ProjectStore
 
 
-@dataclass(frozen=True, slots=True)
-class ExecutionResult:
+class ExecutionResult(OpenBBQModel):
     workflow_id: str
     status: str
     step_count: int

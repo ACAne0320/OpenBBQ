@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from jsonschema import Draft7Validator
 
+from openbbq.domain.base import OpenBBQModel
 from openbbq.domain.models import ProjectConfig, StepConfig, StepOutput, WorkflowConfig
 from openbbq.errors import ValidationError
 from openbbq.plugins.registry import PluginRegistry, ToolSpec
 from openbbq.workflow.bindings import parse_step_selector
 
 
-@dataclass(frozen=True, slots=True)
-class WorkflowValidationResult:
+class WorkflowValidationResult(OpenBBQModel):
     workflow_id: str
     step_count: int
 

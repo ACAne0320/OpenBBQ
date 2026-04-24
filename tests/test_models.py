@@ -5,6 +5,9 @@ from pydantic import ValidationError as PydanticValidationError
 
 from openbbq.domain import models
 from openbbq.domain.base import OpenBBQModel, format_pydantic_error
+from openbbq.engine.service import WorkflowRunResult
+from openbbq.engine.validation import WorkflowValidationResult
+from openbbq.workflow.execution import ExecutionResult
 
 
 class ExampleModel(OpenBBQModel):
@@ -119,3 +122,24 @@ def test_project_config_rejects_non_one_version(tmp_path):
         )
 
     assert "version" in str(exc.value)
+
+
+def test_engine_result_models_dump_to_json_objects():
+    assert WorkflowRunResult(
+        workflow_id="text-demo",
+        status="completed",
+        step_count=2,
+        artifact_count=2,
+    ).model_dump(mode="json") == {
+        "workflow_id": "text-demo",
+        "status": "completed",
+        "step_count": 2,
+        "artifact_count": 2,
+    }
+    assert WorkflowValidationResult(workflow_id="text-demo", step_count=2).step_count == 2
+    assert ExecutionResult(
+        workflow_id="text-demo",
+        status="completed",
+        step_count=2,
+        artifact_count=2,
+    ).artifact_count == 2
