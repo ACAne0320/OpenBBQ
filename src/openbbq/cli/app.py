@@ -763,7 +763,7 @@ def _doctor(args: argparse.Namespace) -> int:
         "checks": [check.public_dict() for check in checks],
     }
     _emit(payload, args.json_output, "\n".join(check.message for check in checks))
-    return 0
+    return 0 if payload["ok"] else 1
 
 
 def _subtitle_youtube(args: argparse.Namespace) -> int:
@@ -794,7 +794,9 @@ def _subtitle_youtube(args: argparse.Namespace) -> int:
     registry = discover_plugins(config.plugin_paths)
     store = _project_store(config)
     state = read_effective_workflow_state(store, config.workflows[generated.workflow_id])
-    force = args.force or state.get("status") == "completed"
+    force = state.get("status") == "completed" or (
+        args.force and state.get("status") in {"completed", "running"}
+    )
     result = run_workflow(
         config,
         registry,
@@ -819,6 +821,7 @@ def _subtitle_youtube(args: argparse.Namespace) -> int:
         "artifact_count": result.artifact_count,
         "output_path": str(output_path),
         "subtitle_artifact_id": artifact["id"],
+        "generated_run_id": generated.run_id,
         "generated_project_root": str(generated.project_root),
         "generated_config_path": str(generated.config_path),
     }

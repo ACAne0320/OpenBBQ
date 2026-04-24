@@ -198,6 +198,34 @@ def test_doctor_json_reports_checks(tmp_path, monkeypatch, capsys):
     assert isinstance(payload["checks"], list)
 
 
+def test_doctor_returns_nonzero_when_required_checks_fail(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    monkeypatch.delenv("OPENBBQ_LLM_API_KEY", raising=False)
+    project = tmp_path / "project"
+    project.mkdir()
+    source = Path(
+        "tests/fixtures/projects/local-video-corrected-translate-subtitle/openbbq.yaml"
+    ).read_text(encoding="utf-8")
+    source = source.replace("provider: openai_compatible", "provider: openai")
+    (project / "openbbq.yaml").write_text(source, encoding="utf-8")
+
+    code = main(
+        [
+            "--project",
+            str(project),
+            "--json",
+            "doctor",
+            "--workflow",
+            "local-video-corrected-translate-subtitle",
+        ]
+    )
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert any(check["id"] == "provider.openai.configured" for check in payload["checks"])
+
+
 def test_cli_run_builds_runtime_context_from_user_settings(tmp_path, monkeypatch, capsys):
     from openbbq.builtin_plugins.faster_whisper import plugin as whisper_plugin
     from openbbq.builtin_plugins.ffmpeg import plugin as ffmpeg_plugin

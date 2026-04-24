@@ -103,6 +103,28 @@ def test_cli_artifact_diff_rejects_binary_versions(tmp_path, capsys):
     assert payload["error"]["code"] == "validation_error"
 
 
+def test_cli_artifact_diff_rejects_file_backed_versions_with_json_error(tmp_path, capsys):
+    project = write_project(tmp_path)
+    store = ProjectStore(project / ".openbbq")
+    source = tmp_path / "sample.mp4"
+    source.write_bytes(b"video")
+    _, first = store.write_artifact_version(
+        artifact_type="video",
+        name="source.video",
+        file_path=source,
+        metadata={},
+        created_by_step_id=None,
+        lineage={"workflow_id": "demo"},
+    )
+
+    code = main(["--project", str(project), "--json", "artifact", "diff", first.id, first.id])
+
+    assert code == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "validation_error"
+
+
 def test_cli_artifact_list_filters_by_workflow(tmp_path, capsys):
     project = write_project(tmp_path)
     store = ProjectStore(project / ".openbbq")

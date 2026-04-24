@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
 from typing import TypeAlias
+from uuid import uuid4
 
 import yaml
 
@@ -20,6 +22,7 @@ class GeneratedWorkflow(OpenBBQModel):
     project_root: Path
     config_path: Path
     workflow_id: str
+    run_id: str
 
 
 def write_youtube_subtitle_workflow(
@@ -37,8 +40,12 @@ def write_youtube_subtitle_workflow(
     auth: str,
     browser: str | None,
     browser_profile: str | None,
+    run_id: str | None = None,
 ) -> GeneratedWorkflow:
-    generated_root = workspace_root / ".openbbq" / "generated" / YOUTUBE_SUBTITLE_TEMPLATE_ID
+    run_id = run_id or _new_run_id()
+    generated_root = (
+        workspace_root / ".openbbq" / "generated" / YOUTUBE_SUBTITLE_TEMPLATE_ID / run_id
+    )
     generated_root.mkdir(parents=True, exist_ok=True)
     config_path = generated_root / "openbbq.yaml"
     config = _youtube_subtitle_config(
@@ -63,6 +70,7 @@ def write_youtube_subtitle_workflow(
         project_root=generated_root,
         config_path=config_path,
         workflow_id=YOUTUBE_SUBTITLE_WORKFLOW_ID,
+        run_id=run_id,
     )
 
 
@@ -82,6 +90,7 @@ def _youtube_subtitle_config(
     browser_profile: str | None,
 ) -> WorkflowTemplate:
     config = _load_youtube_subtitle_template()
+    config["storage"] = {"root": ".openbbq"}
     steps = _steps_by_id(config)
 
     download_parameters = steps["download"]["parameters"]
@@ -133,3 +142,8 @@ def _set_optional(parameters: WorkflowTemplate, name: str, value: str | None) ->
         parameters.pop(name, None)
         return
     parameters[name] = value
+
+
+def _new_run_id() -> str:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    return f"{timestamp}-{uuid4().hex[:8]}"

@@ -3,6 +3,7 @@ from importlib import resources
 from pathlib import Path
 
 from openbbq.cli.app import main
+from openbbq.cli.quickstart import write_youtube_subtitle_workflow
 
 
 class FakeMessage:
@@ -72,6 +73,47 @@ def test_youtube_workflow_template_is_packaged_as_workflow_dsl():
     assert "youtube-to-srt:" in template
     assert "tool_ref: remote_video.download" in template
     assert "tool_ref: translation.translate" in template
+
+
+def test_youtube_workflow_generation_can_create_isolated_jobs(tmp_path):
+    first = write_youtube_subtitle_workflow(
+        workspace_root=tmp_path,
+        url="https://www.youtube.com/watch?v=one",
+        source_lang="en",
+        target_lang="zh",
+        provider="openai",
+        model=None,
+        asr_model="tiny",
+        asr_device="cpu",
+        asr_compute_type="int8",
+        quality="best",
+        auth="auto",
+        browser=None,
+        browser_profile=None,
+        run_id="job-one",
+    )
+    second = write_youtube_subtitle_workflow(
+        workspace_root=tmp_path,
+        url="https://www.youtube.com/watch?v=two",
+        source_lang="en",
+        target_lang="ja",
+        provider="openai",
+        model=None,
+        asr_model="tiny",
+        asr_device="cpu",
+        asr_compute_type="int8",
+        quality="best",
+        auth="auto",
+        browser=None,
+        browser_profile=None,
+        run_id="job-two",
+    )
+
+    assert first.project_root != second.project_root
+    assert first.config_path.is_file()
+    assert second.config_path.is_file()
+    assert "watch?v=one" in first.config_path.read_text(encoding="utf-8")
+    assert "watch?v=two" in second.config_path.read_text(encoding="utf-8")
 
 
 def test_auth_set_with_secret_reference_writes_provider_and_check_resolves_env(
@@ -242,6 +284,6 @@ default_model = "tiny"
     assert payload["workflow_id"] == "youtube-to-srt"
     assert payload["output_path"] == str(output.resolve())
     assert output.read_text(encoding="utf-8").splitlines()[2] == "[zh] Hello Open BBQ"
-    generated_config = project / ".openbbq" / "generated" / "youtube-subtitle" / "openbbq.yaml"
+    generated_config = Path(payload["generated_config_path"])
     assert generated_config.is_file()
     assert "https://www.youtube.com/watch?v=test" in generated_config.read_text(encoding="utf-8")

@@ -86,14 +86,22 @@ uv run openbbq subtitle youtube \
 
 The command creates an internal workflow under `.openbbq/generated/`, downloads
 the video, extracts audio, transcribes it, translates subtitle segments, and writes
-the final `.srt` file.
+the final `.srt` file. Each invocation creates an isolated generated project and
+prints `generated_project_root` in JSON output.
 
 Inspect the generated workflow afterward:
 
 ```bash
-uv run openbbq status youtube-to-srt --project .openbbq/generated/youtube-subtitle
-uv run openbbq logs youtube-to-srt --project .openbbq/generated/youtube-subtitle
-uv run openbbq artifact list --project .openbbq/generated/youtube-subtitle
+uv run openbbq --json subtitle youtube \
+  --url "https://www.youtube.com/watch?v=..." \
+  --source en \
+  --target zh \
+  --output ./out.zh.srt \
+  --provider openai
+
+uv run openbbq status youtube-to-srt --project <generated_project_root>
+uv run openbbq logs youtube-to-srt --project <generated_project_root>
+uv run openbbq artifact list --project <generated_project_root>
 ```
 
 ## Common CLI Commands

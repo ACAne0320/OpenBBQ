@@ -5,7 +5,7 @@ project:
   name: YouTube Subtitle
 
 storage:
-  root: ../../q/yts
+  root: .openbbq
 
 workflows:
   youtube-to-srt:

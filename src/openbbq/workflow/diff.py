@@ -31,7 +31,7 @@ def diff_artifact_versions(
 
 
 def _version_text(version: StoredArtifactVersion) -> str:
-    if version.record.get("content_encoding") == "bytes" or isinstance(version.content, bytes):
+    if version.record.content_encoding in {"bytes", "file"} or isinstance(version.content, bytes):
         raise ValidationError("Artifact diff supports text and JSON artifact versions only.")
     content = version.content
     if isinstance(content, (dict, list)):
