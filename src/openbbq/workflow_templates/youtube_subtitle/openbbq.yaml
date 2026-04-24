@@ -1,0 +1,119 @@
+version: 1
+
+project:
+  id: youtube-subtitle
+  name: YouTube Subtitle
+
+storage:
+  root: ../../q/yts
+
+workflows:
+  youtube-to-srt:
+    name: YouTube to translated SRT
+    steps:
+      - id: download
+        name: Download Video
+        tool_ref: remote_video.download
+        inputs: {}
+        outputs:
+          - name: video
+            type: video
+        parameters:
+          url: about:blank
+          format: mp4
+          quality: best[ext=mp4][height<=720]/best[height<=720]/best
+          auth: auto
+        on_error: abort
+        max_retries: 0
+
+      - id: extract_audio
+        name: Extract Audio
+        tool_ref: ffmpeg.extract_audio
+        inputs:
+          video: download.video
+        outputs:
+          - name: audio
+            type: audio
+        parameters:
+          format: wav
+          sample_rate: 16000
+          channels: 1
+        on_error: abort
+        max_retries: 0
+
+      - id: transcribe
+        name: Transcribe
+        tool_ref: faster_whisper.transcribe
+        inputs:
+          audio: extract_audio.audio
+        outputs:
+          - name: transcript
+            type: asr_transcript
+        parameters:
+          model: base
+          device: cpu
+          compute_type: int8
+          language: en
+          word_timestamps: true
+          vad_filter: true
+        on_error: abort
+        max_retries: 0
+
+      - id: correct
+        name: Correct Transcript
+        tool_ref: transcript.correct
+        inputs:
+          transcript: transcribe.transcript
+        outputs:
+          - name: transcript
+            type: asr_transcript
+        parameters:
+          provider: openai
+          source_lang: en
+          temperature: 0
+        on_error: abort
+        max_retries: 0
+
+      - id: segment
+        name: Segment Subtitle
+        tool_ref: transcript.segment
+        inputs:
+          transcript: correct.transcript
+        outputs:
+          - name: subtitle_segments
+            type: subtitle_segments
+        parameters:
+          max_duration_seconds: 6
+          max_lines: 2
+          max_chars_per_line: 40
+        on_error: abort
+        max_retries: 0
+
+      - id: translate
+        name: Translate Subtitle
+        tool_ref: translation.translate
+        inputs:
+          subtitle_segments: segment.subtitle_segments
+        outputs:
+          - name: translation
+            type: translation
+        parameters:
+          provider: openai
+          source_lang: en
+          target_lang: zh
+          temperature: 0
+        on_error: abort
+        max_retries: 0
+
+      - id: subtitle
+        name: Export Subtitle
+        tool_ref: subtitle.export
+        inputs:
+          translation: translate.translation
+        outputs:
+          - name: subtitle
+            type: subtitle
+        parameters:
+          format: srt
+        on_error: abort
+        max_retries: 0

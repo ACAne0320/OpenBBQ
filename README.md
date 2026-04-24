@@ -112,6 +112,19 @@ Run preflight checks before a real workflow:
 uv run openbbq doctor --workflow local-video-corrected-translate-subtitle --project ./demo --json
 ```
 
+For a lower-friction OpenAI-compatible provider setup, use the `auth` wrapper. JSON mode
+expects a secret reference, while non-JSON mode can prompt for the key and store it in the
+OS keychain:
+
+```bash
+uv run openbbq auth set openai \
+  --type openai_compatible \
+  --base-url https://api.openai.com/v1 \
+  --api-key-ref env:OPENBBQ_LLM_API_KEY \
+  --default-chat-model gpt-4o-mini
+uv run openbbq auth check openai --json
+```
+
 ## Phase 2 Remote Video Preview
 
 Slice 3 adds remote video download through `yt-dlp` and a full remote translated subtitle workflow. Install the download, media, and LLM optional dependency groups before running a real remote smoke test:
@@ -126,3 +139,18 @@ uv run openbbq run remote-video-translate-subtitle --project ./demo-remote
 ```
 
 Default CI uses fake downloaders, fake media, and fake OpenAI clients; it does not require network access, ffmpeg, Whisper models, or LLM credentials.
+
+For the common YouTube-to-SRT path, the CLI can generate an internal workflow and write the
+final subtitle file directly:
+
+```bash
+uv run openbbq subtitle youtube \
+  --url "https://www.youtube.com/watch?v=..." \
+  --source en \
+  --target zh \
+  --output ./out.zh.srt
+```
+
+The command materializes a built-in workflow template under the selected project's
+`.openbbq/generated/` directory, so advanced users can still inspect artifacts and logs with
+the existing workflow commands.

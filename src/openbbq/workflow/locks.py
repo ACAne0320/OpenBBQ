@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
+import sys
 from types import TracebackType
 
 from openbbq.errors import ExecutionError
@@ -135,6 +136,8 @@ def _existing_lock_error(store: ProjectStore, workflow_id: str) -> ExecutionErro
 def _pid_is_alive(pid: int | None) -> bool:
     if pid is None or pid <= 0:
         return False
+    if sys.platform == "win32":
+        return _windows_pid_is_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -144,3 +147,22 @@ def _pid_is_alive(pid: int | None) -> bool:
     except OSError:
         return False
     return True
+
+
+def _windows_pid_is_alive(pid: int) -> bool:
+    import ctypes
+
+    error_access_denied = 5
+    process_query_limited_information = 0x1000
+    still_active = 259
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == error_access_denied
+    try:
+        exit_code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return True
+        return exit_code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)

@@ -1,0 +1,1 @@
+"""YouTube subtitle workflow template."""

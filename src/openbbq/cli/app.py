@@ -10,6 +10,7 @@ import sys
 from typing import Any
 
 from openbbq import __version__
+from openbbq.cli.quickstart import DEFAULT_YOUTUBE_QUALITY, write_youtube_subtitle_workflow
 from openbbq.config.loader import load_project_config
 from openbbq.workflow.diff import diff_artifact_versions
 from openbbq.workflow.state import read_effective_workflow_state
@@ -121,6 +122,18 @@ def _build_parser() -> argparse.ArgumentParser:
     settings_provider.add_argument("--default-chat-model")
     settings_provider.add_argument("--display-name")
 
+    auth = subparsers.add_parser("auth", parents=[subcommand_global_options])
+    auth_sub = auth.add_subparsers(dest="auth_command", required=True)
+    auth_set = auth_sub.add_parser("set", parents=[subcommand_global_options])
+    auth_set.add_argument("name")
+    auth_set.add_argument("--type", default="openai_compatible")
+    auth_set.add_argument("--base-url")
+    auth_set.add_argument("--api-key-ref")
+    auth_set.add_argument("--default-chat-model")
+    auth_set.add_argument("--display-name")
+    auth_check = auth_sub.add_parser("check", parents=[subcommand_global_options])
+    auth_check.add_argument("name")
+
     secret = subparsers.add_parser("secret", parents=[subcommand_global_options])
     secret_sub = secret.add_subparsers(dest="secret_command", required=True)
     secret_check = secret_sub.add_parser("check", parents=[subcommand_global_options])
@@ -134,6 +147,28 @@ def _build_parser() -> argparse.ArgumentParser:
 
     doctor = subparsers.add_parser("doctor", parents=[subcommand_global_options])
     doctor.add_argument("--workflow")
+
+    subtitle = subparsers.add_parser("subtitle", parents=[subcommand_global_options])
+    subtitle_sub = subtitle.add_subparsers(dest="subtitle_command", required=True)
+    subtitle_youtube = subtitle_sub.add_parser("youtube", parents=[subcommand_global_options])
+    subtitle_youtube.add_argument("--url", required=True)
+    subtitle_youtube.add_argument("--source", required=True)
+    subtitle_youtube.add_argument("--target", required=True)
+    subtitle_youtube.add_argument("--output", required=True)
+    subtitle_youtube.add_argument("--provider", default="openai")
+    subtitle_youtube.add_argument("--model")
+    subtitle_youtube.add_argument("--asr-model")
+    subtitle_youtube.add_argument("--asr-device")
+    subtitle_youtube.add_argument("--asr-compute-type")
+    subtitle_youtube.add_argument("--quality", default=DEFAULT_YOUTUBE_QUALITY)
+    subtitle_youtube.add_argument(
+        "--auth",
+        choices=("auto", "anonymous", "browser_cookies"),
+        default="auto",
+    )
+    subtitle_youtube.add_argument("--browser")
+    subtitle_youtube.add_argument("--browser-profile")
+    subtitle_youtube.add_argument("--force", action="store_true")
 
     return parser
 
@@ -225,6 +260,11 @@ def _dispatch(args: argparse.Namespace) -> int:
             return _settings_show(args)
         if args.settings_command == "set-provider":
             return _settings_set_provider(args)
+    if args.command == "auth":
+        if args.auth_command == "set":
+            return _auth_set(args)
+        if args.auth_command == "check":
+            return _auth_check(args)
     if args.command == "secret":
         if args.secret_command == "check":
             return _secret_check(args)
@@ -235,6 +275,9 @@ def _dispatch(args: argparse.Namespace) -> int:
             return _models_list(args)
     if args.command == "doctor":
         return _doctor(args)
+    if args.command == "subtitle":
+        if args.subtitle_command == "youtube":
+            return _subtitle_youtube(args)
     return 2
 
 
@@ -487,6 +530,39 @@ def _artifact_workflow_id(store: ProjectStore, artifact: dict[str, Any]) -> str 
     return workflow_id if isinstance(workflow_id, str) else None
 
 
+def _latest_workflow_artifact_content(
+    store: ProjectStore,
+    *,
+    workflow_id: str,
+    artifact_type: str,
+    artifact_name: str,
+) -> tuple[dict[str, Any], Any]:
+    matches = []
+    for artifact in store.list_artifacts():
+        if artifact.get("type") != artifact_type or artifact.get("name") != artifact_name:
+            continue
+        current_version_id = artifact.get("current_version_id")
+        if not isinstance(current_version_id, str):
+            continue
+        version = store.read_artifact_version(current_version_id)
+        if version.record.get("lineage", {}).get("workflow_id") != workflow_id:
+            continue
+        matches.append((artifact, version))
+    if not matches:
+        raise OpenBBQError(
+            "artifact_not_found",
+            f"Workflow '{workflow_id}' did not produce artifact '{artifact_name}'.",
+            1,
+        )
+    matches.sort(key=lambda item: item[0].get("updated_at", ""))
+    artifact, version = matches[-1]
+    return artifact, version.content
+
+
+def _default_provider_keyring_reference(name: str) -> str:
+    return f"keyring:openbbq/providers/{name}/api_key"
+
+
 def _plugin_list(args: argparse.Namespace) -> int:
     registry = _load_registry(args)
     plugins = [
@@ -570,6 +646,66 @@ def _settings_set_provider(args: argparse.Namespace) -> int:
     return 0
 
 
+def _auth_set(args: argparse.Namespace) -> int:
+    api_key_ref = args.api_key_ref
+    stored_secret = False
+    if api_key_ref is None:
+        api_key_ref = _default_provider_keyring_reference(args.name)
+        if args.json_output:
+            raise ValidationError("auth set requires --api-key-ref when --json is used.")
+        value = getpass.getpass("API key: ")
+        SecretResolver().set_secret(api_key_ref, value)
+        stored_secret = True
+
+    settings = load_runtime_settings()
+    provider = ProviderProfile(
+        name=args.name,
+        type=args.type,
+        base_url=args.base_url,
+        api_key=api_key_ref,
+        default_chat_model=args.default_chat_model,
+        display_name=args.display_name,
+    )
+    updated = with_provider_profile(settings, provider)
+    write_runtime_settings(updated)
+    payload = {
+        "ok": True,
+        "provider": provider.public_dict(),
+        "secret_stored": stored_secret,
+        "config_path": str(updated.config_path),
+    }
+    _emit(payload, args.json_output, f"Configured provider '{provider.name}'.")
+    return 0
+
+
+def _auth_check(args: argparse.Namespace) -> int:
+    settings = load_runtime_settings()
+    provider = settings.providers.get(args.name)
+    if provider is None:
+        raise ValidationError(f"Provider '{args.name}' is not configured.")
+    if provider.api_key is None:
+        secret = {
+            "reference": None,
+            "resolved": False,
+            "display": None,
+            "value_preview": None,
+            "error": f"Provider '{args.name}' does not define an API key reference.",
+        }
+    else:
+        check = SecretResolver().resolve(provider.api_key).public
+        secret = {
+            "reference": check.reference,
+            "resolved": check.resolved,
+            "display": check.display,
+            "value_preview": check.value_preview,
+            "error": check.error,
+        }
+    payload = {"ok": True, "provider": provider.public_dict(), "secret": secret}
+    text = secret["value_preview"] if secret["resolved"] else secret["error"]
+    _emit(payload, args.json_output, text)
+    return 0
+
+
 def _secret_check(args: argparse.Namespace) -> int:
     check = SecretResolver().resolve(args.reference).public
     payload = {
@@ -620,6 +756,66 @@ def _doctor(args: argparse.Namespace) -> int:
         "checks": [check.public_dict() for check in checks],
     }
     _emit(payload, args.json_output, "\n".join(check.message for check in checks))
+    return 0
+
+
+def _subtitle_youtube(args: argparse.Namespace) -> int:
+    workspace_root = Path(args.project).expanduser().resolve()
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    settings = load_runtime_settings()
+    faster_whisper = settings.models.faster_whisper
+    generated = write_youtube_subtitle_workflow(
+        workspace_root=workspace_root,
+        url=args.url,
+        source_lang=args.source,
+        target_lang=args.target,
+        provider=args.provider,
+        model=args.model,
+        asr_model=args.asr_model or faster_whisper.default_model,
+        asr_device=args.asr_device or faster_whisper.default_device,
+        asr_compute_type=args.asr_compute_type or faster_whisper.default_compute_type,
+        quality=args.quality,
+        auth=args.auth,
+        browser=args.browser,
+        browser_profile=args.browser_profile,
+    )
+    config = load_project_config(
+        generated.project_root,
+        config_path=generated.config_path,
+        extra_plugin_paths=args.plugins,
+    )
+    registry = discover_plugins(config.plugin_paths)
+    store = _project_store(config)
+    state = read_effective_workflow_state(store, config.workflows[generated.workflow_id])
+    force = args.force or state.get("status") == "completed"
+    result = run_workflow(
+        config,
+        registry,
+        generated.workflow_id,
+        force=force,
+        runtime_context=_runtime_context(),
+    )
+    artifact, content = _latest_workflow_artifact_content(
+        store,
+        workflow_id=generated.workflow_id,
+        artifact_type="subtitle",
+        artifact_name="subtitle.subtitle",
+    )
+    output_path = Path(args.output).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(str(content), encoding="utf-8")
+    payload = {
+        "ok": True,
+        "workflow_id": result.workflow_id,
+        "status": result.status,
+        "step_count": result.step_count,
+        "artifact_count": result.artifact_count,
+        "output_path": str(output_path),
+        "subtitle_artifact_id": artifact["id"],
+        "generated_project_root": str(generated.project_root),
+        "generated_config_path": str(generated.config_path),
+    }
+    _emit(payload, args.json_output, f"Wrote {output_path}")
     return 0
 
 
