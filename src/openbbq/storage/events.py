@@ -62,6 +62,34 @@ def next_event_sequence(path: Path) -> int:
     return last_sequence + 1
 
 
+def read_events(state_root: Path, workflow_id: str) -> tuple[WorkflowEvent, ...]:
+    path = events_path(state_root, workflow_id)
+    if not path.exists():
+        return ()
+    events: list[WorkflowEvent] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            events.append(WorkflowEvent.model_validate(json.loads(line)))
+        except json.JSONDecodeError:
+            break
+    return tuple(events)
+
+
+def read_events_after(
+    state_root: Path,
+    workflow_id: str,
+    sequence: int,
+) -> tuple[WorkflowEvent, ...]:
+    return tuple(event for event in read_events(state_root, workflow_id) if event.sequence > sequence)
+
+
+def latest_event_sequence(state_root: Path, workflow_id: str) -> int:
+    events = read_events(state_root, workflow_id)
+    return events[-1].sequence if events else 0
+
+
 def truncate_trailing_partial_jsonl_line(path: Path) -> None:
     if not path.exists():
         return

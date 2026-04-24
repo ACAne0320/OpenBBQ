@@ -3,6 +3,7 @@ from datetime import datetime
 
 import pytest
 
+from openbbq.storage.events import latest_event_sequence, read_events, read_events_after
 from openbbq.storage.models import ArtifactRecord, OutputBinding, WorkflowState
 from openbbq.storage.project_store import ProjectStore
 
@@ -20,6 +21,19 @@ def test_write_artifact_version_round_trip(tmp_path):
     loaded = store.read_artifact_version(version.id)
     assert loaded.content == "hello openbbq"
     assert loaded.record.artifact_id == artifact.id
+
+
+def test_event_readers_return_typed_events_after_sequence(tmp_path):
+    store = ProjectStore(tmp_path / ".openbbq")
+    first = store.append_event("demo", {"type": "workflow.started"})
+    second = store.append_event("demo", {"type": "workflow.completed"})
+
+    assert [event.id for event in read_events(store.state_root, "demo")] == [
+        first.id,
+        second.id,
+    ]
+    assert [event.id for event in read_events_after(store.state_root, "demo", 1)] == [second.id]
+    assert latest_event_sequence(store.state_root, "demo") == 2
 
 
 def test_artifact_version_index_supports_direct_lookup(tmp_path):
