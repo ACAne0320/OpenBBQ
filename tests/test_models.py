@@ -7,6 +7,8 @@ from openbbq.domain import models
 from openbbq.domain.base import OpenBBQModel, format_pydantic_error
 from openbbq.engine.service import WorkflowRunResult
 from openbbq.engine.validation import WorkflowValidationResult
+from openbbq.plugins.payloads import PluginEventPayload, PluginResponse
+from openbbq.storage.models import WorkflowEvent
 from openbbq.workflow.execution import ExecutionResult
 
 
@@ -145,4 +147,49 @@ def test_engine_result_models_dump_to_json_objects():
             artifact_count=2,
         ).artifact_count
         == 2
+    )
+
+
+def test_workflow_event_requires_level_and_data_defaults():
+    event = WorkflowEvent(
+        id="evt_1",
+        workflow_id="text-demo",
+        sequence=1,
+        type="workflow.started",
+        message="started",
+        created_at="2026-04-24T00:00:00+00:00",
+    )
+
+    assert event.level == "info"
+    assert event.data == {}
+
+
+def test_plugin_response_preserves_metadata_and_events():
+    response = PluginResponse.model_validate(
+        {
+            "outputs": {
+                "text": {
+                    "type": "text",
+                    "content": "HELLO",
+                    "metadata": {},
+                }
+            },
+            "metadata": {"duration_ms": 3},
+            "events": [
+                {
+                    "level": "info",
+                    "message": "Transform completed",
+                    "data": {"input_chars": 5},
+                }
+            ],
+        }
+    )
+
+    assert response.metadata == {"duration_ms": 3}
+    assert response.events == (
+        PluginEventPayload(
+            level="info",
+            message="Transform completed",
+            data={"input_chars": 5},
+        ),
     )

@@ -17,6 +17,7 @@ WorkflowStatus: TypeAlias = Literal[
     "pending", "running", "paused", "completed", "failed", "aborted"
 ]
 StepRunStatus: TypeAlias = Literal["running", "completed", "failed", "skipped"]
+WorkflowEventLevel: TypeAlias = Literal["debug", "info", "warning", "error"]
 ArtifactContent: TypeAlias = JsonValue | bytes
 
 
@@ -73,7 +74,9 @@ class WorkflowEvent(RecordModel):
     workflow_id: str
     sequence: int
     type: str
+    level: WorkflowEventLevel = "info"
     message: str | None = None
+    data: JsonObject = Field(default_factory=dict)
     created_at: str
     step_id: str | None = None
     attempt: int | None = None

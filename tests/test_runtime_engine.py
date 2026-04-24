@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -80,3 +81,45 @@ def test_plugin_error_is_redacted_before_state_and_cli_error(tmp_path, monkeypat
     state = store.read_workflow_state("text-demo")
     step_run = store.read_step_run("text-demo", state["step_run_ids"][0])
     assert "sk-secret" not in step_run["error"]["message"]
+
+
+def test_plugin_events_are_wrapped_and_redacted(tmp_path, monkeypatch):
+    from openbbq.workflow import execution
+
+    def fake_execute_plugin_tool(plugin, tool, request, redactor=None):
+        return {
+            "outputs": {
+                "text": {
+                    "type": "text",
+                    "content": "hello",
+                    "metadata": {},
+                }
+            },
+            "events": [
+                {
+                    "level": "warning",
+                    "message": "provider returned sk-secret",
+                    "data": {"provider": "test"},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(execution, "execute_plugin_tool", fake_execute_plugin_tool)
+    project = write_project(tmp_path, "text-basic")
+    config = load_project_config(project)
+    registry = discover_plugins(config.plugin_paths)
+    context = RuntimeContext(redaction_values=("sk-secret",))
+
+    result = run_workflow(config, registry, "text-demo", runtime_context=context)
+
+    assert result.status == "completed"
+    events = [
+        json.loads(line)
+        for line in (project / ".openbbq/state/workflows/text-demo/events.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    plugin_events = [event for event in events if event["type"] == "plugin.event"]
+    assert plugin_events[0]["level"] == "warning"
+    assert plugin_events[0]["message"] == "provider returned [REDACTED]"
+    assert plugin_events[0]["data"] == {"provider": "test"}

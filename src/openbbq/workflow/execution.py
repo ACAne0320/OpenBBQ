@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from openbbq.domain.base import OpenBBQModel
 from openbbq.workflow.aborts import consume_abort_request
 from openbbq.workflow.bindings import build_plugin_inputs, persist_step_outputs
+from openbbq.workflow.events import append_plugin_events
 from openbbq.workflow.state import compute_workflow_config_hash
 from openbbq.errors import ExecutionError, PluginError, ValidationError
 from openbbq.domain.models import ProjectConfig, WorkflowConfig
@@ -341,6 +342,14 @@ def execute_steps(
             completed["output_bindings"] = output_bindings_for_step
             completed["completed_at"] = _timestamp()
             store.write_step_run(workflow.id, completed)
+            append_plugin_events(
+                store,
+                workflow.id,
+                step.id,
+                attempt,
+                response,
+                redaction_values=tuple(redaction_values),
+            )
             pause_requested = response.pause_requested is True
             break
 

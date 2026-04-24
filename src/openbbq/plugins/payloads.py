@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from pydantic import Field, model_validator
 
@@ -67,8 +67,19 @@ class PluginOutputPayload(PluginPayloadModel):
         return self
 
 
+PluginEventLevel: TypeAlias = Literal["debug", "info", "warning", "error"]
+
+
+class PluginEventPayload(PluginPayloadModel):
+    level: PluginEventLevel = "info"
+    message: str
+    data: JsonObject = Field(default_factory=dict)
+
+
 class PluginResponse(PluginPayloadModel):
     outputs: dict[str, PluginOutputPayload]
+    metadata: JsonObject = Field(default_factory=dict)
+    events: tuple[PluginEventPayload, ...] = ()
     pause_requested: bool = False
 
 
