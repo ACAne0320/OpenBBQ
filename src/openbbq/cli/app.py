@@ -29,7 +29,11 @@ from openbbq.application.workflows import (
     workflow_logs,
     workflow_status,
 )
-from openbbq.cli.quickstart import DEFAULT_YOUTUBE_QUALITY, write_youtube_subtitle_workflow
+from openbbq.cli.quickstart import (
+    DEFAULT_YOUTUBE_QUALITY,
+    write_local_subtitle_workflow,
+    write_youtube_subtitle_workflow,
+)
 from openbbq.config.loader import load_project_config
 from openbbq.domain.base import JsonObject, dump_jsonable, format_pydantic_error
 from openbbq.domain.models import ProjectConfig
@@ -37,7 +41,7 @@ from openbbq.engine.validation import validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.plugins.registry import PluginRegistry, discover_plugins
 from openbbq.runtime.context import build_runtime_context
-from openbbq.runtime.doctor import check_workflow
+from openbbq.runtime.doctor import check_settings, check_workflow
 from openbbq.runtime.models import ProviderProfile
 from openbbq.runtime.models_assets import faster_whisper_model_status
 from openbbq.runtime.secrets import SecretResolver
@@ -163,6 +167,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subtitle = subparsers.add_parser("subtitle", parents=[subcommand_global_options])
     subtitle_sub = subtitle.add_subparsers(dest="subtitle_command", required=True)
+    subtitle_local = subtitle_sub.add_parser("local", parents=[subcommand_global_options])
+    subtitle_local.add_argument("--input", required=True)
+    subtitle_local.add_argument("--source", required=True)
+    subtitle_local.add_argument("--target", required=True)
+    subtitle_local.add_argument("--output", required=True)
+    subtitle_local.add_argument("--provider", default="openai")
+    subtitle_local.add_argument("--model")
+    subtitle_local.add_argument("--asr-model")
+    subtitle_local.add_argument("--asr-device")
+    subtitle_local.add_argument("--asr-compute-type")
+    subtitle_local.add_argument("--force", action="store_true")
+
     subtitle_youtube = subtitle_sub.add_parser("youtube", parents=[subcommand_global_options])
     subtitle_youtube.add_argument("--url", required=True)
     subtitle_youtube.add_argument("--source", required=True)
@@ -289,6 +305,8 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "doctor":
         return _doctor(args)
     if args.command == "subtitle":
+        if args.subtitle_command == "local":
+            return _subtitle_local(args)
         if args.subtitle_command == "youtube":
             return _subtitle_youtube(args)
     return 2
@@ -757,13 +775,98 @@ def _doctor(args: argparse.Namespace) -> int:
             settings=settings,
         )
     else:
-        checks = []
+        checks = check_settings(settings=settings)
     payload = {
         "ok": all(check.status != "failed" for check in checks),
         "checks": [check.public_dict() for check in checks],
     }
     _emit(payload, args.json_output, "\n".join(check.message for check in checks))
     return 0 if payload["ok"] else 1
+
+
+def _subtitle_local(args: argparse.Namespace) -> int:
+    workspace_root = Path(args.project).expanduser().resolve()
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    settings = load_runtime_settings()
+    faster_whisper = settings.models.faster_whisper
+    generated = write_local_subtitle_workflow(
+        workspace_root=workspace_root,
+        video_selector="project.art_source_video",
+        source_lang=args.source,
+        target_lang=args.target,
+        provider=args.provider,
+        model=args.model,
+        asr_model=args.asr_model or faster_whisper.default_model,
+        asr_device=args.asr_device or faster_whisper.default_device,
+        asr_compute_type=args.asr_compute_type or faster_whisper.default_compute_type,
+    )
+    imported = import_artifact(
+        ArtifactImportRequest(
+            project_root=generated.project_root,
+            config_path=generated.config_path,
+            path=Path(args.input),
+            artifact_type="video",
+            name="source.video",
+        )
+    )
+    generated = write_local_subtitle_workflow(
+        workspace_root=workspace_root,
+        video_selector=f"project.{imported.artifact.id}",
+        source_lang=args.source,
+        target_lang=args.target,
+        provider=args.provider,
+        model=args.model,
+        asr_model=args.asr_model or faster_whisper.default_model,
+        asr_device=args.asr_device or faster_whisper.default_device,
+        asr_compute_type=args.asr_compute_type or faster_whisper.default_compute_type,
+        run_id=generated.run_id,
+    )
+    config = load_project_config(
+        generated.project_root,
+        config_path=generated.config_path,
+        extra_plugin_paths=args.plugins,
+    )
+    store = _project_store(config)
+    state = workflow_status(
+        project_root=generated.project_root,
+        config_path=generated.config_path,
+        plugin_paths=tuple(Path(path) for path in args.plugins),
+        workflow_id=generated.workflow_id,
+    )
+    force = state.status == "completed" or (args.force and state.status in {"completed", "running"})
+    result = run_workflow_command(
+        WorkflowRunRequest(
+            project_root=generated.project_root,
+            config_path=generated.config_path,
+            plugin_paths=tuple(Path(path) for path in args.plugins),
+            workflow_id=generated.workflow_id,
+            force=force,
+        )
+    )
+    artifact, content = _latest_workflow_artifact_content(
+        store,
+        workflow_id=generated.workflow_id,
+        artifact_type="subtitle",
+        artifact_name="subtitle.subtitle",
+    )
+    output_path = Path(args.output).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(str(content), encoding="utf-8")
+    payload = {
+        "ok": True,
+        "workflow_id": result.workflow_id,
+        "status": result.status,
+        "step_count": result.step_count,
+        "artifact_count": result.artifact_count,
+        "output_path": str(output_path),
+        "source_artifact_id": imported.artifact.id,
+        "subtitle_artifact_id": artifact.id,
+        "generated_run_id": generated.run_id,
+        "generated_project_root": str(generated.project_root),
+        "generated_config_path": str(generated.config_path),
+    }
+    _emit(payload, args.json_output, f"Wrote {output_path}")
+    return 0
 
 
 def _subtitle_youtube(args: argparse.Namespace) -> int:

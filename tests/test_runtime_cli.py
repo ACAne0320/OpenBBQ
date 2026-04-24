@@ -198,6 +198,35 @@ def test_doctor_json_reports_checks(tmp_path, monkeypatch, capsys):
     assert isinstance(payload["checks"], list)
 
 
+def test_doctor_without_workflow_reports_settings_checks(tmp_path, monkeypatch, capsys):
+    user_config = tmp_path / "user-config.toml"
+    cache_dir = tmp_path / "cache"
+    user_config.write_text(
+        f"""
+version = 1
+[cache]
+root = "{cache_dir.as_posix()}"
+[providers.openai]
+type = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+api_key = "env:OPENBBQ_LLM_API_KEY"
+default_chat_model = "gpt-4o-mini"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(user_config))
+    monkeypatch.delenv("OPENBBQ_LLM_API_KEY", raising=False)
+
+    code = main(["--json", "doctor"])
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    check_ids = {check["id"] for check in payload["checks"]}
+    assert "cache.root_writable" in check_ids
+    assert "provider.openai.api_key" in check_ids
+
+
 def test_doctor_returns_nonzero_when_required_checks_fail(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
     monkeypatch.delenv("OPENBBQ_LLM_API_KEY", raising=False)

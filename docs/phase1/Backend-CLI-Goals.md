@@ -15,7 +15,7 @@ For launch scope and implementation contracts, see the [Phase 1 Documentation In
 | Testing | pytest |
 | Lint / format | Ruff |
 
-> **Note:** FastAPI is the planned web framework for Phase 2 (Agent API). Phase 1 is headless — no HTTP routes are implemented.
+> **Note:** FastAPI is still the planned web framework for a future API adapter. Phase 1 is headless — no HTTP routes are implemented.
 
 ### Desktop (Phase 3 reference)
 

@@ -49,6 +49,18 @@ def check_workflow(
     return checks
 
 
+def check_settings(
+    *,
+    settings: RuntimeSettings,
+    probes: DoctorProbes | None = None,
+) -> list[DoctorCheck]:
+    probes = probes or DoctorProbes()
+    checks = [_cache_root_writable_check(settings, probes)]
+    checks.append(_cache_writable_check(settings, probes))
+    checks.extend(_provider_profile_checks(settings, probes, settings.providers.keys()))
+    return checks
+
+
 def _workflow_uses_llm(workflow: WorkflowConfig) -> bool:
     return any(step.tool_ref in LLM_TOOL_REFS for step in workflow.steps)
 
@@ -80,8 +92,21 @@ def _provider_checks(
             )
         )
 
+    checks.extend(_provider_profile_checks(settings, probes, named_providers, env=env))
+    return checks
+
+
+def _provider_profile_checks(
+    settings: RuntimeSettings,
+    probes: DoctorProbes,
+    provider_names,
+    *,
+    env=None,
+) -> list[DoctorCheck]:
+    env = env if env is not None else (probes.env if probes.env is not None else os.environ)
     resolver = SecretResolver(env=env)
-    for name in sorted(named_providers):
+    checks: list[DoctorCheck] = []
+    for name in sorted(provider_names):
         provider = settings.providers.get(name)
         if provider is None:
             checks.append(
@@ -125,6 +150,21 @@ def _project_storage_check(config: ProjectConfig) -> DoctorCheck:
         status="passed",
         severity="error",
         message=f"Project storage root is {config.storage.root}.",
+    )
+
+
+def _cache_root_writable_check(settings: RuntimeSettings, probes: DoctorProbes) -> DoctorCheck:
+    writable_probe = probes.path_writable or _path_writable
+    writable = writable_probe(settings.cache.root)
+    return DoctorCheck(
+        id="cache.root_writable",
+        status="passed" if writable else "failed",
+        severity="error",
+        message=(
+            f"Runtime cache root is writable: {settings.cache.root}."
+            if writable
+            else f"Runtime cache root is not writable: {settings.cache.root}."
+        ),
     )
 
 

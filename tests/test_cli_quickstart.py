@@ -3,7 +3,7 @@ from importlib import resources
 from pathlib import Path
 
 from openbbq.cli.app import main
-from openbbq.cli.quickstart import write_youtube_subtitle_workflow
+from openbbq.cli.quickstart import write_local_subtitle_workflow, write_youtube_subtitle_workflow
 
 
 class FakeMessage:
@@ -114,6 +114,29 @@ def test_youtube_workflow_generation_can_create_isolated_jobs(tmp_path):
     assert second.config_path.is_file()
     assert "watch?v=one" in first.config_path.read_text(encoding="utf-8")
     assert "watch?v=two" in second.config_path.read_text(encoding="utf-8")
+
+
+def test_local_workflow_generation_uses_imported_video_selector(tmp_path):
+    generated = write_local_subtitle_workflow(
+        workspace_root=tmp_path,
+        video_selector="project.art_source_video",
+        source_lang="en",
+        target_lang="zh",
+        provider="openai",
+        model=None,
+        asr_model="tiny",
+        asr_device="cpu",
+        asr_compute_type="int8",
+        run_id="local-job",
+    )
+
+    rendered = generated.config_path.read_text(encoding="utf-8")
+
+    assert generated.workflow_id == "local-to-srt"
+    assert "local video to translated SRT" in rendered
+    assert "video: project.art_source_video" in rendered
+    assert "provider: openai" in rendered
+    assert "target_lang: zh" in rendered
 
 
 def test_auth_set_with_secret_reference_writes_provider_and_check_resolves_env(
@@ -287,3 +310,100 @@ default_model = "tiny"
     generated_config = Path(payload["generated_config_path"])
     assert generated_config.is_file()
     assert "https://www.youtube.com/watch?v=test" in generated_config.read_text(encoding="utf-8")
+
+
+def test_subtitle_local_imports_video_runs_generated_workflow_and_writes_output(
+    tmp_path, monkeypatch, capsys
+):
+    from openbbq.builtin_plugins.faster_whisper import plugin as whisper_plugin
+    from openbbq.builtin_plugins.ffmpeg import plugin as ffmpeg_plugin
+    from openbbq.builtin_plugins.transcript import plugin as transcript_plugin
+    from openbbq.builtin_plugins.translation import plugin as translation_plugin
+
+    user_config = tmp_path / "user-config.toml"
+    model_cache_dir = tmp_path / "models/fw"
+    user_config.write_text(
+        f"""
+version = 1
+[providers.openai]
+type = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+api_key = "env:OPENBBQ_LLM_API_KEY"
+default_chat_model = "gpt-4o-mini"
+[models.faster_whisper]
+cache_dir = "{model_cache_dir.as_posix()}"
+default_model = "tiny"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-runtime")
+
+    def fake_runner(command):
+        Path(command[-1]).write_bytes(b"audio")
+
+    class FakeSegment:
+        start = 0.0
+        end = 1.0
+        text = "Hello Open BBQ"
+        avg_logprob = -0.1
+        words = []
+
+    class FakeInfo:
+        language = "en"
+        duration = 1.0
+
+    class FakeWhisperModel:
+        def __init__(self, model, device, compute_type, download_root=None):
+            assert model == "tiny"
+            assert download_root == str(model_cache_dir.resolve())
+
+        def transcribe(self, audio_path, **kwargs):
+            assert kwargs["language"] == "en"
+            return [FakeSegment()], FakeInfo()
+
+    def fake_client_factory(*, api_key, base_url):
+        assert api_key == "sk-runtime"
+        assert base_url == "https://api.openai.com/v1"
+        return FakeOpenAIClient()
+
+    monkeypatch.setattr(ffmpeg_plugin, "_run_subprocess", fake_runner)
+    monkeypatch.setattr(whisper_plugin, "_default_model_factory", FakeWhisperModel)
+    monkeypatch.setattr(transcript_plugin, "_default_client_factory", fake_client_factory)
+    monkeypatch.setattr(translation_plugin, "_default_client_factory", fake_client_factory)
+
+    project = tmp_path / "workspace"
+    input_video = tmp_path / "sample.mp4"
+    input_video.write_bytes(b"video")
+    output = tmp_path / "out" / "subtitle.srt"
+
+    code = main(
+        [
+            "--project",
+            str(project),
+            "--json",
+            "subtitle",
+            "local",
+            "--input",
+            str(input_video),
+            "--source",
+            "en",
+            "--target",
+            "zh",
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["workflow_id"] == "local-to-srt"
+    assert payload["source_artifact_id"].startswith("art_")
+    assert payload["output_path"] == str(output.resolve())
+    assert output.read_text(encoding="utf-8").splitlines()[2] == "[zh] Hello Open BBQ"
+    generated_config = Path(payload["generated_config_path"])
+    assert generated_config.is_file()
+    assert f"video: project.{payload['source_artifact_id']}" in generated_config.read_text(
+        encoding="utf-8"
+    )

@@ -46,8 +46,11 @@ See [Phase 1 Documentation](./phase1/README.md) and [Backend & CLI Goals](./phas
 - Built-in OpenAI-compatible LLM translation
 - Built-in subtitle export
 - Deterministic tests with optional local real-media and real-LLM smoke runs
+- Generated one-step `subtitle local` and `subtitle youtube` CLI workflows
 
 `llm.translate` and implicit LLM environment-variable fallback have been removed. LLM-backed tools require a named runtime provider profile, and environment variables are only read through explicit secret references such as `api_key = "env:OPENBBQ_LLM_API_KEY"`.
+
+See [Phase 2 Exit Checklist](./phase2/Phase-2-Exit.md) for completion criteria and smoke checks.
 
 > Desktop, API, and automation adapters should call application services or future API wrappers, not CLI parser internals.
 

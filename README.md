@@ -60,7 +60,7 @@ Use `--json` before the command for machine-readable output:
 uv run openbbq --json status text-demo --project tests/fixtures/projects/text-basic
 ```
 
-## Quickstart: YouTube to SRT
+## Quickstart: local video to SRT
 
 Configure an OpenAI-compatible provider:
 
@@ -77,6 +77,25 @@ uv run openbbq auth check openai --json
 LLM-backed workflow steps must name a runtime provider such as `openai`. The
 environment variable above is only used because the provider profile explicitly
 stores `api_key = "env:OPENBBQ_LLM_API_KEY"`.
+
+Generate a translated SRT file from a local video:
+
+```bash
+uv run openbbq subtitle local \
+  --input ./sample.mp4 \
+  --source en \
+  --target zh \
+  --output ./out.zh.srt \
+  --provider openai
+```
+
+The command creates an internal workflow under `.openbbq/generated/`, imports
+the video as a file-backed artifact, extracts audio, transcribes it, corrects and
+segments the transcript, translates subtitle segments, and writes the final `.srt`
+file. Each invocation creates an isolated generated project and prints
+`generated_project_root` in JSON output.
+
+## Quickstart: YouTube to SRT
 
 Generate a translated SRT file:
 
@@ -159,5 +178,6 @@ uv run openbbq artifact diff <from-version-id> <to-version-id> --project <projec
 Run preflight checks:
 
 ```bash
+uv run openbbq doctor --json
 uv run openbbq doctor --workflow <workflow-id> --project <project-dir> --json
 ```

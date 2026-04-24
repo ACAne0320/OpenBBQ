@@ -28,6 +28,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "openbbq.builtin_plugins" = ["*/openbbq.plugin.toml"]
+"openbbq.workflow_templates.local_subtitle" = ["openbbq.yaml"]
 "openbbq.workflow_templates.youtube_subtitle" = ["openbbq.yaml"]
 
 [tool.pytest.ini_options]

@@ -73,6 +73,15 @@ def test_builtin_plugin_manifests_are_configured_as_package_data() -> None:
     assert package_data["openbbq.builtin_plugins"] == ["*/openbbq.plugin.toml"]
 
 
+def test_workflow_templates_are_configured_as_package_data() -> None:
+    root = Path(__file__).resolve().parents[1]
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    package_data = pyproject["tool"]["setuptools"]["package-data"]
+
+    assert package_data["openbbq.workflow_templates.youtube_subtitle"] == ["openbbq.yaml"]
+    assert package_data["openbbq.workflow_templates.local_subtitle"] == ["openbbq.yaml"]
+
+
 def test_llm_extra_declares_openai_sdk_dependency() -> None:
     root = Path(__file__).resolve().parents[1]
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
@@ -122,3 +131,29 @@ def test_builtin_plugin_manifests_are_included_in_wheel(tmp_path) -> None:
         names = set(wheel.namelist())
 
     assert expected <= names
+
+
+def test_workflow_templates_are_included_in_wheel(tmp_path) -> None:
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "wheel", str(root), "--no-deps", "-w", str(tmp_path)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"Wheel build not available in environment: {result.stderr}")
+
+    wheels = list(tmp_path.glob("*.whl"))
+    if not wheels:
+        pytest.skip("No wheel produced")
+    wheel_path = wheels[0]
+
+    with zipfile.ZipFile(wheel_path) as wheel:
+        names = set(wheel.namelist())
+
+    assert "openbbq/workflow_templates/youtube_subtitle/openbbq.yaml" in names
+    assert "openbbq/workflow_templates/local_subtitle/openbbq.yaml" in names
