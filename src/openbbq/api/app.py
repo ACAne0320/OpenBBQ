@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from openbbq import __version__
 from openbbq.api.auth import install_auth_middleware
 from openbbq.api.errors import install_error_handlers
-from openbbq.api.routes import health
+from openbbq.api.routes import artifacts, health, plugins, projects, runtime, runs, workflows
 from openbbq.domain.base import OpenBBQModel
 
 
@@ -27,6 +27,12 @@ def create_app(settings: ApiAppSettings | None = None) -> FastAPI:
     install_error_handlers(app)
     install_auth_middleware(app, app_settings)
     app.include_router(health.router)
+    app.include_router(projects.router)
+    app.include_router(plugins.router)
+    app.include_router(runtime.router)
+    app.include_router(workflows.router)
+    app.include_router(runs.router)
+    app.include_router(artifacts.router)
     return app
 
 

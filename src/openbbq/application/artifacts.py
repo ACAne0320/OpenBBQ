@@ -105,6 +105,16 @@ def show_artifact(
     )
 
 
+def show_artifact_version(
+    *,
+    project_root: Path,
+    version_id: str,
+    config_path: Path | None = None,
+) -> StoredArtifactVersion:
+    config = load_project_config(project_root, config_path=config_path)
+    return _store(config).read_artifact_version(version_id)
+
+
 def diff_artifact_versions(
     *,
     project_root: Path,
