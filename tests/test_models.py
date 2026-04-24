@@ -1,23 +1,29 @@
-from dataclasses import is_dataclass
+import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from openbbq.domain import models
+from openbbq.domain.base import OpenBBQModel, format_pydantic_error
 
 
-def test_domain_models_exports_phase1_dataclasses():
-    exported_names = {
-        "ProjectMetadata",
-        "StorageConfig",
-        "PluginConfig",
-        "StepOutput",
-        "StepConfig",
-        "WorkflowConfig",
-        "ProjectConfig",
-    }
+class ExampleModel(OpenBBQModel):
+    name: str
 
-    for name in exported_names:
-        exported = getattr(models, name)
 
-        assert is_dataclass(exported)
+def test_openbbq_model_is_frozen_and_forbids_extra_fields():
+    value = ExampleModel(name="demo")
+
+    with pytest.raises(PydanticValidationError):
+        value.name = "changed"
+
+    with pytest.raises(PydanticValidationError):
+        ExampleModel(name="demo", extra=True)
+
+
+def test_format_pydantic_error_includes_entity_and_field_path():
+    with pytest.raises(PydanticValidationError) as exc:
+        ExampleModel()
+
+    assert format_pydantic_error("example", exc.value) == "example.name: Field required"
 
 
 def test_domain_models_exports_artifact_type_registry():
