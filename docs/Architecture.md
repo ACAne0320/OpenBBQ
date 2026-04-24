@@ -20,6 +20,11 @@ OpenBBQ is a headless, artifact-driven media workflow backend. The current CLI i
 5. Application services: expose workflow and artifact operations independent of the CLI.
 6. Adapters: CLI today; desktop, HTTP API, and worker adapters later.
 
+The desktop backend adapter is a local FastAPI sidecar managed by Electron main.
+It exposes Pydantic-validated REST responses for commands and queries, and SSE
+for workflow event streaming. The API layer calls `openbbq.application` services
+and does not import CLI parser internals.
+
 ## Runtime Contracts
 
 LLM-backed tools require a named runtime provider profile such as `openai`. Provider profiles own the OpenAI-compatible base URL, optional default chat model, and secret reference. Environment variables are only read through explicit secret references, for example `api_key = "env:OPENBBQ_LLM_API_KEY"`.

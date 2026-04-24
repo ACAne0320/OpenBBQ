@@ -22,7 +22,9 @@ router = APIRouter(tags=["artifacts"])
 def get_artifacts(request: Request) -> ApiSuccess[dict[str, Any]]:
     settings = _settings(request)
     artifacts = list_artifacts(project_root=settings.project_root, config_path=settings.config_path)
-    return ApiSuccess(data={"artifacts": [artifact.model_dump(mode="json") for artifact in artifacts]})
+    return ApiSuccess(
+        data={"artifacts": [artifact.model_dump(mode="json") for artifact in artifacts]}
+    )
 
 
 @router.get("/artifacts/{artifact_id}", response_model=ApiSuccess[dict[str, Any]])

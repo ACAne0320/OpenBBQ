@@ -58,6 +58,10 @@ See [Phase 2 Exit Checklist](./phase2/Phase-2-Exit.md) for completion criteria a
 
 **Goal:** Provide a visual interface for non-technical users to build, monitor, and intervene in workflows.
 
+The desktop communicates with a local Python sidecar over authenticated
+loopback HTTP. Electron main owns the token and process lifecycle; the renderer
+uses preload IPC rather than owning backend credentials directly.
+
 - Project Dashboard — overview of projects, recent activity, quick actions
 - Workflow Configuration Dashboard — visual workflow builder, step ordering, parameter editing
 - Artifact Edit Panel — inline editing of transcriptions, translations, subtitles with diff view

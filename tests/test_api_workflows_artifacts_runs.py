@@ -21,9 +21,7 @@ def write_project(tmp_path, fixture_name: str) -> Path:
 def test_workflow_run_and_artifact_routes(tmp_path):
     project = write_project(tmp_path, "text-basic")
     client = TestClient(
-        create_app(
-            ApiAppSettings(project_root=project, token="token", execute_runs_inline=True)
-        )
+        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
     )
     headers = {"Authorization": "Bearer token"}
 

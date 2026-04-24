@@ -39,9 +39,7 @@ def test_format_sse_serializes_pydantic_event():
 def test_events_history_route_replays_after_sequence(tmp_path):
     project = write_project(tmp_path, "text-basic")
     client = TestClient(
-        create_app(
-            ApiAppSettings(project_root=project, token="token", execute_runs_inline=True)
-        )
+        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
     )
     headers = {"Authorization": "Bearer token"}
     client.post(

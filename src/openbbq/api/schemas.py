@@ -7,7 +7,12 @@ from pydantic import Field, model_validator
 
 from openbbq.domain.base import JsonObject, JsonValue, OpenBBQModel
 from openbbq.runtime.models import DoctorCheck, ModelAssetStatus, ProviderProfile, RuntimeSettings
-from openbbq.storage.models import ArtifactRecord, ArtifactVersionRecord, WorkflowEvent, WorkflowState
+from openbbq.storage.models import (
+    ArtifactRecord,
+    ArtifactVersionRecord,
+    WorkflowEvent,
+    WorkflowState,
+)
 
 T = TypeVar("T")
 

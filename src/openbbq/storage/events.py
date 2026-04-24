@@ -82,7 +82,9 @@ def read_events_after(
     workflow_id: str,
     sequence: int,
 ) -> tuple[WorkflowEvent, ...]:
-    return tuple(event for event in read_events(state_root, workflow_id) if event.sequence > sequence)
+    return tuple(
+        event for event in read_events(state_root, workflow_id) if event.sequence > sequence
+    )
 
 
 def latest_event_sequence(state_root: Path, workflow_id: str) -> int:

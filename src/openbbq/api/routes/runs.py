@@ -35,21 +35,27 @@ def create_workflow_run(
 @router.get("/runs/{run_id}", response_model=ApiSuccess[RunRecord])
 def get_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
     settings = _settings(request)
-    run = get_run(project_root=settings.project_root, config_path=settings.config_path, run_id=run_id)
+    run = get_run(
+        project_root=settings.project_root, config_path=settings.config_path, run_id=run_id
+    )
     return ApiSuccess(data=RunRecord(**run.model_dump()))
 
 
 @router.post("/runs/{run_id}/resume", response_model=ApiSuccess[RunRecord])
 def resume_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
     settings = _settings(request)
-    run = resume_run(project_root=settings.project_root, config_path=settings.config_path, run_id=run_id)
+    run = resume_run(
+        project_root=settings.project_root, config_path=settings.config_path, run_id=run_id
+    )
     return ApiSuccess(data=RunRecord(**run.model_dump()))
 
 
 @router.post("/runs/{run_id}/abort", response_model=ApiSuccess[RunRecord])
 def abort_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
     settings = _settings(request)
-    run = abort_run(project_root=settings.project_root, config_path=settings.config_path, run_id=run_id)
+    run = abort_run(
+        project_root=settings.project_root, config_path=settings.config_path, run_id=run_id
+    )
     return ApiSuccess(data=RunRecord(**run.model_dump()))
 
 

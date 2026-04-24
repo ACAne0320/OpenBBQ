@@ -41,6 +41,13 @@ uv run ruff format --check .
 uv build --wheel --out-dir /tmp/openbbq-wheel-check
 ```
 
+Verify the desktop API sidecar slice:
+
+```bash
+uv sync --extra api
+uv run pytest tests/test_api_health.py tests/test_api_workflows_artifacts_runs.py
+```
+
 Validate the generated and canonical remote workflows:
 
 ```bash

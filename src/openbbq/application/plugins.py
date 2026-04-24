@@ -78,12 +78,10 @@ def plugin_info(
                     "input_artifact_types": tool.input_artifact_types,
                     "output_artifact_types": tool.output_artifact_types,
                     "inputs": {
-                        name: spec.model_dump(mode="json")
-                        for name, spec in tool.inputs.items()
+                        name: spec.model_dump(mode="json") for name, spec in tool.inputs.items()
                     },
                     "outputs": {
-                        name: spec.model_dump(mode="json")
-                        for name, spec in tool.outputs.items()
+                        name: spec.model_dump(mode="json") for name, spec in tool.outputs.items()
                     },
                     "runtime_requirements": tool.runtime_requirements.model_dump(mode="json"),
                     "ui": tool.ui.model_dump(mode="json"),

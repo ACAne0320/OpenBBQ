@@ -30,9 +30,7 @@ def test_project_service_rejects_existing_config(tmp_path):
 def test_plugin_service_lists_and_describes_fixture_plugin(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
-    source = Path("tests/fixtures/projects/text-basic/openbbq.yaml").read_text(
-        encoding="utf-8"
-    )
+    source = Path("tests/fixtures/projects/text-basic/openbbq.yaml").read_text(encoding="utf-8")
     (project / "openbbq.yaml").write_text(
         source.replace("../../plugins", str(Path.cwd() / "tests/fixtures/plugins")),
         encoding="utf-8",

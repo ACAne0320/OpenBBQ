@@ -20,9 +20,7 @@ def write_project(tmp_path, fixture_name: str) -> Path:
 
 def authed_client(project):
     client = TestClient(
-        create_app(
-            ApiAppSettings(project_root=project, token="token", execute_runs_inline=True)
-        )
+        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
     )
     return client, {"Authorization": "Bearer token"}
 
