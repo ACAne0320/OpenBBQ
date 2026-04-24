@@ -31,6 +31,18 @@ def _runtime_settings(tmp_path):
     )
 
 
+def _runtime_settings_without_providers(tmp_path):
+    return RuntimeSettings(
+        version=1,
+        config_path=tmp_path / "config.toml",
+        cache=CacheSettings(root=tmp_path / "cache"),
+        providers={},
+        models=ModelsSettings(
+            faster_whisper=FasterWhisperSettings(cache_dir=tmp_path / "cache/models/fw")
+        ),
+    )
+
+
 def _write_project(tmp_path, fixture_name: str) -> Path:
     project = tmp_path / "project"
     project.mkdir()
@@ -62,6 +74,29 @@ def test_doctor_reports_missing_llm_secret_for_translation_workflow(tmp_path):
 
     failed = {check.id: check for check in result if check.status == "failed"}
     assert "provider.openai.api_key" in failed
+
+
+def test_doctor_reports_missing_named_provider_for_translation_workflow(tmp_path):
+    project = _write_project(tmp_path, "local-video-corrected-translate-subtitle")
+    config = load_project_config(project)
+    registry = discover_plugins(config.plugin_paths)
+    probes = DoctorProbes(
+        env={"OPENBBQ_LLM_API_KEY": "sk-legacy"},
+        which=lambda name: "/usr/bin/ffmpeg" if name == "ffmpeg" else None,
+        importable=lambda name: True,
+        path_writable=lambda path: True,
+    )
+
+    result = check_workflow(
+        config=config,
+        registry=registry,
+        workflow_id="local-video-corrected-translate-subtitle",
+        settings=_runtime_settings_without_providers(tmp_path),
+        probes=probes,
+    )
+
+    failed = {check.id: check for check in result if check.status == "failed"}
+    assert "provider.openai.configured" in failed
 
 
 def test_doctor_reports_missing_ffmpeg_for_media_workflow(tmp_path):

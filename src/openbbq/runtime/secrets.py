@@ -10,11 +10,9 @@ from openbbq.runtime.models import SecretCheck
 
 
 class KeyringBackend(Protocol):
-    def get_password(self, service_name: str, username: str) -> str | None:
-        ...
+    def get_password(self, service_name: str, username: str) -> str | None: ...
 
-    def set_password(self, service_name: str, username: str, password: str) -> None:
-        ...
+    def set_password(self, service_name: str, username: str, password: str) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,9 +34,7 @@ class SecretResolver:
         keyring_backend: KeyringBackend | object | None = _UNSET,
     ) -> None:
         self.env = os.environ if env is None else env
-        self.keyring_backend = (
-            _load_keyring() if keyring_backend is _UNSET else keyring_backend
-        )
+        self.keyring_backend = _load_keyring() if keyring_backend is _UNSET else keyring_backend
 
     def resolve(self, reference: str) -> ResolvedSecret:
         if reference.startswith("env:"):
@@ -83,7 +79,20 @@ class SecretResolver:
                         error="Python keyring support is not installed or not available.",
                     ),
                 )
-            value = self.keyring_backend.get_password(service, username)
+            try:
+                value = self.keyring_backend.get_password(service, username)
+            except Exception as exc:
+                return ResolvedSecret(
+                    reference=reference,
+                    resolved=False,
+                    value=None,
+                    public=SecretCheck(
+                        reference=reference,
+                        resolved=False,
+                        display=reference,
+                        error=f"Keyring secret '{reference}' could not be read: {exc}",
+                    ),
+                )
             if value is None:
                 return ResolvedSecret(
                     reference=reference,
@@ -117,7 +126,12 @@ class SecretResolver:
         service, username = _parse_keyring_reference(reference)
         if self.keyring_backend is None:
             raise ValidationError("Python keyring support is not installed or not available.")
-        self.keyring_backend.set_password(service, username, value)
+        try:
+            self.keyring_backend.set_password(service, username, value)
+        except Exception as exc:
+            raise ValidationError(
+                f"Keyring secret '{reference}' could not be stored: {exc}"
+            ) from exc
 
 
 def _parse_keyring_reference(reference: str) -> tuple[str, str]:

@@ -18,6 +18,14 @@ class FakeKeyringBackend:
         self.values[(service, username)] = value
 
 
+class FailingKeyringBackend:
+    def get_password(self, service, username):
+        raise RuntimeError("backend unavailable")
+
+    def set_password(self, service, username, value):
+        raise RuntimeError("backend unavailable")
+
+
 def test_resolves_env_secret():
     resolver = SecretResolver(env={"OPENBBQ_LLM_API_KEY": "sk-test"})
 
@@ -59,6 +67,16 @@ def test_keyring_missing_backend_reports_dependency_error():
     assert "keyring" in check.public.error.lower()
 
 
+def test_keyring_backend_error_reports_unresolved_secret():
+    resolver = SecretResolver(env={}, keyring_backend=FailingKeyringBackend())
+
+    check = resolver.resolve("keyring:openbbq/providers/openai/api_key")
+
+    assert check.resolved is False
+    assert check.value is None
+    assert "backend unavailable" in check.public.error
+
+
 def test_rejects_unknown_secret_reference_scheme():
     resolver = SecretResolver(env={})
 
@@ -80,6 +98,13 @@ def test_rejects_setting_env_secret():
 
     with pytest.raises(ValidationError, match="keyring"):
         resolver.set_secret("env:OPENBBQ_LLM_API_KEY", "sk-new")
+
+
+def test_set_keyring_secret_reports_backend_error():
+    resolver = SecretResolver(env={}, keyring_backend=FailingKeyringBackend())
+
+    with pytest.raises(ValidationError, match="backend unavailable"):
+        resolver.set_secret("keyring:openbbq/providers/openai/api_key", "sk-new")
 
 
 def test_redact_values_removes_all_secret_values():

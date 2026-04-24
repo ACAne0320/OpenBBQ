@@ -90,6 +90,52 @@ def test_settings_set_provider_writes_user_config(tmp_path, monkeypatch, capsys)
     assert "gpt-4o-mini" in rendered
 
 
+def test_settings_set_provider_rejects_unknown_type(tmp_path, monkeypatch, capsys):
+    user_config = tmp_path / "config.toml"
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(user_config))
+
+    code = main(
+        [
+            "--json",
+            "settings",
+            "set-provider",
+            "openai",
+            "--type",
+            "custom",
+        ]
+    )
+
+    assert code == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert "providers.openai.type" in payload["error"]["message"]
+    assert not user_config.exists()
+
+
+def test_settings_set_provider_rejects_literal_api_key(tmp_path, monkeypatch, capsys):
+    user_config = tmp_path / "config.toml"
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(user_config))
+
+    code = main(
+        [
+            "--json",
+            "settings",
+            "set-provider",
+            "openai",
+            "--type",
+            "openai_compatible",
+            "--api-key",
+            "sk-should-not-be-here",
+        ]
+    )
+
+    assert code == 3
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert "providers.openai.api_key" in payload["error"]["message"]
+    assert not user_config.exists()
+
+
 def test_secret_check_json_reports_unresolved_env(monkeypatch, capsys):
     monkeypatch.delenv("OPENBBQ_LLM_API_KEY", raising=False)
 

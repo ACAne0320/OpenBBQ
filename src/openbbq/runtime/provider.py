@@ -34,10 +34,14 @@ def llm_provider_from_request(
             raise ValueError(f"Provider '{provider_name}' is not configured for {error_prefix}.")
         provider_type = provider.get("type")
         if provider_type != "openai_compatible":
-            raise ValueError(f"{error_prefix} provider '{provider_name}' must be openai_compatible.")
+            raise ValueError(
+                f"{error_prefix} provider '{provider_name}' must be openai_compatible."
+            )
         api_key = provider.get("api_key")
         if not isinstance(api_key, str) or not api_key:
-            raise RuntimeError(f"{error_prefix} provider '{provider_name}' API key is not resolved.")
+            raise RuntimeError(
+                f"{error_prefix} provider '{provider_name}' API key is not resolved."
+            )
         base_url = provider.get("base_url")
         model_default = provider.get("default_chat_model")
         return LlmProviderCredentials(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import os
 from pathlib import Path
+import re
 import tomllib
 from typing import Any
 
@@ -18,6 +19,7 @@ from openbbq.runtime.models import (
 DEFAULT_USER_CONFIG_PATH = Path("~/.openbbq/config.toml")
 DEFAULT_CACHE_ROOT = Path("~/.cache/openbbq")
 SUPPORTED_PROVIDER_TYPES = {"openai_compatible"}
+PROVIDER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def default_user_config_path(env: Mapping[str, str] | None = None) -> Path:
@@ -68,9 +70,7 @@ def runtime_settings_to_toml(settings: RuntimeSettings) -> str:
             if provider.api_key is not None:
                 lines.append(f'api_key = "{_escape_toml(provider.api_key)}"')
             if provider.default_chat_model is not None:
-                lines.append(
-                    f'default_chat_model = "{_escape_toml(provider.default_chat_model)}"'
-                )
+                lines.append(f'default_chat_model = "{_escape_toml(provider.default_chat_model)}"')
             if provider.display_name is not None:
                 lines.append(f'display_name = "{_escape_toml(provider.display_name)}"')
             lines.append("")
@@ -94,6 +94,10 @@ def with_provider_profile(
     settings: RuntimeSettings,
     provider: ProviderProfile,
 ) -> RuntimeSettings:
+    _validate_provider_name(provider.name)
+    _validate_provider_type(provider.type, f"providers.{provider.name}.type")
+    if provider.api_key is not None:
+        _validate_secret_reference(provider.api_key, f"providers.{provider.name}.api_key")
     providers = dict(settings.providers)
     providers[provider.name] = provider
     return RuntimeSettings(
@@ -159,16 +163,18 @@ def _provider_profiles(raw: Mapping[str, Any]) -> dict[str, ProviderProfile]:
     for name, provider_raw in providers_raw.items():
         if not isinstance(name, str) or not name.strip():
             raise ValidationError("Provider names must be non-empty strings.")
+        _validate_provider_name(name)
         profile_raw = _require_mapping(provider_raw, f"providers.{name}")
         provider_type = _required_string(profile_raw.get("type"), f"providers.{name}.type")
-        if provider_type not in SUPPORTED_PROVIDER_TYPES:
-            allowed = ", ".join(sorted(SUPPORTED_PROVIDER_TYPES))
-            raise ValidationError(f"providers.{name}.type must be one of: {allowed}.")
+        _validate_provider_type(provider_type, f"providers.{name}.type")
+        api_key = _optional_string(profile_raw.get("api_key"), f"providers.{name}.api_key")
+        if api_key is not None:
+            _validate_secret_reference(api_key, f"providers.{name}.api_key")
         providers[name] = ProviderProfile(
             name=name,
             type=provider_type,
             base_url=_optional_string(profile_raw.get("base_url"), f"providers.{name}.base_url"),
-            api_key=_optional_string(profile_raw.get("api_key"), f"providers.{name}.api_key"),
+            api_key=api_key,
             default_chat_model=_optional_string(
                 profile_raw.get("default_chat_model"),
                 f"providers.{name}.default_chat_model",
@@ -178,6 +184,33 @@ def _provider_profiles(raw: Mapping[str, Any]) -> dict[str, ProviderProfile]:
             ),
         )
     return providers
+
+
+def _validate_provider_name(name: str) -> None:
+    if not name or PROVIDER_NAME_PATTERN.fullmatch(name) is None:
+        raise ValidationError("Provider names must use only letters, digits, '_' or '-'.")
+
+
+def _validate_provider_type(provider_type: str, field_path: str) -> None:
+    if provider_type not in SUPPORTED_PROVIDER_TYPES:
+        allowed = ", ".join(sorted(SUPPORTED_PROVIDER_TYPES))
+        raise ValidationError(f"{field_path} must be one of: {allowed}.")
+
+
+def _validate_secret_reference(reference: str, field_path: str) -> None:
+    if reference.startswith("env:"):
+        if reference == "env:":
+            raise ValidationError(f"{field_path} env secret reference must include a name.")
+        return
+    if reference.startswith("keyring:"):
+        payload = reference.removeprefix("keyring:")
+        service, separator, username = payload.partition("/")
+        if not separator or not service or not username:
+            raise ValidationError(
+                f"{field_path} keyring secret reference must be keyring:<service>/<username>."
+            )
+        return
+    raise ValidationError(f"{field_path} must use an env: or keyring: secret reference.")
 
 
 def _resolve_user_path(value: Any, base_dir: Path, field_path: str) -> Path:

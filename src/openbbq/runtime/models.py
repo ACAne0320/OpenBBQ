@@ -57,8 +57,7 @@ class RuntimeSettings:
             "config_path": str(self.config_path),
             "cache": {"root": str(self.cache.root)},
             "providers": {
-                name: provider.public_dict()
-                for name, provider in sorted(self.providers.items())
+                name: provider.public_dict() for name, provider in sorted(self.providers.items())
             },
             "models": {
                 "faster_whisper": {

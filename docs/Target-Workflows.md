@@ -168,6 +168,7 @@ Parameters:
 Runtime provider profiles:
 
 - `provider` may name a provider from `~/.openbbq/config.toml`, such as `openai`.
+- Provider names must use only letters, digits, `_`, or `-`.
 - Provider profiles store `type`, `base_url`, optional default model, and an API key reference.
 - API keys must use `env:` or `keyring:` secret references and must not be written into `openbbq.yaml`.
 - If `provider` is omitted, the built-in tools still accept `OPENBBQ_LLM_API_KEY` and `OPENBBQ_LLM_BASE_URL` for compatibility.

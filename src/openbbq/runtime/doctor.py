@@ -11,7 +11,10 @@ from openbbq.domain.models import ProjectConfig, WorkflowConfig
 from openbbq.errors import ValidationError
 from openbbq.plugins.registry import PluginRegistry
 from openbbq.runtime.models import DoctorCheck, RuntimeSettings
+from openbbq.runtime.provider import LEGACY_PROVIDER_NAME
 from openbbq.runtime.secrets import SecretResolver
+
+LLM_TOOL_REFS = {"translation.translate", "llm.translate", "transcript.correct"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,60 +47,86 @@ def check_workflow(
         checks.append(_import_check("faster_whisper", "python.faster_whisper", probes))
         checks.append(_cache_writable_check(settings, probes))
     if _workflow_uses_llm(workflow):
-        checks.extend(_provider_checks(settings, probes))
+        checks.extend(_provider_checks(settings, probes, workflow))
     return checks
 
 
 def _workflow_uses_llm(workflow: WorkflowConfig) -> bool:
-    return any(
-        step.tool_ref in {"translation.translate", "llm.translate", "transcript.correct"}
-        for step in workflow.steps
-    )
+    return any(step.tool_ref in LLM_TOOL_REFS for step in workflow.steps)
 
 
-def _provider_checks(settings: RuntimeSettings, probes: DoctorProbes) -> list[DoctorCheck]:
+def _provider_checks(
+    settings: RuntimeSettings,
+    probes: DoctorProbes,
+    workflow: WorkflowConfig,
+) -> list[DoctorCheck]:
     env = probes.env if probes.env is not None else os.environ
-    if settings.providers:
-        checks: list[DoctorCheck] = []
-        resolver = SecretResolver(env=env, keyring_backend=None)
-        for name, provider in sorted(settings.providers.items()):
-            if provider.api_key is None:
-                checks.append(
-                    DoctorCheck(
-                        id=f"provider.{name}.api_key",
-                        status="failed",
-                        severity="error",
-                        message=f"Provider '{name}' does not define an api_key secret reference.",
-                    )
+    named_providers: set[str] = set()
+    uses_legacy_provider = False
+    for step in workflow.steps:
+        if step.tool_ref not in LLM_TOOL_REFS:
+            continue
+        provider_name = step.parameters.get("provider")
+        if (
+            isinstance(provider_name, str)
+            and provider_name.strip()
+            and provider_name.strip() != LEGACY_PROVIDER_NAME
+        ):
+            named_providers.add(provider_name.strip())
+            continue
+        uses_legacy_provider = True
+
+    checks: list[DoctorCheck] = []
+    resolver = SecretResolver(env=env)
+    for name in sorted(named_providers):
+        provider = settings.providers.get(name)
+        if provider is None:
+            checks.append(
+                DoctorCheck(
+                    id=f"provider.{name}.configured",
+                    status="failed",
+                    severity="error",
+                    message=f"Provider '{name}' is not configured in runtime settings.",
                 )
-                continue
-            resolved = resolver.resolve(provider.api_key)
+            )
+            continue
+        if provider.api_key is None:
             checks.append(
                 DoctorCheck(
                     id=f"provider.{name}.api_key",
-                    status="passed" if resolved.resolved else "failed",
+                    status="failed",
                     severity="error",
-                    message=(
-                        f"Provider '{name}' API key is resolved."
-                        if resolved.resolved
-                        else resolved.public.error
-                        or f"Provider '{name}' API key is not resolved."
-                    ),
+                    message=f"Provider '{name}' does not define an api_key secret reference.",
                 )
             )
-        return checks
-    return [
-        DoctorCheck(
-            id="provider.openai_compatible.api_key",
-            status="passed" if env.get("OPENBBQ_LLM_API_KEY") else "failed",
-            severity="error",
-            message=(
-                "OPENBBQ_LLM_API_KEY is set."
-                if env.get("OPENBBQ_LLM_API_KEY")
-                else "OPENBBQ_LLM_API_KEY is not set."
-            ),
+            continue
+        resolved = resolver.resolve(provider.api_key)
+        checks.append(
+            DoctorCheck(
+                id=f"provider.{name}.api_key",
+                status="passed" if resolved.resolved else "failed",
+                severity="error",
+                message=(
+                    f"Provider '{name}' API key is resolved."
+                    if resolved.resolved
+                    else resolved.public.error or f"Provider '{name}' API key is not resolved."
+                ),
+            )
         )
-    ]
+    if uses_legacy_provider:
+        checks.append(
+            DoctorCheck(
+                id="provider.openai_compatible.api_key",
+                status="passed" if env.get("OPENBBQ_LLM_API_KEY") else "failed",
+                severity="error",
+                message=(
+                    "OPENBBQ_LLM_API_KEY is set."
+                    if env.get("OPENBBQ_LLM_API_KEY")
+                    else "OPENBBQ_LLM_API_KEY is not set."
+                ),
+            )
+        )
+    return checks
 
 
 def _project_storage_check(config: ProjectConfig) -> DoctorCheck:
