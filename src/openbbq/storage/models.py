@@ -18,6 +18,9 @@ WorkflowStatus: TypeAlias = Literal[
 ]
 StepRunStatus: TypeAlias = Literal["running", "completed", "failed", "skipped"]
 WorkflowEventLevel: TypeAlias = Literal["debug", "info", "warning", "error"]
+RunStatus: TypeAlias = Literal["queued", "running", "paused", "completed", "failed", "aborted"]
+RunMode: TypeAlias = Literal["start", "resume", "step_rerun", "force_rerun"]
+RunCreator: TypeAlias = Literal["api", "cli", "desktop"]
 ArtifactContent: TypeAlias = JsonValue | bytes
 
 
@@ -76,6 +79,26 @@ class WorkflowEvent(RecordModel):
     created_at: str
     step_id: str | None = None
     attempt: int | None = None
+
+
+class RunErrorRecord(RecordModel):
+    code: str
+    message: str
+
+
+class RunRecord(RecordModel):
+    id: str
+    workflow_id: str
+    mode: RunMode
+    status: RunStatus
+    project_root: Path
+    config_path: Path | None = None
+    plugin_paths: tuple[Path, ...] = ()
+    started_at: str | None = None
+    completed_at: str | None = None
+    latest_event_sequence: int = 0
+    error: RunErrorRecord | None = None
+    created_by: RunCreator = "api"
 
 
 class ArtifactRecord(RecordModel):

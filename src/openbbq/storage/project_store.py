@@ -60,8 +60,8 @@ class ProjectStore:
         self.artifacts_root = (
             Path(artifacts_root) if artifacts_root is not None else self.root / "artifacts"
         )
-        state_base = Path(state_root) if state_root is not None else self.root / "state"
-        self.state_root = state_base / "workflows"
+        self.state_base = Path(state_root) if state_root is not None else self.root / "state"
+        self.state_root = self.state_base / "workflows"
         self.artifacts_root.mkdir(parents=True, exist_ok=True)
         self.state_root.mkdir(parents=True, exist_ok=True)
 
