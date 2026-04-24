@@ -2,6 +2,7 @@ name = "subtitle"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "export"
@@ -18,3 +19,17 @@ additionalProperties = false
 type = "string"
 enum = ["srt"]
 default = "srt"
+
+[tools.inputs.transcript]
+artifact_types = ["asr_transcript", "subtitle_segments"]
+required = false
+description = "Transcript or subtitle-ready segments."
+
+[tools.inputs.translation]
+artifact_types = ["translation"]
+required = false
+description = "Translated segments."
+
+[tools.outputs.subtitle]
+artifact_type = "subtitle"
+description = "Subtitle text."

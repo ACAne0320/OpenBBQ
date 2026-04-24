@@ -121,6 +121,126 @@ workflows:
         validate_workflow(config, registry, "demo")
 
 
+def test_validate_rejects_unknown_named_tool_input(tmp_path):
+    plugin_dir = tmp_path / "plugins" / "demo"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "openbbq.plugin.toml").write_text(
+        """
+name = "demo"
+version = "0.1.0"
+runtime = "python"
+entrypoint = "plugin:run"
+manifest_version = 2
+
+[[tools]]
+name = "copy"
+description = "Copy text."
+effects = []
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+properties = {}
+
+[tools.inputs.text]
+artifact_types = ["text"]
+required = true
+
+[tools.outputs.text]
+artifact_type = "text"
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "openbbq.yaml").write_text(
+        """
+version: 1
+project:
+  name: Unknown Input
+plugins:
+  paths:
+    - plugins/demo
+workflows:
+  demo:
+    name: Demo
+    steps:
+      - id: copy
+        name: Copy
+        tool_ref: demo.copy
+        inputs:
+          wrong: hello
+        outputs:
+          - name: text
+            type: text
+""",
+        encoding="utf-8",
+    )
+    config = load_project_config(tmp_path)
+    registry = discover_plugins(config.plugin_paths)
+
+    with pytest.raises(ValidationError, match="unknown input 'wrong'"):
+        validate_workflow(config, registry, "demo")
+
+
+def test_validate_rejects_unknown_named_tool_output(tmp_path):
+    plugin_dir = tmp_path / "plugins" / "demo"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "openbbq.plugin.toml").write_text(
+        """
+name = "demo"
+version = "0.1.0"
+runtime = "python"
+entrypoint = "plugin:run"
+manifest_version = 2
+
+[[tools]]
+name = "copy"
+description = "Copy text."
+effects = []
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+properties = {}
+
+[tools.inputs.text]
+artifact_types = ["text"]
+required = true
+
+[tools.outputs.text]
+artifact_type = "text"
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "openbbq.yaml").write_text(
+        """
+version: 1
+project:
+  name: Unknown Output
+plugins:
+  paths:
+    - plugins/demo
+workflows:
+  demo:
+    name: Demo
+    steps:
+      - id: copy
+        name: Copy
+        tool_ref: demo.copy
+        inputs:
+          text: hello
+        outputs:
+          - name: wrong
+            type: text
+""",
+        encoding="utf-8",
+    )
+    config = load_project_config(tmp_path)
+    registry = discover_plugins(config.plugin_paths)
+
+    with pytest.raises(ValidationError, match="unknown output 'wrong'"):
+        validate_workflow(config, registry, "demo")
+
+
 def test_validate_rejects_incompatible_selector_artifact_type(tmp_path):
     (tmp_path / "openbbq.yaml").write_text(
         f"""

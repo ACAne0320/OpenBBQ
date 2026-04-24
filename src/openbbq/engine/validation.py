@@ -34,6 +34,7 @@ def validate_workflow(
         if tool is None:
             raise ValidationError(f"Step '{step.id}' references unknown tool '{step.tool_ref}'.")
         _validate_parameters(step, tool)
+        _validate_named_inputs(step, tool)
         _validate_step_inputs(step, tool, step_outputs, config)
         _validate_step_outputs(step, tool)
 
@@ -69,11 +70,12 @@ def _validate_step_inputs(
         if isinstance(input_value, str) and input_value.startswith("project."):
             artifact_id = input_value.removeprefix("project.")
             artifact = _read_project_artifact(config, step, input_name, artifact_id)
-            if artifact.type not in tool.input_artifact_types:
+            allowed_types = _allowed_input_artifact_types(tool, input_name)
+            if artifact.type not in allowed_types:
                 raise ValidationError(
                     f"Step '{step.id}' input '{input_name}' references artifact type "
                     f"'{artifact.type}', but tool '{step.tool_ref}' accepts "
-                    f"{tool.input_artifact_types}.",
+                    f"{allowed_types}.",
                 )
             continue
         selector = parse_step_selector(input_value)
@@ -81,14 +83,51 @@ def _validate_step_inputs(
             continue
         selector_step_id, selector_output_name = selector
         output = step_outputs[selector_step_id][selector_output_name]
-        if output.type not in tool.input_artifact_types:
+        allowed_types = _allowed_input_artifact_types(tool, input_name)
+        if output.type not in allowed_types:
             raise ValidationError(
                 f"Step '{step.id}' input '{input_name}' references artifact type '{output.type}', "
-                f"but tool '{step.tool_ref}' accepts {tool.input_artifact_types}.",
+                f"but tool '{step.tool_ref}' accepts {allowed_types}.",
             )
 
 
+def _validate_named_inputs(step: StepConfig, tool: ToolSpec) -> None:
+    if not tool.inputs:
+        return
+    allowed = set(tool.inputs)
+    for input_name in step.inputs:
+        if input_name not in allowed:
+            raise ValidationError(
+                f"Step '{step.id}' has unknown input '{input_name}' for tool '{step.tool_ref}'."
+            )
+    for input_name, input_spec in tool.inputs.items():
+        if input_spec.required and input_name not in step.inputs:
+            raise ValidationError(
+                f"Step '{step.id}' is missing required input '{input_name}' for tool '{step.tool_ref}'."
+            )
+
+
+def _allowed_input_artifact_types(tool: ToolSpec, input_name: str) -> list[str]:
+    if tool.inputs and input_name in tool.inputs:
+        return list(tool.inputs[input_name].artifact_types)
+    return tool.input_artifact_types
+
+
 def _validate_step_outputs(step: StepConfig, tool: ToolSpec) -> None:
+    if tool.outputs:
+        for output in step.outputs:
+            output_spec = tool.outputs.get(output.name)
+            if output_spec is None:
+                raise ValidationError(
+                    f"Step '{step.id}' has unknown output '{output.name}' for tool '{step.tool_ref}'."
+                )
+            if output.type != output_spec.artifact_type:
+                raise ValidationError(
+                    f"Step '{step.id}' output '{output.name}' has type '{output.type}', "
+                    f"but tool '{step.tool_ref}' declares '{output_spec.artifact_type}'.",
+                )
+        return
+
     allowed_types = set(tool.output_artifact_types)
     for output in step.outputs:
         if output.type not in allowed_types:

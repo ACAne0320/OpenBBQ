@@ -2,6 +2,7 @@ name = "faster_whisper"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "transcribe"
@@ -57,3 +58,12 @@ minimum = 0
 
 [tools.parameter_schema.properties.vad_parameters]
 type = "object"
+
+[tools.inputs.audio]
+artifact_types = ["audio"]
+required = true
+description = "File-backed audio artifact."
+
+[tools.outputs.transcript]
+artifact_type = "asr_transcript"
+description = "Transcript segments."

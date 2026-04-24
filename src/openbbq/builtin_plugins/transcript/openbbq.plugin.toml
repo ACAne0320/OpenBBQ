@@ -2,6 +2,7 @@ name = "transcript"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "correct"
@@ -73,6 +74,15 @@ items = { type = "string" }
 type = "boolean"
 default = false
 
+[tools.inputs.transcript]
+artifact_types = ["asr_transcript"]
+required = true
+description = "Transcript segments to correct."
+
+[tools.outputs.transcript]
+artifact_type = "asr_transcript"
+description = "Corrected transcript segments."
+
 [[tools]]
 name = "segment"
 description = "Derive subtitle-ready timed segments from an ASR transcript."
@@ -117,3 +127,12 @@ default = 500
 [tools.parameter_schema.properties.prefer_sentence_boundaries]
 type = "boolean"
 default = true
+
+[tools.inputs.transcript]
+artifact_types = ["asr_transcript"]
+required = true
+description = "Transcript segments to segment."
+
+[tools.outputs.subtitle_segments]
+artifact_type = "subtitle_segments"
+description = "Subtitle-ready timed segments."

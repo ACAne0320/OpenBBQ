@@ -2,6 +2,7 @@ name = "llm"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "translate"
@@ -72,3 +73,12 @@ default = false
 [tools.parameter_schema.properties.glossary_rules.items.properties.is_regex]
 type = "boolean"
 default = false
+
+[tools.inputs.transcript]
+artifact_types = ["asr_transcript", "subtitle_segments"]
+required = true
+description = "Transcript or subtitle-ready segments to translate."
+
+[tools.outputs.translation]
+artifact_type = "translation"
+description = "Translated segments."

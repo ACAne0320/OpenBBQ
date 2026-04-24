@@ -2,6 +2,7 @@ name = "mock_media"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "youtube_download"
@@ -16,6 +17,10 @@ additionalProperties = false
 properties = { url = { type = "string" }, format = { type = "string" }, quality = { type = "string" } }
 required = ["url", "format", "quality"]
 
+[tools.outputs.video]
+artifact_type = "video"
+description = "Downloaded video file."
+
 [[tools]]
 name = "extract_audio"
 description = "Extract mock audio locally without media binaries."
@@ -29,6 +34,15 @@ additionalProperties = false
 properties = { format = { type = "string" }, sample_rate = { type = "integer" }, channels = { type = "integer" } }
 required = ["format", "sample_rate", "channels"]
 
+[tools.inputs.video]
+artifact_types = ["video"]
+required = true
+description = "Video file to extract audio from."
+
+[tools.outputs.audio]
+artifact_type = "audio"
+description = "Extracted audio file."
+
 [[tools]]
 name = "transcribe"
 description = "Deterministic local Whisper transcription for fixture workflows."
@@ -41,3 +55,12 @@ type = "object"
 additionalProperties = false
 properties = { language = { type = "string" }, model = { type = "string" }, word_timestamps = { type = "boolean" } }
 required = ["language", "model", "word_timestamps"]
+
+[tools.inputs.audio]
+artifact_types = ["audio"]
+required = true
+description = "Audio file to transcribe."
+
+[tools.outputs.transcript]
+artifact_type = "asr_transcript"
+description = "Transcript segments."

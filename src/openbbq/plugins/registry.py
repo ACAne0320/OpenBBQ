@@ -17,6 +17,12 @@ from pydantic import ValidationError as PydanticValidationError
 
 from openbbq.domain.base import JsonObject, OpenBBQModel, format_pydantic_error
 from openbbq.errors import PluginError
+from openbbq.plugins.contracts import (
+    RuntimeRequirementSpec,
+    ToolInputSpec,
+    ToolOutputSpec,
+    ToolUiSpec,
+)
 from openbbq.plugins.payloads import PluginRequest, PluginResponse
 
 
@@ -37,6 +43,10 @@ class ToolSpec(OpenBBQModel):
     description: str
     input_artifact_types: list[str]
     output_artifact_types: list[str]
+    inputs: dict[str, ToolInputSpec] = Field(default_factory=dict)
+    outputs: dict[str, ToolOutputSpec] = Field(default_factory=dict)
+    runtime_requirements: RuntimeRequirementSpec = Field(default_factory=RuntimeRequirementSpec)
+    ui: ToolUiSpec = Field(default_factory=ToolUiSpec)
     parameter_schema: JsonObject
     effects: list[str]
     manifest_path: Path
@@ -274,21 +284,36 @@ def _parse_tool_manifest(
     description = _require_nonempty_string(
         tool_raw.get("description"), f"tools[{index}].description"
     )
-    input_artifact_types = _require_string_list(
-        tool_raw.get("input_artifact_types"),
-        f"tools[{index}].input_artifact_types",
-    )
-    output_artifact_types = _require_string_list(
-        tool_raw.get("output_artifact_types"),
-        f"tools[{index}].output_artifact_types",
-    )
-    if not output_artifact_types:
-        raise ValueError(f"tools[{index}].output_artifact_types must not be empty.")
     effects = _require_string_list(tool_raw.get("effects"), f"tools[{index}].effects")
 
     schema = tool_raw.get("parameter_schema")
     if not isinstance(schema, dict):
         raise ValueError(f"tools[{index}].parameter_schema must be a table.")
+    inputs = _parse_tool_inputs(tool_raw.get("inputs", {}), plugin_name, index)
+    outputs = _parse_tool_outputs(tool_raw.get("outputs", {}), plugin_name, index)
+    input_artifact_types = _optional_string_list(
+        tool_raw.get("input_artifact_types"),
+        f"tools[{index}].input_artifact_types",
+    )
+    output_artifact_types = _optional_string_list(
+        tool_raw.get("output_artifact_types"),
+        f"tools[{index}].output_artifact_types",
+    )
+    if outputs:
+        input_artifact_types = sorted(
+            {
+                artifact_type
+                for spec in inputs.values()
+                for artifact_type in spec.artifact_types
+            }
+        )
+        output_artifact_types = [spec.artifact_type for spec in outputs.values()]
+    if not output_artifact_types:
+        raise ValueError(f"tools[{index}].output_artifact_types must not be empty.")
+    runtime_requirements = _parse_tool_runtime_requirements(
+        tool_raw.get("runtime_requirements", {}), index
+    )
+    ui = _parse_tool_ui(tool_raw.get("ui", {}), index)
     try:
         tool = ToolSpec(
             plugin_name=plugin_name,
@@ -296,6 +321,10 @@ def _parse_tool_manifest(
             description=description,
             input_artifact_types=input_artifact_types,
             output_artifact_types=output_artifact_types,
+            inputs=inputs,
+            outputs=outputs,
+            runtime_requirements=runtime_requirements,
+            ui=ui,
             parameter_schema=schema,
             effects=effects,
             manifest_path=manifest_path,
@@ -311,6 +340,66 @@ def _parse_tool_manifest(
     return tool
 
 
+def _parse_tool_inputs(value: Any, plugin_name: str, index: int) -> dict[str, ToolInputSpec]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"tools[{index}].inputs in plugin '{plugin_name}' must be a table.")
+    parsed: dict[str, ToolInputSpec] = {}
+    for name, raw in value.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"tools[{index}].inputs contains an invalid input name.")
+        if not isinstance(raw, dict):
+            raise ValueError(f"tools[{index}].inputs.{name} must be a table.")
+        try:
+            parsed[name] = ToolInputSpec.model_validate(raw)
+        except PydanticValidationError as exc:
+            raise ValueError(format_pydantic_error(f"tools[{index}].inputs.{name}", exc)) from exc
+    return parsed
+
+
+def _parse_tool_outputs(value: Any, plugin_name: str, index: int) -> dict[str, ToolOutputSpec]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"tools[{index}].outputs in plugin '{plugin_name}' must be a table.")
+    parsed: dict[str, ToolOutputSpec] = {}
+    for name, raw in value.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"tools[{index}].outputs contains an invalid output name.")
+        if not isinstance(raw, dict):
+            raise ValueError(f"tools[{index}].outputs.{name} must be a table.")
+        try:
+            parsed[name] = ToolOutputSpec.model_validate(raw)
+        except PydanticValidationError as exc:
+            raise ValueError(
+                format_pydantic_error(f"tools[{index}].outputs.{name}", exc)
+            ) from exc
+    return parsed
+
+
+def _parse_tool_runtime_requirements(value: Any, index: int) -> RuntimeRequirementSpec:
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValueError(f"tools[{index}].runtime_requirements must be a table.")
+    try:
+        return RuntimeRequirementSpec.model_validate(value)
+    except PydanticValidationError as exc:
+        raise ValueError(format_pydantic_error(f"tools[{index}].runtime_requirements", exc)) from exc
+
+
+def _parse_tool_ui(value: Any, index: int) -> ToolUiSpec:
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValueError(f"tools[{index}].ui must be a table.")
+    try:
+        return ToolUiSpec.model_validate(value)
+    except PydanticValidationError as exc:
+        raise ValueError(format_pydantic_error(f"tools[{index}].ui", exc)) from exc
+
+
 def _require_nonempty_string(value: Any, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"Plugin manifest field '{field_name}' must be a non-empty string.")
@@ -323,6 +412,12 @@ def _require_string_list(value: Any, field_name: str) -> list[str]:
     if any(not isinstance(item, str) for item in value):
         raise ValueError(f"Plugin manifest field '{field_name}' must be a list of strings.")
     return list(value)
+
+
+def _optional_string_list(value: Any, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    return _require_string_list(value, field_name)
 
 
 def _format_schema_error(index: int, exc: SchemaError) -> str:

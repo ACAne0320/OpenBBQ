@@ -2,6 +2,7 @@ name = "glossary"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "replace"
@@ -49,3 +50,12 @@ items = { type = "string" }
 [tools.parameter_schema.properties.rules.items.properties.protected]
 type = "boolean"
 default = false
+
+[tools.inputs.transcript]
+artifact_types = ["asr_transcript"]
+required = true
+description = "Transcript segments to rewrite."
+
+[tools.outputs.transcript]
+artifact_type = "asr_transcript"
+description = "Rewritten transcript segments."

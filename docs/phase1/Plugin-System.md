@@ -27,18 +27,26 @@ name = "example-text"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "uppercase"
 description = "Convert text input to uppercase."
-input_artifact_types = ["text"]
-output_artifact_types = ["text"]
 effects = []
 
 [tools.parameter_schema]
 type = "object"
 additionalProperties = false
 properties = {}
+
+[tools.inputs.text]
+artifact_types = ["text"]
+required = true
+description = "Text artifact to transform."
+
+[tools.outputs.text]
+artifact_type = "text"
+description = "Uppercase text artifact."
 ```
 
 Manifest validation must reject:
@@ -46,10 +54,13 @@ Manifest validation must reject:
 - missing name, version, runtime, or entrypoint.
 - invalid semantic version.
 - duplicate tool names.
-- tools missing `input_artifact_types` or `output_artifact_types`.
-- tools with an empty `output_artifact_types` list. `input_artifact_types` may be empty for tools that consume only literal inputs.
+- tools with no declared output, either through `tools.outputs` or legacy `output_artifact_types`.
+- named inputs whose `artifact_types` are empty or include unknown artifact types.
+- named outputs whose `artifact_type` is unknown.
 - invalid parameter schemas.
 - unsupported runtime values.
+
+`manifest_version = 2` tools declare named input and output slots with `tools.inputs.<name>` and `tools.outputs.<name>`. The engine validates workflow input/output names against those slots. During the migration, `input_artifact_types` and `output_artifact_types` are still accepted as legacy allowlists and are derived from v2 slots when `tools.outputs` is present.
 
 ## Discovery
 
@@ -188,19 +199,19 @@ With `--debug`, CLI output may include stack traces for OpenBBQ errors. JSON out
 
 Before execution:
 
-- every input artifact type must match the tool declaration.
+- every named input in the workflow must be declared by the tool when the manifest uses v2 named inputs.
+- every required named input must be present.
+- every input artifact type must match the named input declaration, or the legacy tool allowlist for old manifests.
 - every required parameter must be present.
 - no unknown parameter is accepted when the schema disallows it.
+- every named output in the workflow must be declared by the tool when the manifest uses v2 named outputs.
+- every output artifact type must match the named output declaration, or the legacy tool allowlist for old manifests.
 
 After execution:
 
 - every output name declared in the step's `outputs` list must be present as a key in `response.outputs`.
-- every output's `type` field must be a value listed in the tool's `output_artifact_types` allowlist.
+- every output's `type` field must match the workflow output type and a type allowed by the tool declaration.
 - output content must be serializable or storable by the artifact storage layer.
-
-Note: `output_artifact_types` in the manifest is a **type allowlist** — it declares which artifact types the tool is permitted to produce. The per-output names (`name` fields) that determine how outputs are wired between steps are declared in the workflow step definition, not in the plugin manifest.
-
-**Phase 1 input validation is deliberately shallow.** Tools declare a flat `input_artifact_types` allowlist; the engine verifies each input artifact's type is in that list. There is no support for named input declarations or cardinality constraints (e.g., "requires exactly one `video` and an optional `glossary`"). This is accepted as a Phase 1 limitation. Named input schema for tools is out of scope until the workflow contracts are stable.
 
 ## Security Boundary
 

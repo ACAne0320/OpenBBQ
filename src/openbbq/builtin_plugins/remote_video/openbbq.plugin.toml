@@ -2,6 +2,7 @@ name = "remote_video"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "download"
@@ -37,3 +38,7 @@ type = "string"
 
 [tools.parameter_schema.properties.browser_profile]
 type = "string"
+
+[tools.outputs.video]
+artifact_type = "video"
+description = "Downloaded video artifact."

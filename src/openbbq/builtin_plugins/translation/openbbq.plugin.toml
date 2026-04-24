@@ -2,6 +2,7 @@ name = "translation"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "translate"
@@ -74,6 +75,15 @@ default = false
 type = "boolean"
 default = false
 
+[tools.inputs.subtitle_segments]
+artifact_types = ["subtitle_segments"]
+required = true
+description = "Subtitle-ready timed segments to translate."
+
+[tools.outputs.translation]
+artifact_type = "translation"
+description = "Translated segments."
+
 [[tools]]
 name = "qa"
 description = "Check translated segments for terminology misses, numeric drift, and subtitle readability risks."
@@ -135,3 +145,12 @@ default = false
 [tools.parameter_schema.properties.glossary_rules.items.properties.is_regex]
 type = "boolean"
 default = false
+
+[tools.inputs.translation]
+artifact_types = ["translation"]
+required = true
+description = "Translated segments to check."
+
+[tools.outputs.qa]
+artifact_type = "translation_qa"
+description = "Translation QA report."

@@ -32,6 +32,8 @@ def test_fixture_manifests_and_projects_match_phase_1_contracts():
     mock_text_tools = _tool_map(mock_text_manifest)
     mock_media_tools = _tool_map(mock_media_manifest)
 
+    assert mock_text_manifest["manifest_version"] == 2
+    assert mock_media_manifest["manifest_version"] == 2
     assert set(mock_text_tools) == {
         "echo",
         "uppercase",
@@ -42,6 +44,10 @@ def test_fixture_manifests_and_projects_match_phase_1_contracts():
         "always_fail",
     }
     assert set(mock_media_tools) == {"youtube_download", "extract_audio", "transcribe"}
+    assert mock_text_tools["uppercase"]["inputs"]["text"]["artifact_types"] == ["text"]
+    assert mock_text_tools["uppercase"]["outputs"]["text"]["artifact_type"] == "text"
+    assert mock_media_tools["extract_audio"]["inputs"]["video"]["artifact_types"] == ["video"]
+    assert mock_media_tools["extract_audio"]["outputs"]["audio"]["artifact_type"] == "audio"
 
     projects = [text_project, youtube_project]
     tool_maps = {

@@ -2,6 +2,7 @@ name = "mock_text"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "echo"
@@ -15,6 +16,15 @@ type = "object"
 additionalProperties = false
 properties = {}
 
+[tools.inputs.text]
+artifact_types = ["text"]
+required = true
+description = "Text to echo."
+
+[tools.outputs.text]
+artifact_type = "text"
+description = "Echoed text."
+
 [[tools]]
 name = "uppercase"
 description = "Convert text input to uppercase."
@@ -27,6 +37,15 @@ type = "object"
 additionalProperties = false
 properties = {}
 
+[tools.inputs.text]
+artifact_types = ["text"]
+required = true
+description = "Text to transform."
+
+[tools.outputs.text]
+artifact_type = "text"
+description = "Uppercase text."
+
 [[tools]]
 name = "glossary_replace"
 description = "Apply deterministic glossary replacements to an ASR transcript."
@@ -38,6 +57,15 @@ effects = []
 type = "object"
 additionalProperties = false
 properties = { rules = { type = "array", items = { type = "object", additionalProperties = false, properties = { find = { type = "string" }, replace = { type = "string" }, is_regex = { type = "boolean" }, case_sensitive = { type = "boolean" } }, required = ["find", "replace"] } } }
+
+[tools.inputs.transcript]
+artifact_types = ["asr_transcript"]
+required = true
+description = "Transcript segments to rewrite."
+
+[tools.outputs.transcript]
+artifact_type = "asr_transcript"
+description = "Rewritten transcript segments."
 
 [[tools]]
 name = "translate"
@@ -52,6 +80,15 @@ additionalProperties = false
 properties = { source_lang = { type = "string" }, target_lang = { type = "string" }, model = { type = "string" } }
 required = ["source_lang", "target_lang", "model"]
 
+[tools.inputs.transcript]
+artifact_types = ["asr_transcript"]
+required = true
+description = "Transcript segments to translate."
+
+[tools.outputs.translation]
+artifact_type = "translation"
+description = "Translated segments."
+
 [[tools]]
 name = "subtitle_export"
 description = "Export translated segments as subtitle text."
@@ -64,6 +101,15 @@ type = "object"
 additionalProperties = false
 properties = { format = { type = "string" }, max_chars_per_line = { type = "integer" }, max_lines = { type = "integer" } }
 required = ["format", "max_chars_per_line", "max_lines"]
+
+[tools.inputs.translation]
+artifact_types = ["translation"]
+required = true
+description = "Translated segments to export."
+
+[tools.outputs.subtitle]
+artifact_type = "subtitle"
+description = "Subtitle text."
 
 [[tools]]
 name = "flaky_echo"
@@ -78,6 +124,10 @@ additionalProperties = false
 properties = { text = { type = "string" }, fail_until_attempt = { type = "integer" }, pause_requested = { type = "boolean" } }
 required = ["text"]
 
+[tools.outputs.text]
+artifact_type = "text"
+description = "Echoed text."
+
 [[tools]]
 name = "always_fail"
 description = "Raise a deterministic plugin failure."
@@ -89,3 +139,7 @@ effects = []
 type = "object"
 additionalProperties = false
 properties = { message = { type = "string" } }
+
+[tools.outputs.text]
+artifact_type = "text"
+description = "Unreachable text output."

@@ -23,6 +23,47 @@ def test_discovers_mock_text_tools_without_importing_plugin_code():
     assert registry.tools["mock_text.uppercase"].output_artifact_types == ["text"]
 
 
+def test_manifest_v2_declares_named_input_and_output_specs(tmp_path):
+    plugin_dir = tmp_path / "plugins" / "demo"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "openbbq.plugin.toml").write_text(
+        """
+name = "demo"
+version = "0.1.0"
+runtime = "python"
+entrypoint = "plugin:run"
+manifest_version = 2
+
+[[tools]]
+name = "copy"
+description = "Copy text."
+effects = []
+
+[tools.parameter_schema]
+type = "object"
+additionalProperties = false
+properties = {}
+
+[tools.inputs.text]
+artifact_types = ["text"]
+required = true
+description = "Source text."
+
+[tools.outputs.text]
+artifact_type = "text"
+description = "Copied text."
+""",
+        encoding="utf-8",
+    )
+
+    registry = discover_plugins([tmp_path / "plugins"])
+    tool = registry.tools["demo.copy"]
+
+    assert tool.inputs["text"].artifact_types == ("text",)
+    assert tool.inputs["text"].required is True
+    assert tool.outputs["text"].artifact_type == "text"
+
+
 def test_tool_spec_rejects_non_object_parameter_schema(tmp_path):
     with pytest.raises(PydanticValidationError) as exc:
         ToolSpec(

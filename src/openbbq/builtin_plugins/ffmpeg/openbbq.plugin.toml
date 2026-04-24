@@ -2,6 +2,7 @@ name = "ffmpeg"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "extract_audio"
@@ -26,3 +27,12 @@ default = 16000
 [tools.parameter_schema.properties.channels]
 type = "integer"
 default = 1
+
+[tools.inputs.video]
+artifact_types = ["video"]
+required = true
+description = "File-backed video artifact."
+
+[tools.outputs.audio]
+artifact_type = "audio"
+description = "Extracted audio artifact."
