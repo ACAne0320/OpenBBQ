@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Any
 
 from openbbq.builtin_plugins.glossary.rules import normalize_rules, source_matches
+from openbbq.runtime.provider import llm_provider_from_request
 
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -51,12 +51,13 @@ def run_translation(
     if request.get("tool_name") != "translate":
         raise ValueError(f"Unsupported tool: {request.get('tool_name')}")
     parameters = request.get("parameters", {})
-    provider = str(parameters.get("provider", DEFAULT_PROVIDER))
-    if provider != DEFAULT_PROVIDER:
-        raise ValueError(f"{error_prefix} parameter 'provider' must be '{DEFAULT_PROVIDER}'.")
+    provider = llm_provider_from_request(request, error_prefix=error_prefix)
     source_lang = _required_string(parameters, "source_lang", error_prefix=error_prefix)
     target_lang = _required_string(parameters, "target_lang", error_prefix=error_prefix)
-    model = _required_string(parameters, "model", error_prefix=error_prefix)
+    model_value = parameters.get("model") or provider.model_default
+    if not isinstance(model_value, str) or not model_value.strip():
+        raise ValueError(f"{error_prefix} parameter 'model' must be a non-empty string.")
+    model = model_value.strip()
     temperature = float(parameters.get("temperature", 0))
     system_prompt = parameters.get("system_prompt") or DEFAULT_SYSTEM_PROMPT
     glossary_rules = normalize_rules(
@@ -64,11 +65,7 @@ def run_translation(
         parameter_name="glossary_rules",
         tool_name=error_prefix,
     )
-    api_key = os.environ.get("OPENBBQ_LLM_API_KEY")
-    if not api_key:
-        raise RuntimeError(f"OPENBBQ_LLM_API_KEY is required for {error_prefix}.")
-    base_url = parameters.get("base_url") or os.environ.get("OPENBBQ_LLM_BASE_URL")
-    client = client_factory(api_key=api_key, base_url=base_url)
+    client = client_factory(api_key=provider.api_key, base_url=provider.base_url)
     segments = _timed_segments_any(request, input_names=input_names, error_prefix=error_prefix)
     translated_segments = []
     for chunk in _segment_chunks(
@@ -95,7 +92,7 @@ def run_translation(
         "glossary_rule_count": len(glossary_rules),
     }
     if include_provider_metadata:
-        metadata["provider"] = provider
+        metadata["provider"] = provider.name
     return {
         "outputs": {
             "translation": {

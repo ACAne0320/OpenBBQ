@@ -637,10 +637,75 @@ def test_translation_translate_uses_openai_client_and_returns_translation(monkey
     }
 
 
-def test_translation_translate_rejects_unknown_provider(monkeypatch):
+def test_translation_translate_uses_runtime_provider_profile():
+    factory = RecordingOpenAIClientFactory('[{"index":0,"text":"Hello zh"}]')
+
+    response = translation_plugin.run(
+        {
+            "tool_name": "translate",
+            "parameters": {
+                "provider": "openai",
+                "source_lang": "en",
+                "target_lang": "zh-Hans",
+            },
+            "runtime": {
+                "providers": {
+                    "openai": {
+                        "name": "openai",
+                        "type": "openai_compatible",
+                        "api_key": "sk-runtime",
+                        "base_url": "https://api.openai.com/v1",
+                        "default_chat_model": "gpt-4o-mini",
+                    }
+                }
+            },
+            "inputs": {
+                "subtitle_segments": {
+                    "type": "subtitle_segments",
+                    "content": [{"start": 0.0, "end": 1.0, "text": "Hello"}],
+                }
+            },
+        },
+        client_factory=factory,
+    )
+
+    assert factory.calls == [{"api_key": "sk-runtime", "base_url": "https://api.openai.com/v1"}]
+    assert response["outputs"]["translation"]["metadata"]["provider"] == "openai"
+    assert response["outputs"]["translation"]["metadata"]["model"] == "gpt-4o-mini"
+
+
+def test_translation_translate_legacy_provider_still_uses_env(monkeypatch):
+    factory = RecordingOpenAIClientFactory('[{"index":0,"text":"Hello zh"}]')
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-env")
+    monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://legacy.example/v1")
+
+    response = translation_plugin.run(
+        {
+            "tool_name": "translate",
+            "parameters": {
+                "provider": "openai_compatible",
+                "source_lang": "en",
+                "target_lang": "zh-Hans",
+                "model": "gpt-4o-mini",
+            },
+            "inputs": {
+                "subtitle_segments": {
+                    "type": "subtitle_segments",
+                    "content": [{"start": 0.0, "end": 1.0, "text": "Hello"}],
+                }
+            },
+        },
+        client_factory=factory,
+    )
+
+    assert factory.calls == [{"api_key": "sk-env", "base_url": "https://legacy.example/v1"}]
+    assert response["outputs"]["translation"]["metadata"]["provider"] == "openai_compatible"
+
+
+def test_translation_translate_rejects_unconfigured_provider(monkeypatch):
     monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
 
-    with pytest.raises(ValueError, match="parameter 'provider'"):
+    with pytest.raises(ValueError, match="Provider 'deepl' is not configured"):
         translation_plugin.run(
             {
                 "tool_name": "translate",
@@ -1017,6 +1082,7 @@ def test_transcript_correct_uses_openai_client_and_returns_corrected_transcript(
                 ],
                 "metadata": {
                     "source_lang": "en",
+                    "provider": "openai_compatible",
                     "model": "moonshot-v1-auto",
                     "segment_count": 2,
                     "corrected_segment_count": 1,
@@ -1025,6 +1091,42 @@ def test_transcript_correct_uses_openai_client_and_returns_corrected_transcript(
             }
         }
     }
+
+
+def test_transcript_correct_uses_runtime_provider_profile():
+    factory = RecordingOpenAIClientFactory('[{"index":0,"text":"OpenBBQ"}]')
+
+    response = transcript_plugin.run(
+        {
+            "tool_name": "correct",
+            "parameters": {
+                "provider": "openai",
+                "source_lang": "en",
+            },
+            "runtime": {
+                "providers": {
+                    "openai": {
+                        "name": "openai",
+                        "type": "openai_compatible",
+                        "api_key": "sk-runtime",
+                        "base_url": "https://api.openai.com/v1",
+                        "default_chat_model": "gpt-4o-mini",
+                    }
+                }
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": [{"start": 0.0, "end": 1.0, "text": "Open BBQ"}],
+                }
+            },
+        },
+        client_factory=factory,
+    )
+
+    assert factory.calls == [{"api_key": "sk-runtime", "base_url": "https://api.openai.com/v1"}]
+    assert response["outputs"]["transcript"]["metadata"]["model"] == "gpt-4o-mini"
+    assert response["outputs"]["transcript"]["metadata"]["provider"] == "openai"
 
 
 def test_transcript_correct_splits_chunk_when_model_returns_too_few_segments(monkeypatch):
