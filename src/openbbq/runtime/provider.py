@@ -16,9 +16,7 @@ class LlmProviderCredentials(OpenBBQModel):
     model_default: str | None = None
 
 
-def llm_provider_from_request(
-    request: JsonObject, *, error_prefix: str
-) -> LlmProviderCredentials:
+def llm_provider_from_request(request: JsonObject, *, error_prefix: str) -> LlmProviderCredentials:
     parameters = request.get("parameters", {})
     provider_name = parameters.get("provider")
     runtime = request.get("runtime", {})

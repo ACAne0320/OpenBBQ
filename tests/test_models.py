@@ -137,9 +137,12 @@ def test_engine_result_models_dump_to_json_objects():
         "artifact_count": 2,
     }
     assert WorkflowValidationResult(workflow_id="text-demo", step_count=2).step_count == 2
-    assert ExecutionResult(
-        workflow_id="text-demo",
-        status="completed",
-        step_count=2,
-        artifact_count=2,
-    ).artifact_count == 2
+    assert (
+        ExecutionResult(
+            workflow_id="text-demo",
+            status="completed",
+            step_count=2,
+            artifact_count=2,
+        ).artifact_count
+        == 2
+    )
