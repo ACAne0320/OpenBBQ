@@ -19,12 +19,25 @@ from openbbq.application.artifacts import (
     list_artifacts as list_artifacts_command,
     show_artifact,
 )
+from openbbq.application.diagnostics import doctor as doctor_command
 from openbbq.application.plugins import plugin_info as plugin_info_command
 from openbbq.application.plugins import plugin_list as plugin_list_command
 from openbbq.application.projects import (
     ProjectInitRequest,
     init_project as init_project_command,
     project_info as project_info_command,
+)
+from openbbq.application.runtime import (
+    AuthSetRequest,
+    ProviderSetRequest,
+    SecretSetRequest,
+    auth_check as auth_check_command,
+    auth_set as auth_set_command,
+    model_list as model_list_command,
+    provider_set as provider_set_command,
+    secret_check as secret_check_command,
+    secret_set as secret_set_command,
+    settings_show as settings_show_command,
 )
 from openbbq.application.workflows import (
     WorkflowCommandRequest,
@@ -42,21 +55,13 @@ from openbbq.cli.quickstart import (
     write_youtube_subtitle_workflow,
 )
 from openbbq.config.loader import load_project_config
-from openbbq.domain.base import JsonObject, dump_jsonable, format_pydantic_error
+from openbbq.domain.base import JsonObject, dump_jsonable
 from openbbq.domain.models import ProjectConfig
 from openbbq.engine.validation import validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.plugins.registry import PluginRegistry, discover_plugins
 from openbbq.runtime.context import build_runtime_context
-from openbbq.runtime.doctor import check_settings, check_workflow
-from openbbq.runtime.models import ProviderProfile
-from openbbq.runtime.models_assets import faster_whisper_model_status
-from openbbq.runtime.secrets import SecretResolver
-from openbbq.runtime.settings import (
-    load_runtime_settings,
-    with_provider_profile,
-    write_runtime_settings,
-)
+from openbbq.runtime.settings import load_runtime_settings
 from openbbq.storage.models import ArtifactRecord, WorkflowEvent
 from openbbq.storage.project_store import ProjectStore
 
@@ -585,10 +590,6 @@ def _latest_workflow_artifact_content(
     return artifact, version.content
 
 
-def _default_provider_keyring_reference(name: str) -> str:
-    return f"keyring:openbbq/providers/{name}/api_key"
-
-
 def _plugin_list(args: argparse.Namespace) -> int:
     result = plugin_list_command(
         project_root=Path(args.project),
@@ -618,16 +619,15 @@ def _plugin_info(args: argparse.Namespace) -> int:
 
 
 def _settings_show(args: argparse.Namespace) -> int:
-    settings = load_runtime_settings()
-    payload = {"ok": True, "settings": settings.public_dict()}
-    _emit(payload, args.json_output, str(settings.config_path))
+    result = settings_show_command()
+    payload = {"ok": True, "settings": result.settings.public_dict()}
+    _emit(payload, args.json_output, str(result.settings.config_path))
     return 0
 
 
 def _settings_set_provider(args: argparse.Namespace) -> int:
-    settings = load_runtime_settings()
-    try:
-        provider = ProviderProfile(
+    result = provider_set_command(
+        ProviderSetRequest(
             name=args.name,
             type=args.type,
             base_url=args.base_url,
@@ -635,92 +635,56 @@ def _settings_set_provider(args: argparse.Namespace) -> int:
             default_chat_model=args.default_chat_model,
             display_name=args.display_name,
         )
-    except PydanticValidationError as exc:
-        raise ValidationError(format_pydantic_error(f"providers.{args.name}", exc)) from exc
-    updated = with_provider_profile(settings, provider)
-    write_runtime_settings(updated)
+    )
     payload = {
         "ok": True,
-        "provider": provider.public_dict(),
-        "config_path": str(updated.config_path),
+        "provider": result.provider.public_dict(),
+        "config_path": str(result.config_path),
     }
-    _emit(payload, args.json_output, f"Updated provider '{provider.name}'.")
+    _emit(payload, args.json_output, f"Updated provider '{result.provider.name}'.")
     return 0
 
 
 def _auth_set(args: argparse.Namespace) -> int:
-    api_key_ref = args.api_key_ref
-    stored_secret = False
-    if api_key_ref is None:
-        api_key_ref = _default_provider_keyring_reference(args.name)
+    secret_value = None
+    if args.api_key_ref is None:
         if args.json_output:
             raise ValidationError("auth set requires --api-key-ref when --json is used.")
-        value = getpass.getpass("API key: ")
-        SecretResolver().set_secret(api_key_ref, value)
-        stored_secret = True
-
-    settings = load_runtime_settings()
-    provider = ProviderProfile(
-        name=args.name,
-        type=args.type,
-        base_url=args.base_url,
-        api_key=api_key_ref,
-        default_chat_model=args.default_chat_model,
-        display_name=args.display_name,
+        secret_value = getpass.getpass("API key: ")
+    result = auth_set_command(
+        AuthSetRequest(
+            name=args.name,
+            type=args.type,
+            base_url=args.base_url,
+            api_key_ref=args.api_key_ref,
+            secret_value=secret_value,
+            default_chat_model=args.default_chat_model,
+            display_name=args.display_name,
+        )
     )
-    updated = with_provider_profile(settings, provider)
-    write_runtime_settings(updated)
     payload = {
         "ok": True,
-        "provider": provider.public_dict(),
-        "secret_stored": stored_secret,
-        "config_path": str(updated.config_path),
+        "provider": result.provider.public_dict(),
+        "secret_stored": result.secret_stored,
+        "config_path": str(result.config_path),
     }
-    _emit(payload, args.json_output, f"Configured provider '{provider.name}'.")
+    _emit(payload, args.json_output, f"Configured provider '{result.provider.name}'.")
     return 0
 
 
 def _auth_check(args: argparse.Namespace) -> int:
-    settings = load_runtime_settings()
-    provider = settings.providers.get(args.name)
-    if provider is None:
-        raise ValidationError(f"Provider '{args.name}' is not configured.")
-    if provider.api_key is None:
-        secret = {
-            "reference": None,
-            "resolved": False,
-            "display": None,
-            "value_preview": None,
-            "error": f"Provider '{args.name}' does not define an API key reference.",
-        }
-    else:
-        check = SecretResolver().resolve(provider.api_key).public
-        secret = {
-            "reference": check.reference,
-            "resolved": check.resolved,
-            "display": check.display,
-            "value_preview": check.value_preview,
-            "error": check.error,
-        }
-    payload = {"ok": True, "provider": provider.public_dict(), "secret": secret}
+    result = auth_check_command(args.name)
+    secret = _secret_payload(result.secret)
+    payload = {"ok": True, "provider": result.provider.public_dict(), "secret": secret}
     text = secret["value_preview"] if secret["resolved"] else secret["error"]
     _emit(payload, args.json_output, text)
     return 0
 
 
 def _secret_check(args: argparse.Namespace) -> int:
-    check = SecretResolver().resolve(args.reference).public
-    payload = {
-        "ok": True,
-        "secret": {
-            "reference": check.reference,
-            "resolved": check.resolved,
-            "display": check.display,
-            "value_preview": check.value_preview,
-            "error": check.error,
-        },
-    }
-    _emit(payload, args.json_output, check.display)
+    result = secret_check_command(args.reference)
+    payload = {"ok": True, "secret": _secret_payload(result.secret)}
+    _emit(payload, args.json_output, result.secret.display)
     return 0
 
 
@@ -728,36 +692,30 @@ def _secret_set(args: argparse.Namespace) -> int:
     if args.json_output:
         raise ValidationError("secret set requires interactive input and cannot run in JSON mode.")
     value = getpass.getpass("Secret value: ")
-    SecretResolver().set_secret(args.reference, value)
+    secret_set_command(SecretSetRequest(reference=args.reference, value=value))
     _emit({"ok": True, "reference": args.reference}, args.json_output, "Secret stored.")
     return 0
 
 
 def _models_list(args: argparse.Namespace) -> int:
-    settings = load_runtime_settings()
-    status = faster_whisper_model_status(settings)
-    payload = {"ok": True, "models": [status.public_dict()]}
-    _emit(payload, args.json_output, status.public_dict())
+    result = model_list_command()
+    payload = {"ok": True, "models": [model.public_dict() for model in result.models]}
+    _emit(payload, args.json_output, result.models[0].public_dict())
     return 0
 
 
 def _doctor(args: argparse.Namespace) -> int:
-    settings = load_runtime_settings()
-    if args.workflow:
-        config, registry = _load_config_and_plugins(args)
-        checks = check_workflow(
-            config=config,
-            registry=registry,
-            workflow_id=args.workflow,
-            settings=settings,
-        )
-    else:
-        checks = check_settings(settings=settings)
+    result = doctor_command(
+        project_root=Path(args.project),
+        config_path=Path(args.config) if args.config else None,
+        plugin_paths=tuple(Path(path) for path in args.plugins),
+        workflow_id=args.workflow,
+    )
     payload = {
-        "ok": all(check.status != "failed" for check in checks),
-        "checks": [check.public_dict() for check in checks],
+        "ok": result.ok,
+        "checks": [check.public_dict() for check in result.checks],
     }
-    _emit(payload, args.json_output, "\n".join(check.message for check in checks))
+    _emit(payload, args.json_output, "\n".join(check.message for check in result.checks))
     return 0 if payload["ok"] else 1
 
 
@@ -915,6 +873,16 @@ def _subtitle_youtube(args: argparse.Namespace) -> int:
 
 def _runtime_context():
     return build_runtime_context(load_runtime_settings())
+
+
+def _secret_payload(secret) -> dict[str, object]:
+    return {
+        "reference": secret.reference or None,
+        "resolved": secret.resolved,
+        "display": secret.display or None,
+        "value_preview": secret.value_preview,
+        "error": secret.error,
+    }
 
 
 def _load_config(args: argparse.Namespace):
