@@ -2,17 +2,18 @@ from __future__ import annotations
 
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import TypeAlias
 
 import yaml
 
-from openbbq.domain.base import OpenBBQModel
+from openbbq.domain.base import JsonObject, OpenBBQModel
 
 YOUTUBE_SUBTITLE_TEMPLATE_ID = "youtube-subtitle"
 YOUTUBE_SUBTITLE_WORKFLOW_ID = "youtube-to-srt"
 DEFAULT_YOUTUBE_QUALITY = "best[ext=mp4][height<=720]/best[height<=720]/best"
 YOUTUBE_SUBTITLE_TEMPLATE_PACKAGE = "openbbq.workflow_templates.youtube_subtitle"
 YOUTUBE_SUBTITLE_TEMPLATE_NAME = "openbbq.yaml"
+WorkflowTemplate: TypeAlias = JsonObject
 
 
 class GeneratedWorkflow(OpenBBQModel):
@@ -79,7 +80,7 @@ def _youtube_subtitle_config(
     auth: str,
     browser: str | None,
     browser_profile: str | None,
-) -> dict[str, Any]:
+) -> WorkflowTemplate:
     config = _load_youtube_subtitle_template()
     steps = _steps_by_id(config)
 
@@ -110,7 +111,7 @@ def _youtube_subtitle_config(
     return config
 
 
-def _load_youtube_subtitle_template() -> dict[str, Any]:
+def _load_youtube_subtitle_template() -> WorkflowTemplate:
     raw = (
         resources.files(YOUTUBE_SUBTITLE_TEMPLATE_PACKAGE)
         .joinpath(YOUTUBE_SUBTITLE_TEMPLATE_NAME)
@@ -122,12 +123,12 @@ def _load_youtube_subtitle_template() -> dict[str, Any]:
     return config
 
 
-def _steps_by_id(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _steps_by_id(config: WorkflowTemplate) -> dict[str, WorkflowTemplate]:
     workflow = config["workflows"][YOUTUBE_SUBTITLE_WORKFLOW_ID]
     return {step["id"]: step for step in workflow["steps"]}
 
 
-def _set_optional(parameters: dict[str, Any], name: str, value: str | None) -> None:
+def _set_optional(parameters: WorkflowTemplate, name: str, value: str | None) -> None:
     if value is None:
         parameters.pop(name, None)
         return

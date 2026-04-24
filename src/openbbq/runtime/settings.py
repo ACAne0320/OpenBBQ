@@ -9,13 +9,14 @@ from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
 
-from openbbq.domain.base import format_pydantic_error
+from openbbq.domain.base import JsonObject, format_pydantic_error
 from openbbq.errors import ValidationError
 from openbbq.runtime.models import (
     CacheSettings,
     FasterWhisperSettings,
     ModelsSettings,
     ProviderProfile,
+    ProviderMap,
     RuntimeSettings,
 )
 
@@ -105,7 +106,7 @@ def with_provider_profile(
     return settings.model_copy(update={"providers": providers})
 
 
-def _load_toml_mapping(path: Path) -> dict[str, Any]:
+def _load_toml_mapping(path: Path) -> JsonObject:
     if not path.exists():
         return {}
     try:
@@ -118,7 +119,7 @@ def _load_toml_mapping(path: Path) -> dict[str, Any]:
     return raw
 
 
-def _cache_root(raw: Mapping[str, Any], env: Mapping[str, str], base_dir: Path) -> Path:
+def _cache_root(raw: JsonObject, env: Mapping[str, str], base_dir: Path) -> Path:
     env_value = env.get("OPENBBQ_CACHE_DIR")
     if env_value:
         return Path(env_value).expanduser().resolve()
@@ -127,7 +128,7 @@ def _cache_root(raw: Mapping[str, Any], env: Mapping[str, str], base_dir: Path) 
 
 
 def _faster_whisper_settings(
-    raw: Mapping[str, Any],
+    raw: JsonObject,
     cache_root: Path,
     base_dir: Path,
 ) -> FasterWhisperSettings:
@@ -153,7 +154,7 @@ def _faster_whisper_settings(
     )
 
 
-def _provider_profiles(raw: Mapping[str, Any]) -> dict[str, ProviderProfile]:
+def _provider_profiles(raw: JsonObject) -> ProviderMap:
     providers_raw = _optional_mapping(raw.get("providers"), "providers")
     providers: dict[str, ProviderProfile] = {}
     for name, provider_raw in providers_raw.items():
@@ -225,13 +226,13 @@ def _resolve_user_path(value: Any, base_dir: Path, field_path: str) -> Path:
     return (base_dir / path).resolve()
 
 
-def _require_mapping(value: Any, field_path: str) -> dict[str, Any]:
+def _require_mapping(value: Any, field_path: str) -> JsonObject:
     if not isinstance(value, dict):
         raise ValidationError(f"{field_path} must be a mapping.")
     return value
 
 
-def _optional_mapping(value: Any, field_path: str) -> dict[str, Any]:
+def _optional_mapping(value: Any, field_path: str) -> JsonObject:
     if value is None:
         return {}
     return _require_mapping(value, field_path)

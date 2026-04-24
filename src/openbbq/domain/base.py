@@ -23,7 +23,7 @@ class OpenBBQModel(BaseModel):
     )
 
 
-def model_payload(value: OpenBBQModel) -> dict[str, Any]:
+def model_payload(value: OpenBBQModel) -> JsonObject:
     return value.model_dump(mode="json")
 
 

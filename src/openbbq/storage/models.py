@@ -5,7 +5,13 @@ from typing import Any, Literal, TypeAlias
 
 from pydantic import Field
 
-from openbbq.domain.base import ArtifactMetadata, JsonValue, LineagePayload, OpenBBQModel
+from openbbq.domain.base import (
+    ArtifactMetadata,
+    JsonObject,
+    JsonValue,
+    LineagePayload,
+    OpenBBQModel,
+)
 
 WorkflowStatus: TypeAlias = Literal[
     "pending", "running", "paused", "completed", "failed", "aborted"
@@ -107,7 +113,7 @@ class StoredArtifact(OpenBBQModel):
 
 class StoredArtifactVersion(OpenBBQModel):
     record: ArtifactVersionRecord
-    content: ArtifactContent | dict[str, Any]
+    content: ArtifactContent | JsonObject
 
     @property
     def id(self) -> str:

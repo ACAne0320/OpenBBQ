@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from collections.abc import Mapping
 from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
 
-from openbbq.domain.base import format_pydantic_error
+from openbbq.domain.base import JsonObject, format_pydantic_error
 from openbbq.errors import ValidationError
 from openbbq.domain.models import StepConfig
 from openbbq.plugins.payloads import (
@@ -83,7 +82,7 @@ def persist_step_outputs(
     workflow_id: str,
     step: StepConfig,
     tool: ToolSpec,
-    response: Mapping[str, Any] | PluginResponse,
+    response: JsonObject | PluginResponse,
     input_artifact_version_ids: dict[str, str],
     artifact_reuse: dict[str, str] | None = None,
 ) -> OutputBindings:

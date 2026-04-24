@@ -16,7 +16,7 @@ from openbbq.cli.quickstart import DEFAULT_YOUTUBE_QUALITY, write_youtube_subtit
 from openbbq.config.loader import load_project_config
 from openbbq.workflow.diff import diff_artifact_versions
 from openbbq.workflow.state import read_effective_workflow_state
-from openbbq.domain.base import dump_jsonable, format_pydantic_error
+from openbbq.domain.base import JsonObject, dump_jsonable, format_pydantic_error
 from openbbq.domain.models import ProjectConfig
 from openbbq.engine.service import (
     abort_workflow,
@@ -37,7 +37,7 @@ from openbbq.runtime.settings import (
     with_provider_profile,
     write_runtime_settings,
 )
-from openbbq.storage.models import ArtifactRecord
+from openbbq.storage.models import ArtifactRecord, WorkflowEvent
 from openbbq.storage.project_store import ProjectStore
 
 FILE_BACKED_IMPORT_TYPES = frozenset({"audio", "image", "video"})
@@ -856,23 +856,23 @@ def _project_store(config: ProjectConfig) -> ProjectStore:
     )
 
 
-def _read_events(store: ProjectStore, workflow_id: str) -> list[dict[str, Any]]:
+def _read_events(store: ProjectStore, workflow_id: str) -> list[WorkflowEvent]:
     events_path = store.state_root / workflow_id / "events.jsonl"
     if not events_path.exists():
         return []
-    events: list[dict[str, Any]] = []
+    events: list[WorkflowEvent] = []
     for line in events_path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
+            events.append(WorkflowEvent.model_validate(json.loads(line)))
+        except (json.JSONDecodeError, PydanticValidationError):
             break
     return events
 
 
-def _format_event(event: dict[str, Any]) -> str:
-    return f"{event.get('sequence', '?')} {event.get('type', 'event')} {event.get('message', '')}".strip()
+def _format_event(event: WorkflowEvent) -> str:
+    return f"{event.sequence} {event.type} {event.message or ''}".strip()
 
 
 def _jsonable_content(content: Any) -> Any:
@@ -881,7 +881,7 @@ def _jsonable_content(content: Any) -> Any:
     return content
 
 
-def _emit(payload: dict[str, Any], json_output: bool, text: Any) -> None:
+def _emit(payload: JsonObject, json_output: bool, text: Any) -> None:
     payload = dump_jsonable(payload)
     if json_output:
         print(json.dumps(payload, ensure_ascii=False))

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 
-from openbbq.domain.base import OpenBBQModel
+from openbbq.domain.base import JsonObject, OpenBBQModel
 
 
 LEGACY_PROVIDER_NAME = "openai_compatible"
@@ -18,7 +17,7 @@ class LlmProviderCredentials(OpenBBQModel):
 
 
 def llm_provider_from_request(
-    request: dict[str, Any], *, error_prefix: str
+    request: JsonObject, *, error_prefix: str
 ) -> LlmProviderCredentials:
     parameters = request.get("parameters", {})
     provider_name = parameters.get("provider")

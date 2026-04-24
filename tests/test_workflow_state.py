@@ -11,6 +11,7 @@ from openbbq.workflow.state import (
     require_status,
 )
 from openbbq.errors import ExecutionError
+from openbbq.storage.models import WorkflowState
 from openbbq.storage.project_store import ProjectStore
 
 
@@ -61,7 +62,7 @@ def test_compute_workflow_config_hash_changes_when_step_parameters_change(tmp_pa
 
 def test_require_status_rejects_unexpected_status():
     with pytest.raises(ExecutionError, match="paused") as exc:
-        require_status({"status": "completed"}, "paused", "text-demo")
+        require_status(WorkflowState(id="text-demo", status="completed"), "paused", "text-demo")
 
     assert exc.value.exit_code == 1
 

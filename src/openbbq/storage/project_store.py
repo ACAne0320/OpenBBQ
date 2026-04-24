@@ -5,10 +5,10 @@ import json
 import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any, Mapping
+from typing import Any
 from uuid import uuid4
 
-from openbbq.domain.base import dump_jsonable
+from openbbq.domain.base import ArtifactMetadata, JsonObject, LineagePayload, dump_jsonable
 from openbbq.errors import ArtifactNotFoundError
 from openbbq.storage.models import (
     ArtifactRecord,
@@ -53,7 +53,7 @@ class ProjectStore:
         self.artifacts_root.mkdir(parents=True, exist_ok=True)
         self.state_root.mkdir(parents=True, exist_ok=True)
 
-    def write_json_atomic(self, path: Path, data: Mapping[str, Any]) -> None:
+    def write_json_atomic(self, path: Path, data: JsonObject) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(
             dump_jsonable(data), ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -73,7 +73,7 @@ class ProjectStore:
         temp_path.replace(path)
         self._fsync_parent(path.parent)
 
-    def append_event(self, workflow_id: str, event: Mapping[str, Any]) -> WorkflowEvent:
+    def append_event(self, workflow_id: str, event: JsonObject) -> WorkflowEvent:
         events_path = self._workflow_dir(workflow_id) / "events.jsonl"
         events_path.parent.mkdir(parents=True, exist_ok=True)
         self._truncate_trailing_partial_jsonl_line(events_path)
@@ -91,7 +91,7 @@ class ProjectStore:
         return WorkflowEvent.model_validate(record)
 
     def write_workflow_state(
-        self, workflow_id: str, state: Mapping[str, Any] | WorkflowState
+        self, workflow_id: str, state: JsonObject | WorkflowState
     ) -> WorkflowState:
         state_path = self._workflow_dir(workflow_id) / "state.json"
         record = dict(dump_jsonable(state))
@@ -107,7 +107,7 @@ class ProjectStore:
         return WorkflowState.model_validate(json.loads(state_path.read_text(encoding="utf-8")))
 
     def write_step_run(
-        self, workflow_id: str, step_run: Mapping[str, Any] | StepRunRecord
+        self, workflow_id: str, step_run: JsonObject | StepRunRecord
     ) -> StepRunRecord:
         record = dict(dump_jsonable(step_run))
         record["workflow_id"] = workflow_id
@@ -174,9 +174,9 @@ class ProjectStore:
         name: str,
         content: Any = None,
         file_path: Path | None = None,
-        metadata: Mapping[str, Any],
+        metadata: ArtifactMetadata,
         created_by_step_id: str | None,
-        lineage: Mapping[str, Any],
+        lineage: LineagePayload,
         artifact_id: str | None = None,
     ) -> tuple[StoredArtifact, StoredArtifactVersion]:
         has_content = content is not None
@@ -244,7 +244,7 @@ class ProjectStore:
         artifact_type: str,
         name: str,
         created_by_step_id: str | None,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         if artifact_id is not None:
             artifact = self.read_artifact(artifact_id).model_dump(mode="json")
             if artifact["type"] != artifact_type:

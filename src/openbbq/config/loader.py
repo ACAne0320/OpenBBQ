@@ -9,7 +9,7 @@ from typing import Any, TypeVar
 from pydantic import ValidationError as PydanticValidationError
 import yaml
 
-from openbbq.domain.base import OpenBBQModel, format_pydantic_error
+from openbbq.domain.base import JsonObject, OpenBBQModel, PluginInputs, format_pydantic_error
 from openbbq.domain.models import (
     ARTIFACT_TYPES,
     PluginConfig,
@@ -98,7 +98,7 @@ def load_project_config(
         steps: list[StepConfig] = []
         step_ids: list[str] = []
         step_outputs: dict[str, set[str]] = {}
-        input_refs: list[tuple[str, int, Mapping[str, Any]]] = []
+        input_refs: list[tuple[str, int, PluginInputs]] = []
         seen_step_ids: set[str] = set()
         for index, step_raw in enumerate(steps_raw):
             step_mapping = _require_mapping(step_raw, f"workflows.{workflow_id}.steps[{index}]")
@@ -232,7 +232,7 @@ def load_project_config(
     )
 
 
-def _load_yaml_mapping(path: Path) -> dict[str, Any]:
+def _load_yaml_mapping(path: Path) -> JsonObject:
     try:
         raw = yaml.safe_load(path.read_text())
     except FileNotFoundError as exc:
@@ -273,7 +273,7 @@ def _resolve_path(project_root: Path, value: Path | str, field_path: str) -> Pat
 
 
 def _load_plugin_paths(
-    project_root: Path, raw_config: Mapping[str, Any], env: Mapping[str, str]
+    project_root: Path, raw_config: JsonObject, env: Mapping[str, str]
 ) -> list[Path]:
     config_plugins = _optional_mapping(raw_config.get("plugins"), "plugins")
     config_paths = config_plugins.get("paths", [])
@@ -308,13 +308,13 @@ def _merge_paths(preferred: Iterable[Path], fallback: Iterable[Path]) -> list[Pa
     return merged
 
 
-def _require_mapping(value: Any, field_path: str) -> dict[str, Any]:
+def _require_mapping(value: Any, field_path: str) -> JsonObject:
     if not isinstance(value, dict):
         raise ValidationError(f"{field_path} must be a mapping.")
     return value
 
 
-def _optional_mapping(value: Any, field_path: str) -> dict[str, Any]:
+def _optional_mapping(value: Any, field_path: str) -> JsonObject:
     if value is None:
         return {}
     return _require_mapping(value, field_path)
@@ -338,7 +338,7 @@ def _validate_identifier(value: str, label: str) -> None:
 
 
 def _validate_step_inputs(
-    inputs: Mapping[str, Any],
+    inputs: PluginInputs,
     step_id: str,
     workflow_id: str,
     step_index: int,

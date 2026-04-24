@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Iterable
+from typing import Iterable
 
 from openbbq.domain.base import dump_jsonable
 from openbbq.errors import ExecutionError
@@ -28,8 +28,8 @@ def read_effective_workflow_state(store: ProjectStore, workflow: WorkflowConfig)
         return build_pending_state(workflow)
 
 
-def require_status(state: dict[str, Any], expected: str, workflow_id: str) -> None:
-    status = state.get("status")
+def require_status(state: WorkflowState, expected: str, workflow_id: str) -> None:
+    status = state.status
     if status != expected:
         raise ExecutionError(
             f"Workflow '{workflow_id}' must be {expected}; current status is {status}.",
