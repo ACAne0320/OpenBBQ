@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from openbbq.cli.app import main
 
@@ -97,3 +98,21 @@ default_model = "base"
     assert payload["ok"] is True
     assert payload["models"][0]["provider"] == "faster_whisper"
     assert payload["models"][0]["model"] == "base"
+
+
+def test_doctor_json_reports_checks(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    project = tmp_path / "project"
+    project.mkdir()
+    source = Path("tests/fixtures/projects/text-basic/openbbq.yaml").read_text(encoding="utf-8")
+    (project / "openbbq.yaml").write_text(
+        source.replace("../../plugins", str(Path.cwd() / "tests/fixtures/plugins")),
+        encoding="utf-8",
+    )
+
+    code = main(["--project", str(project), "--json", "doctor", "--workflow", "text-demo"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert isinstance(payload["checks"], list)

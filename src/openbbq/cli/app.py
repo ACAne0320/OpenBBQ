@@ -23,6 +23,7 @@ from openbbq.engine.service import (
 from openbbq.engine.validation import validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.plugins.registry import PluginRegistry, discover_plugins
+from openbbq.runtime.doctor import check_workflow
 from openbbq.runtime.models import ProviderProfile
 from openbbq.runtime.models_assets import faster_whisper_model_status
 from openbbq.runtime.secrets import SecretResolver
@@ -130,6 +131,9 @@ def _build_parser() -> argparse.ArgumentParser:
     models_sub = models.add_subparsers(dest="models_command", required=True)
     models_sub.add_parser("list", parents=[subcommand_global_options])
 
+    doctor = subparsers.add_parser("doctor", parents=[subcommand_global_options])
+    doctor.add_argument("--workflow")
+
     return parser
 
 
@@ -228,6 +232,8 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "models":
         if args.models_command == "list":
             return _models_list(args)
+    if args.command == "doctor":
+        return _doctor(args)
     return 2
 
 
@@ -581,6 +587,26 @@ def _models_list(args: argparse.Namespace) -> int:
     status = faster_whisper_model_status(settings)
     payload = {"ok": True, "models": [status.public_dict()]}
     _emit(payload, args.json_output, status.public_dict())
+    return 0
+
+
+def _doctor(args: argparse.Namespace) -> int:
+    settings = load_runtime_settings()
+    if args.workflow:
+        config, registry = _load_config_and_plugins(args)
+        checks = check_workflow(
+            config=config,
+            registry=registry,
+            workflow_id=args.workflow,
+            settings=settings,
+        )
+    else:
+        checks = []
+    payload = {
+        "ok": all(check.status != "failed" for check in checks),
+        "checks": [check.public_dict() for check in checks],
+    }
+    _emit(payload, args.json_output, "\n".join(check.message for check in checks))
     return 0
 
 
