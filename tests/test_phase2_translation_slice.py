@@ -51,7 +51,22 @@ def write_project(tmp_path: Path) -> Path:
 def test_cli_runs_local_video_translate_subtitle_with_fake_plugins(tmp_path, monkeypatch, capsys):
     from openbbq.builtin_plugins.faster_whisper import plugin as whisper_plugin
     from openbbq.builtin_plugins.ffmpeg import plugin as ffmpeg_plugin
-    from openbbq.builtin_plugins.llm import plugin as llm_plugin
+    from openbbq.builtin_plugins.translation import plugin as translation_plugin
+
+    user_config = tmp_path / "user-config.toml"
+    user_config.write_text(
+        """
+version = 1
+[providers.openai]
+type = "openai_compatible"
+base_url = "https://llm.example/v1"
+api_key = "env:OPENBBQ_LLM_API_KEY"
+default_chat_model = "gpt-4o-mini"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(user_config))
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
 
     def fake_runner(command):
         Path(command[-1]).write_bytes(b"audio")
@@ -75,13 +90,13 @@ def test_cli_runs_local_video_translate_subtitle_with_fake_plugins(tmp_path, mon
             return [FakeSegment()], FakeInfo()
 
     def fake_client_factory(*, api_key, base_url):
+        assert api_key == "test-key"
+        assert base_url == "https://llm.example/v1"
         return FakeOpenAIClient()
 
     monkeypatch.setattr(ffmpeg_plugin, "_run_subprocess", fake_runner)
     monkeypatch.setattr(whisper_plugin, "_default_model_factory", FakeWhisperModel)
-    monkeypatch.setattr(llm_plugin, "_default_client_factory", fake_client_factory)
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
-    monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
+    monkeypatch.setattr(translation_plugin, "_default_client_factory", fake_client_factory)
 
     project = write_project(tmp_path)
     video = tmp_path / "sample.mp4"
@@ -137,6 +152,7 @@ def test_cli_runs_local_video_translate_subtitle_with_fake_plugins(tmp_path, mon
         "extract_audio.audio",
         "transcribe.transcript",
         "glossary.transcript",
+        "segment.subtitle_segments",
         "translate.translation",
         "subtitle.subtitle",
     ]

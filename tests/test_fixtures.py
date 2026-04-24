@@ -89,7 +89,8 @@ def test_local_video_translate_subtitle_fixture_uses_builtin_plugins():
     assert "ffmpeg.extract_audio" in registry.tools
     assert "faster_whisper.transcribe" in registry.tools
     assert "glossary.replace" in registry.tools
-    assert "llm.translate" in registry.tools
+    assert "transcript.segment" in registry.tools
+    assert "translation.translate" in registry.tools
     assert "subtitle.export" in registry.tools
 
 
@@ -101,7 +102,8 @@ def test_remote_video_translate_subtitle_fixture_uses_builtin_plugins():
     assert "ffmpeg.extract_audio" in registry.tools
     assert "faster_whisper.transcribe" in registry.tools
     assert "glossary.replace" in registry.tools
-    assert "llm.translate" in registry.tools
+    assert "transcript.segment" in registry.tools
+    assert "translation.translate" in registry.tools
     assert "subtitle.export" in registry.tools
 
 

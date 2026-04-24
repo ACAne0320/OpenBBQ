@@ -121,7 +121,8 @@ def persist_step_outputs(
             raise ValidationError(
                 f"Plugin response for step '{step.id}' output '{output_name}' has type '{output_type}', expected '{output.type}'."
             )
-        if output_type not in tool.output_artifact_types:
+        output_spec = tool.outputs.get(output_name)
+        if output_spec is None or output_type != output_spec.artifact_type:
             raise ValidationError(
                 f"Plugin response for step '{step.id}' output '{output_name}' type '{output_type}' is not allowed."
             )

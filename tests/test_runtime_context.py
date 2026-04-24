@@ -79,33 +79,28 @@ def test_llm_provider_from_request_uses_named_provider():
     assert provider.model_default == "gpt-4o-mini"
 
 
-def test_llm_provider_from_request_falls_back_to_legacy_env(monkeypatch):
+def test_llm_provider_from_request_requires_named_provider_runtime_context(monkeypatch):
     monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-env")
-    monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://legacy.example/v1")
 
-    provider = llm_provider_from_request(
-        {"parameters": {}, "runtime": {}},
-        error_prefix="translation.translate",
-    )
-
-    assert provider.name == "openai_compatible"
-    assert provider.api_key == "sk-env"
-    assert provider.base_url == "https://legacy.example/v1"
+    with pytest.raises(ValueError, match="provider 'openai' is not configured"):
+        llm_provider_from_request(
+            {"parameters": {"provider": "openai"}, "runtime": {"providers": {}}},
+            error_prefix="translation.translate",
+        )
 
 
 def test_llm_provider_from_request_rejects_missing_named_provider():
-    with pytest.raises(ValueError, match="Provider 'missing'"):
+    with pytest.raises(ValueError, match="provider 'missing'"):
         llm_provider_from_request(
             {"parameters": {"provider": "missing"}, "runtime": {"providers": {}}},
             error_prefix="translation.translate",
         )
 
 
-def test_llm_provider_from_request_requires_api_key(monkeypatch):
+def test_llm_provider_from_request_requires_provider_parameter(monkeypatch):
     monkeypatch.delenv("OPENBBQ_LLM_API_KEY", raising=False)
-    monkeypatch.delenv("OPENBBQ_LLM_BASE_URL", raising=False)
 
-    with pytest.raises(RuntimeError, match="OPENBBQ_LLM_API_KEY"):
+    with pytest.raises(ValueError, match="provider parameter"):
         llm_provider_from_request(
             {"parameters": {}, "runtime": {}},
             error_prefix="translation.translate",

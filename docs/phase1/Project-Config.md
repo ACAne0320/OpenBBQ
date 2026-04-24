@@ -252,30 +252,45 @@ name = "mock_text"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "echo"
 description = "Emit literal text as a text artifact."
-input_artifact_types = []
-output_artifact_types = ["text"]
 effects = []
 
 [tools.parameter_schema]
 type = "object"
 additionalProperties = false
 properties = {}
+
+[tools.inputs.text]
+artifact_types = ["text"]
+required = true
+description = "Literal or artifact text to emit."
+
+[tools.outputs.text]
+artifact_type = "text"
+description = "Emitted text artifact."
 
 [[tools]]
 name = "uppercase"
 description = "Convert text input to uppercase."
-input_artifact_types = ["text"]
-output_artifact_types = ["text"]
 effects = []
 
 [tools.parameter_schema]
 type = "object"
 additionalProperties = false
 properties = {}
+
+[tools.inputs.text]
+artifact_types = ["text"]
+required = true
+description = "Text artifact to transform."
+
+[tools.outputs.text]
+artifact_type = "text"
+description = "Uppercase text artifact."
 ```
 
 The actual fixture manifest may include the remaining `mock_text` tools, but every tool must follow the same manifest shape and JSON Schema parameter validation rules.
@@ -287,12 +302,11 @@ name = "mock_media"
 version = "0.1.0"
 runtime = "python"
 entrypoint = "plugin:run"
+manifest_version = 2
 
 [[tools]]
 name = "youtube_download"
 description = "Emit deterministic mock video metadata."
-input_artifact_types = []
-output_artifact_types = ["video"]
 effects = []
 
 [tools.parameter_schema]
@@ -300,6 +314,10 @@ type = "object"
 required = ["url"]
 additionalProperties = false
 properties = { url = { type = "string" }, format = { type = "string" }, quality = { type = "string" } }
+
+[tools.outputs.video]
+artifact_type = "video"
+description = "Downloaded video artifact."
 ```
 
 ## Configuration Precedence Test Matrix

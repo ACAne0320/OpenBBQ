@@ -5,6 +5,7 @@ from pydantic import ValidationError as PydanticValidationError
 from openbbq.config.loader import load_project_config
 from openbbq.domain.models import StepConfig, StepOutput
 from openbbq.errors import ValidationError
+from openbbq.plugins.contracts import ToolOutputSpec
 from openbbq.plugins.payloads import PluginOutputPayload, PluginResponse
 from openbbq.plugins.registry import ToolSpec
 from openbbq.workflow.bindings import build_plugin_inputs, persist_step_outputs
@@ -133,6 +134,7 @@ def test_persist_step_outputs_accepts_file_path_payload(tmp_path):
         description="Extract audio",
         input_artifact_types=["video"],
         output_artifact_types=["audio"],
+        outputs={"audio": ToolOutputSpec(artifact_type="audio")},
         parameter_schema={},
         effects=["reads_files", "writes_files"],
         manifest_path=tmp_path / "openbbq.plugin.toml",
@@ -172,6 +174,7 @@ def test_persist_step_outputs_rejects_content_and_file_path_together(tmp_path):
         description="Extract audio",
         input_artifact_types=["video"],
         output_artifact_types=["audio"],
+        outputs={"audio": ToolOutputSpec(artifact_type="audio")},
         parameter_schema={},
         effects=[],
         manifest_path=tmp_path / "openbbq.plugin.toml",

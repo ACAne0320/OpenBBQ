@@ -86,14 +86,12 @@ def test_transcript_plugin_entrypoint_dispatches_to_segment_module(monkeypatch):
     assert response["outputs"]["subtitle_segments"]["type"] == "subtitle_segments"
 
 
-def test_translation_translate_accepts_subtitle_segments_input_name(monkeypatch):
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
-
+def test_translation_translate_accepts_subtitle_segments_input_name():
     response = translation_plugin.run(
         {
             "tool_name": "translate",
             "parameters": {
-                "provider": "openai_compatible",
+                "provider": "openai",
                 "source_lang": "en",
                 "target_lang": "zh-Hans",
                 "model": "gpt-4o-mini",
@@ -102,6 +100,15 @@ def test_translation_translate_accepts_subtitle_segments_input_name(monkeypatch)
                 "subtitle_segments": {
                     "type": "subtitle_segments",
                     "content": [{"start": 0.0, "end": 1.0, "text": "Hello"}],
+                }
+            },
+            "runtime": {
+                "providers": {
+                    "openai": {
+                        "name": "openai",
+                        "type": "openai_compatible",
+                        "api_key": "test-key",
+                    }
                 }
             },
         },

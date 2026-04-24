@@ -54,13 +54,13 @@ Manifest validation must reject:
 - missing name, version, runtime, or entrypoint.
 - invalid semantic version.
 - duplicate tool names.
-- tools with no declared output, either through `tools.outputs` or legacy `output_artifact_types`.
+- tools with no declared `tools.outputs` entry.
 - named inputs whose `artifact_types` are empty or include unknown artifact types.
 - named outputs whose `artifact_type` is unknown.
 - invalid parameter schemas.
 - unsupported runtime values.
 
-`manifest_version = 2` tools declare named input and output slots with `tools.inputs.<name>` and `tools.outputs.<name>`. The engine validates workflow input/output names against those slots. During the migration, `input_artifact_types` and `output_artifact_types` are still accepted as legacy allowlists and are derived from v2 slots when `tools.outputs` is present.
+`manifest_version = 2` tools declare named input and output slots with `tools.inputs.<name>` and `tools.outputs.<name>`. The engine validates workflow input/output names against those slots. `input_artifact_types` and `output_artifact_types` are derived from named slots for internal reporting and are not manifest fields.
 
 ## Discovery
 
@@ -199,18 +199,18 @@ With `--debug`, CLI output may include stack traces for OpenBBQ errors. JSON out
 
 Before execution:
 
-- every named input in the workflow must be declared by the tool when the manifest uses v2 named inputs.
+- every named input in the workflow must be declared by the tool.
 - every required named input must be present.
-- every input artifact type must match the named input declaration, or the legacy tool allowlist for old manifests.
+- every input artifact type must match the named input declaration.
 - every required parameter must be present.
 - no unknown parameter is accepted when the schema disallows it.
-- every named output in the workflow must be declared by the tool when the manifest uses v2 named outputs.
-- every output artifact type must match the named output declaration, or the legacy tool allowlist for old manifests.
+- every named output in the workflow must be declared by the tool.
+- every output artifact type must match the named output declaration.
 
 After execution:
 
 - every output name declared in the step's `outputs` list must be present as a key in `response.outputs`.
-- every output's `type` field must match the workflow output type and a type allowed by the tool declaration.
+- every output's `type` field must match the workflow output type and the tool's named output declaration.
 - output content must be serializable or storable by the artifact storage layer.
 
 ## Security Boundary

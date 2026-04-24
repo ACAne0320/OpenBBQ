@@ -7,8 +7,6 @@ manifest_version = 2
 [[tools]]
 name = "transcribe"
 description = "Transcribe a file-backed audio artifact with faster-whisper."
-input_artifact_types = ["audio"]
-output_artifact_types = ["asr_transcript"]
 effects = ["reads_files"]
 
 [tools.parameter_schema]

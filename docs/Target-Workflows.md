@@ -106,7 +106,7 @@ Parameters:
 | Name | Type | Required | Description |
 |---|---|---|---|
 | `source_lang` | string | yes | BCP-47 source language code. |
-| `provider` | string | no | Runtime provider profile name, such as `openai`. If omitted, the legacy OpenAI-compatible environment variables are used. |
+| `provider` | string | yes | Runtime provider profile name, such as `openai`. |
 | `model` | string | no | OpenAI-compatible correction model identifier. If omitted, the provider profile `default_chat_model` is used. |
 | `temperature` | number | no | Sampling temperature. Defaults to `0`. |
 | `domain_context` | string | no | Free-text domain brief used to improve source-language correction. |
@@ -156,26 +156,22 @@ Parameters:
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `provider` | string | no | Runtime provider profile name, such as `openai`. `openai_compatible` remains the legacy environment-variable mode. |
+| `provider` | string | yes | Runtime provider profile name, such as `openai`. |
 | `target_lang` | string | yes | BCP-47 target language code. |
 | `source_lang` | string | yes | BCP-47 source language code. |
 | `model` | string | no | OpenAI-compatible model identifier. If omitted, the provider profile `default_chat_model` is used. |
 | `temperature` | number | no | Sampling temperature. Defaults to `0`. |
 | `system_prompt` | string | no | Optional system prompt override. |
-| `base_url` | string | no | Optional legacy provider base URL override when `provider` is omitted or set to `openai_compatible`. |
 | `glossary_rules` | array | no | Optional terminology rules forwarded to the translation prompt. Accepts `{source,target,aliases,protected}` and legacy `{find,replace}` forms. |
 
 Runtime provider profiles:
 
-- `provider` may name a provider from `~/.openbbq/config.toml`, such as `openai`.
+- `provider` must name a provider from `~/.openbbq/config.toml`, such as `openai`.
 - Provider names must use only letters, digits, `_`, or `-`.
 - Provider profiles store `type`, `base_url`, optional default model, and an API key reference.
-- API keys must use `env:` or `keyring:` secret references and must not be written into `openbbq.yaml`.
-- If `provider` is omitted, the built-in tools still accept `OPENBBQ_LLM_API_KEY` and `OPENBBQ_LLM_BASE_URL` for compatibility.
+- API keys must use `env:` or `keyring:` secret references and must not be written into `openbbq.yaml`. For example, `api_key = "env:OPENBBQ_LLM_API_KEY"` makes that environment variable available only through the named runtime provider.
 
 The output `translation` artifact preserves the segment structure and timing from the input subtitle-ready segments while replacing text with translated content.
-
-`llm.translate` remains available as a compatibility alias for the older Phase 2 workflows.
 
 > **Note:** This step requires outbound LLM API access. It is the only step in this pipeline that is non-deterministic.
 
@@ -262,7 +258,6 @@ url, format, quality
 | Transcript correction | `transcript.correct` | Phase 2 correction and segmentation slice |
 | Subtitle segmentation | `transcript.segment` | Phase 2 correction and segmentation slice |
 | Translation | `translation.translate` | Phase 2 translation v1 |
-| Translation compatibility alias | `llm.translate` | Phase 2 Slice 2 |
 | Export subtitle | `subtitle.export` | Phase 2 Slice 1 |
 
 Phase 1 can validate the full workflow config and run it end-to-end using mock plugins that accept and emit the correct artifact types without performing real media operations.

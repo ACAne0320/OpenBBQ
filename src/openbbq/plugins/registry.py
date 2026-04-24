@@ -291,25 +291,16 @@ def _parse_tool_manifest(
         raise ValueError(f"tools[{index}].parameter_schema must be a table.")
     inputs = _parse_tool_inputs(tool_raw.get("inputs", {}), plugin_name, index)
     outputs = _parse_tool_outputs(tool_raw.get("outputs", {}), plugin_name, index)
-    input_artifact_types = _optional_string_list(
-        tool_raw.get("input_artifact_types"),
-        f"tools[{index}].input_artifact_types",
+    if not outputs:
+        raise ValueError(f"tools[{index}].outputs must define at least one output.")
+    input_artifact_types = sorted(
+        {
+            artifact_type
+            for spec in inputs.values()
+            for artifact_type in spec.artifact_types
+        }
     )
-    output_artifact_types = _optional_string_list(
-        tool_raw.get("output_artifact_types"),
-        f"tools[{index}].output_artifact_types",
-    )
-    if outputs:
-        input_artifact_types = sorted(
-            {
-                artifact_type
-                for spec in inputs.values()
-                for artifact_type in spec.artifact_types
-            }
-        )
-        output_artifact_types = [spec.artifact_type for spec in outputs.values()]
-    if not output_artifact_types:
-        raise ValueError(f"tools[{index}].output_artifact_types must not be empty.")
+    output_artifact_types = [spec.artifact_type for spec in outputs.values()]
     runtime_requirements = _parse_tool_runtime_requirements(
         tool_raw.get("runtime_requirements", {}), index
     )
@@ -412,12 +403,6 @@ def _require_string_list(value: Any, field_name: str) -> list[str]:
     if any(not isinstance(item, str) for item in value):
         raise ValueError(f"Plugin manifest field '{field_name}' must be a list of strings.")
     return list(value)
-
-
-def _optional_string_list(value: Any, field_name: str) -> list[str]:
-    if value is None:
-        return []
-    return _require_string_list(value, field_name)
 
 
 def _format_schema_error(index: int, exc: SchemaError) -> str:

@@ -7,8 +7,6 @@ manifest_version = 2
 [[tools]]
 name = "replace"
 description = "Apply deterministic glossary replacements to transcript segments."
-input_artifact_types = ["asr_transcript"]
-output_artifact_types = ["asr_transcript"]
 effects = []
 
 [tools.parameter_schema]

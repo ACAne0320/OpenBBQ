@@ -7,8 +7,6 @@ manifest_version = 2
 [[tools]]
 name = "youtube_download"
 description = "Mock yt-dlp download step that emits a deterministic video artifact."
-input_artifact_types = []
-output_artifact_types = ["video"]
 effects = []
 
 [tools.parameter_schema]
@@ -24,8 +22,6 @@ description = "Downloaded video file."
 [[tools]]
 name = "extract_audio"
 description = "Extract mock audio locally without media binaries."
-input_artifact_types = ["video"]
-output_artifact_types = ["audio"]
 effects = []
 
 [tools.parameter_schema]
@@ -46,8 +42,6 @@ description = "Extracted audio file."
 [[tools]]
 name = "transcribe"
 description = "Deterministic local Whisper transcription for fixture workflows."
-input_artifact_types = ["audio"]
-output_artifact_types = ["asr_transcript"]
 effects = []
 
 [tools.parameter_schema]

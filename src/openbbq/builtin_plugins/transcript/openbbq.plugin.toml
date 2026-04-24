@@ -7,14 +7,12 @@ manifest_version = 2
 [[tools]]
 name = "correct"
 description = "Correct source-language ASR transcript segments with an OpenAI-compatible model."
-input_artifact_types = ["asr_transcript"]
-output_artifact_types = ["asr_transcript"]
 effects = ["network"]
 
 [tools.parameter_schema]
 type = "object"
 additionalProperties = false
-required = ["source_lang"]
+required = ["provider", "source_lang"]
 
 [tools.parameter_schema.properties.provider]
 type = "string"
@@ -30,9 +28,6 @@ type = "number"
 default = 0
 
 [tools.parameter_schema.properties.system_prompt]
-type = "string"
-
-[tools.parameter_schema.properties.base_url]
 type = "string"
 
 [tools.parameter_schema.properties.domain_context]
@@ -86,8 +81,6 @@ description = "Corrected transcript segments."
 [[tools]]
 name = "segment"
 description = "Derive subtitle-ready timed segments from an ASR transcript."
-input_artifact_types = ["asr_transcript"]
-output_artifact_types = ["subtitle_segments"]
 effects = []
 
 [tools.parameter_schema]

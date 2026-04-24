@@ -7,18 +7,15 @@ manifest_version = 2
 [[tools]]
 name = "translate"
 description = "Translate subtitle-ready segments with an OpenAI-compatible chat completions API."
-input_artifact_types = ["subtitle_segments"]
-output_artifact_types = ["translation"]
 effects = ["network"]
 
 [tools.parameter_schema]
 type = "object"
 additionalProperties = false
-required = ["source_lang", "target_lang"]
+required = ["provider", "source_lang", "target_lang"]
 
 [tools.parameter_schema.properties.provider]
 type = "string"
-default = "openai_compatible"
 
 [tools.parameter_schema.properties.source_lang]
 type = "string"
@@ -34,9 +31,6 @@ type = "number"
 default = 0
 
 [tools.parameter_schema.properties.system_prompt]
-type = "string"
-
-[tools.parameter_schema.properties.base_url]
 type = "string"
 
 [tools.parameter_schema.properties.glossary_rules]
@@ -87,8 +81,6 @@ description = "Translated segments."
 [[tools]]
 name = "qa"
 description = "Check translated segments for terminology misses, numeric drift, and subtitle readability risks."
-input_artifact_types = ["translation"]
-output_artifact_types = ["translation_qa"]
 effects = []
 
 [tools.parameter_schema]

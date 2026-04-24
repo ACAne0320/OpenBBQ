@@ -65,7 +65,6 @@ def test_builtin_plugin_manifests_are_configured_as_package_data() -> None:
         "faster_whisper",
         "ffmpeg",
         "glossary",
-        "llm",
         "remote_video",
         "subtitle",
         "translation",

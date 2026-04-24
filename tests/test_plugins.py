@@ -101,14 +101,16 @@ def test_discovers_plugin_roots_and_child_directories(tmp_path):
         [[tools]]
         name = "echo"
         description = "Echo text."
-        input_artifact_types = []
-        output_artifact_types = ["text"]
         effects = []
 
         [tools.parameter_schema]
         type = "object"
         additionalProperties = false
         properties = {}
+
+        [tools.outputs.text]
+        artifact_type = "text"
+        description = "Echoed text."
         """,
     )
     _write_plugin(
@@ -122,14 +124,16 @@ def test_discovers_plugin_roots_and_child_directories(tmp_path):
         [[tools]]
         name = "echo"
         description = "Echo text."
-        input_artifact_types = []
-        output_artifact_types = ["text"]
         effects = []
 
         [tools.parameter_schema]
         type = "object"
         additionalProperties = false
         properties = {}
+
+        [tools.outputs.text]
+        artifact_type = "text"
+        description = "Echoed text."
         """,
     )
 
@@ -151,14 +155,16 @@ def test_discovers_without_importing_plugin_code(tmp_path):
         [[tools]]
         name = "echo"
         description = "Echo text."
-        input_artifact_types = []
-        output_artifact_types = ["text"]
         effects = []
 
         [tools.parameter_schema]
         type = "object"
         additionalProperties = false
         properties = {}
+
+        [tools.outputs.text]
+        artifact_type = "text"
+        description = "Echoed text."
         """,
         plugin_py="""
         raise AssertionError("plugin.py should not be imported during discovery")
@@ -183,8 +189,6 @@ def test_discovers_without_importing_plugin_code(tmp_path):
             [[tools]]
             name = "echo"
             description = "Echo text."
-            input_artifact_types = []
-            output_artifact_types = ["text"]
             effects = []
 
             [tools.parameter_schema]
@@ -204,8 +208,6 @@ def test_discovers_without_importing_plugin_code(tmp_path):
             [[tools]]
             name = "echo"
             description = "Echo text."
-            input_artifact_types = []
-            output_artifact_types = ["text"]
             effects = []
 
             [tools.parameter_schema]
@@ -225,8 +227,6 @@ def test_discovers_without_importing_plugin_code(tmp_path):
             [[tools]]
             name = "echo"
             description = "Echo text."
-            input_artifact_types = []
-            output_artifact_types = ["text"]
             effects = []
 
             [tools.parameter_schema]
@@ -246,26 +246,30 @@ def test_discovers_without_importing_plugin_code(tmp_path):
             [[tools]]
             name = "echo"
             description = "Echo text."
-            input_artifact_types = []
-            output_artifact_types = ["text"]
             effects = []
 
             [tools.parameter_schema]
             type = "object"
             additionalProperties = false
             properties = {}
+
+            [tools.outputs.text]
+            artifact_type = "text"
+            description = "Echoed text."
 
             [[tools]]
             name = "echo"
             description = "Echo text again."
-            input_artifact_types = []
-            output_artifact_types = ["text"]
             effects = []
 
             [tools.parameter_schema]
             type = "object"
             additionalProperties = false
             properties = {}
+
+            [tools.outputs.text]
+            artifact_type = "text"
+            description = "Echoed text."
             """,
             "duplicate tool name",
         ),
@@ -279,8 +283,6 @@ def test_discovers_without_importing_plugin_code(tmp_path):
             [[tools]]
             name = "echo"
             description = "Echo text."
-            input_artifact_types = []
-            output_artifact_types = []
             effects = []
 
             [tools.parameter_schema]
@@ -288,7 +290,7 @@ def test_discovers_without_importing_plugin_code(tmp_path):
             additionalProperties = false
             properties = {}
             """,
-            "output_artifact_types",
+            "outputs",
         ),
         (
             """
@@ -300,14 +302,16 @@ def test_discovers_without_importing_plugin_code(tmp_path):
             [[tools]]
             name = "echo"
             description = "Echo text."
-            input_artifact_types = []
-            output_artifact_types = ["text"]
             effects = []
 
             [tools.parameter_schema]
             type = 123
             additionalProperties = false
             properties = {}
+
+            [tools.outputs.text]
+            artifact_type = "text"
+            description = "Echoed text."
             """,
             "parameter_schema",
         ),
@@ -335,14 +339,16 @@ def test_reports_schema_error_details(tmp_path):
         [[tools]]
         name = "echo"
         description = "Echo text."
-        input_artifact_types = []
-        output_artifact_types = ["text"]
         effects = []
 
         [tools.parameter_schema]
         type = 123
         additionalProperties = false
         properties = {}
+
+        [tools.outputs.text]
+        artifact_type = "text"
+        description = "Echoed text."
         """,
     )
 

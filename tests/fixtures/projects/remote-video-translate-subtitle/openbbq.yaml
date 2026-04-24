@@ -70,15 +70,31 @@ workflows:
         on_error: abort
         max_retries: 0
 
-      - id: translate
-        name: Translate
-        tool_ref: llm.translate
+      - id: segment
+        name: Segment Subtitle
+        tool_ref: transcript.segment
         inputs:
           transcript: glossary.transcript
+        outputs:
+          - name: subtitle_segments
+            type: subtitle_segments
+        parameters:
+          max_duration_seconds: 6
+          max_lines: 2
+          max_chars_per_line: 40
+        on_error: abort
+        max_retries: 0
+
+      - id: translate
+        name: Translate
+        tool_ref: translation.translate
+        inputs:
+          subtitle_segments: segment.subtitle_segments
         outputs:
           - name: translation
             type: translation
         parameters:
+          provider: openai
           source_lang: en
           target_lang: zh-Hans
           model: gpt-4o-mini

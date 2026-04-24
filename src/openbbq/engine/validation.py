@@ -92,8 +92,6 @@ def _validate_step_inputs(
 
 
 def _validate_named_inputs(step: StepConfig, tool: ToolSpec) -> None:
-    if not tool.inputs:
-        return
     allowed = set(tool.inputs)
     for input_name in step.inputs:
         if input_name not in allowed:
@@ -108,32 +106,22 @@ def _validate_named_inputs(step: StepConfig, tool: ToolSpec) -> None:
 
 
 def _allowed_input_artifact_types(tool: ToolSpec, input_name: str) -> list[str]:
-    if tool.inputs and input_name in tool.inputs:
+    if input_name in tool.inputs:
         return list(tool.inputs[input_name].artifact_types)
-    return tool.input_artifact_types
+    return []
 
 
 def _validate_step_outputs(step: StepConfig, tool: ToolSpec) -> None:
-    if tool.outputs:
-        for output in step.outputs:
-            output_spec = tool.outputs.get(output.name)
-            if output_spec is None:
-                raise ValidationError(
-                    f"Step '{step.id}' has unknown output '{output.name}' for tool '{step.tool_ref}'."
-                )
-            if output.type != output_spec.artifact_type:
-                raise ValidationError(
-                    f"Step '{step.id}' output '{output.name}' has type '{output.type}', "
-                    f"but tool '{step.tool_ref}' declares '{output_spec.artifact_type}'.",
-                )
-        return
-
-    allowed_types = set(tool.output_artifact_types)
     for output in step.outputs:
-        if output.type not in allowed_types:
+        output_spec = tool.outputs.get(output.name)
+        if output_spec is None:
+            raise ValidationError(
+                f"Step '{step.id}' has unknown output '{output.name}' for tool '{step.tool_ref}'."
+            )
+        if output.type != output_spec.artifact_type:
             raise ValidationError(
                 f"Step '{step.id}' output '{output.name}' has type '{output.type}', "
-                f"but tool '{step.tool_ref}' may only produce {tool.output_artifact_types}.",
+                f"but tool '{step.tool_ref}' declares '{output_spec.artifact_type}'.",
             )
 
 

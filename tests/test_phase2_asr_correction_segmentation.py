@@ -120,7 +120,6 @@ def test_cli_runs_local_video_correction_and_segmentation_flow(tmp_path, monkeyp
     monkeypatch.setattr(transcript_plugin, "_default_client_factory", fake_correction_factory)
     monkeypatch.setattr(translation_plugin, "_default_client_factory", fake_translation_factory)
     monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
-    monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
     user_config = tmp_path / "user-config.toml"
     user_config.write_text(
         """

@@ -7,9 +7,10 @@ The project takes its name from Chinese fan-sub and creator communities, where
 translating and subtitling a video is sometimes called "BBQ." Raw media is "raw
 meat"; translated and subtitled output is "cooked."
 
-OpenBBQ runs media workflows from a local CLI today. The CLI reads an
-`openbbq.yaml` workflow, discovers local plugins, writes state and artifacts under
-`.openbbq/`, and lets you inspect, rerun, resume, or export the results.
+OpenBBQ runs media workflows from a local CLI today. The CLI is an adapter over
+backend application services that read an `openbbq.yaml` workflow, discover local
+plugins, write state and artifacts under `.openbbq/`, and let you inspect, rerun,
+resume, or export the results.
 
 ## Install
 
@@ -72,6 +73,10 @@ uv run openbbq auth set openai \
   --default-chat-model gpt-4o-mini
 uv run openbbq auth check openai --json
 ```
+
+LLM-backed workflow steps must name a runtime provider such as `openai`. The
+environment variable above is only used because the provider profile explicitly
+stores `api_key = "env:OPENBBQ_LLM_API_KEY"`.
 
 Generate a translated SRT file:
 

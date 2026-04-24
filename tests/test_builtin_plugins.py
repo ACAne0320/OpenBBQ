@@ -6,7 +6,6 @@ import pytest
 from openbbq.builtin_plugins.faster_whisper import plugin as whisper_plugin
 from openbbq.builtin_plugins.ffmpeg import plugin as ffmpeg_plugin
 from openbbq.builtin_plugins.glossary import plugin as glossary_plugin
-from openbbq.builtin_plugins.llm import plugin as llm_plugin
 from openbbq.builtin_plugins.remote_video import plugin as remote_video_plugin
 from openbbq.builtin_plugins.subtitle import plugin as subtitle_plugin
 from openbbq.builtin_plugins.translation import plugin as translation_plugin
@@ -44,6 +43,23 @@ workflows:
     return project
 
 
+def runtime_provider_payload(
+    *,
+    api_key: str = "test-key",
+    base_url: str | None = "https://llm.example/v1",
+    default_chat_model: str | None = None,
+) -> dict:
+    provider = {
+        "name": "openai",
+        "type": "openai_compatible",
+        "api_key": api_key,
+        "base_url": base_url,
+    }
+    if default_chat_model is not None:
+        provider["default_chat_model"] = default_chat_model
+    return {"providers": {"openai": provider}}
+
+
 def test_builtin_plugin_path_is_discovered_by_default(tmp_path):
     config = load_project_config(write_project(tmp_path))
 
@@ -52,7 +68,6 @@ def test_builtin_plugin_path_is_discovered_by_default(tmp_path):
     assert "ffmpeg.extract_audio" in registry.tools
     assert "faster_whisper.transcribe" in registry.tools
     assert "glossary.replace" in registry.tools
-    assert "llm.translate" in registry.tools
     assert "remote_video.download" in registry.tools
     assert "subtitle.export" in registry.tools
     assert "translation.translate" in registry.tools
@@ -529,67 +544,7 @@ def test_remote_video_download_missing_dependency_message(monkeypatch, tmp_path)
         )
 
 
-def test_llm_translate_uses_openai_client_and_returns_translation(monkeypatch):
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
-    monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
-    factory = RecordingOpenAIClientFactory(
-        '[{"index": 0, "text": "你好"}, {"index": 1, "text": "OpenBBQ"}]'
-    )
-
-    response = llm_plugin.run(
-        {
-            "tool_name": "translate",
-            "parameters": {
-                "source_lang": "en",
-                "target_lang": "zh-Hans",
-                "model": "gpt-4o-mini",
-                "temperature": 0,
-            },
-            "inputs": {
-                "transcript": {
-                    "type": "asr_transcript",
-                    "content": [
-                        {"start": 0.0, "end": 1.5, "text": "Hello"},
-                        {"start": 1.5, "end": 3.0, "text": "OpenBBQ"},
-                    ],
-                }
-            },
-        },
-        client_factory=factory,
-    )
-
-    assert factory.calls == [{"api_key": "test-key", "base_url": "https://llm.example/v1"}]
-    call = factory.client.chat.completions.calls[0]
-    assert call["model"] == "gpt-4o-mini"
-    assert call["temperature"] == 0
-    assert "response_format" not in call
-    assert len(call["messages"]) == 2
-    assert "Return JSON only" in call["messages"][0]["content"]
-    assert '"target_lang":"zh-Hans"' in call["messages"][1]["content"]
-
-    assert response == {
-        "outputs": {
-            "translation": {
-                "type": "translation",
-                "content": [
-                    {"start": 0.0, "end": 1.5, "source_text": "Hello", "text": "你好"},
-                    {"start": 1.5, "end": 3.0, "source_text": "OpenBBQ", "text": "OpenBBQ"},
-                ],
-                "metadata": {
-                    "glossary_rule_count": 0,
-                    "source_lang": "en",
-                    "target_lang": "zh-Hans",
-                    "model": "gpt-4o-mini",
-                    "segment_count": 2,
-                },
-            }
-        }
-    }
-
-
-def test_translation_translate_uses_openai_client_and_returns_translation(monkeypatch):
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
-    monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
+def test_translation_translate_uses_openai_client_and_returns_translation():
     factory = RecordingOpenAIClientFactory(
         '[{"index": 0, "text": "你好"}, {"index": 1, "text": "OpenBBQ"}]'
     )
@@ -598,7 +553,7 @@ def test_translation_translate_uses_openai_client_and_returns_translation(monkey
         {
             "tool_name": "translate",
             "parameters": {
-                "provider": "openai_compatible",
+                "provider": "openai",
                 "source_lang": "en",
                 "target_lang": "zh-Hans",
                 "model": "gpt-4o-mini",
@@ -620,13 +575,20 @@ def test_translation_translate_uses_openai_client_and_returns_translation(monkey
                     ],
                 }
             },
+            "runtime": runtime_provider_payload(),
         },
         client_factory=factory,
     )
 
     assert factory.calls == [{"api_key": "test-key", "base_url": "https://llm.example/v1"}]
     call = factory.client.chat.completions.calls[0]
+    assert call["model"] == "gpt-4o-mini"
+    assert call["temperature"] == 0
+    assert "response_format" not in call
+    assert len(call["messages"]) == 2
+    assert "Return JSON only" in call["messages"][0]["content"]
     payload = json.loads(call["messages"][1]["content"])
+    assert payload["target_lang"] == "zh-Hans"
     assert payload["glossary_rules"] == [
         {"source": "Open BBQ", "target": "OpenBBQ", "aliases": ["Open Barbecue"]}
     ]
@@ -643,7 +605,7 @@ def test_translation_translate_uses_openai_client_and_returns_translation(monkey
                     "source_lang": "en",
                     "target_lang": "zh-Hans",
                     "model": "gpt-4o-mini",
-                    "provider": "openai_compatible",
+                    "provider": "openai",
                     "segment_count": 2,
                 },
             }
@@ -662,17 +624,11 @@ def test_translation_translate_uses_runtime_provider_profile():
                 "source_lang": "en",
                 "target_lang": "zh-Hans",
             },
-            "runtime": {
-                "providers": {
-                    "openai": {
-                        "name": "openai",
-                        "type": "openai_compatible",
-                        "api_key": "sk-runtime",
-                        "base_url": "https://api.openai.com/v1",
-                        "default_chat_model": "gpt-4o-mini",
-                    }
-                }
-            },
+            "runtime": runtime_provider_payload(
+                api_key="sk-runtime",
+                base_url="https://api.openai.com/v1",
+                default_chat_model="gpt-4o-mini",
+            ),
             "inputs": {
                 "subtitle_segments": {
                     "type": "subtitle_segments",
@@ -688,38 +644,8 @@ def test_translation_translate_uses_runtime_provider_profile():
     assert response["outputs"]["translation"]["metadata"]["model"] == "gpt-4o-mini"
 
 
-def test_translation_translate_legacy_provider_still_uses_env(monkeypatch):
-    factory = RecordingOpenAIClientFactory('[{"index":0,"text":"Hello zh"}]')
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-env")
-    monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://legacy.example/v1")
-
-    response = translation_plugin.run(
-        {
-            "tool_name": "translate",
-            "parameters": {
-                "provider": "openai_compatible",
-                "source_lang": "en",
-                "target_lang": "zh-Hans",
-                "model": "gpt-4o-mini",
-            },
-            "inputs": {
-                "subtitle_segments": {
-                    "type": "subtitle_segments",
-                    "content": [{"start": 0.0, "end": 1.0, "text": "Hello"}],
-                }
-            },
-        },
-        client_factory=factory,
-    )
-
-    assert factory.calls == [{"api_key": "sk-env", "base_url": "https://legacy.example/v1"}]
-    assert response["outputs"]["translation"]["metadata"]["provider"] == "openai_compatible"
-
-
-def test_translation_translate_rejects_unconfigured_provider(monkeypatch):
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
-
-    with pytest.raises(ValueError, match="Provider 'deepl' is not configured"):
+def test_translation_translate_rejects_unconfigured_provider():
+    with pytest.raises(ValueError, match="provider 'deepl' is not configured"):
         translation_plugin.run(
             {
                 "tool_name": "translate",
@@ -735,16 +661,15 @@ def test_translation_translate_rejects_unconfigured_provider(monkeypatch):
                         "content": [{"start": 0.0, "end": 1.0, "text": "Hello"}],
                     }
                 },
+                "runtime": runtime_provider_payload(),
             },
             client_factory=RecordingOpenAIClientFactory("[]"),
         )
 
 
-def test_llm_translate_requires_api_key(monkeypatch):
-    monkeypatch.delenv("OPENBBQ_LLM_API_KEY", raising=False)
-
-    with pytest.raises(RuntimeError, match="OPENBBQ_LLM_API_KEY"):
-        llm_plugin.run(
+def test_translation_translate_rejects_missing_provider_parameter():
+    with pytest.raises(ValueError, match="provider parameter"):
+        translation_plugin.run(
             {
                 "tool_name": "translate",
                 "parameters": {
@@ -753,42 +678,43 @@ def test_llm_translate_requires_api_key(monkeypatch):
                     "model": "gpt-4o-mini",
                 },
                 "inputs": {
-                    "transcript": {
-                        "type": "asr_transcript",
+                    "subtitle_segments": {
+                        "type": "subtitle_segments",
                         "content": [{"start": 0.0, "end": 1.0, "text": "Hello"}],
                     }
                 },
+                "runtime": runtime_provider_payload(),
             },
             client_factory=RecordingOpenAIClientFactory("[]"),
         )
 
 
-def test_llm_translate_rejects_malformed_model_json(monkeypatch):
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+def test_translation_translate_rejects_malformed_model_json():
     factory = RecordingOpenAIClientFactory('[{"index": 1, "text": "错位"}]')
 
     with pytest.raises(ValueError, match="expected translated segment index 0"):
-        llm_plugin.run(
+        translation_plugin.run(
             {
                 "tool_name": "translate",
                 "parameters": {
+                    "provider": "openai",
                     "source_lang": "en",
                     "target_lang": "zh-Hans",
                     "model": "gpt-4o-mini",
                 },
                 "inputs": {
-                    "transcript": {
-                        "type": "asr_transcript",
+                    "subtitle_segments": {
+                        "type": "subtitle_segments",
                         "content": [{"start": 0.0, "end": 1.0, "text": "Hello"}],
                     }
                 },
+                "runtime": runtime_provider_payload(),
             },
             client_factory=factory,
         )
 
 
-def test_llm_translate_batches_long_transcripts(monkeypatch):
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+def test_translation_translate_batches_long_segments():
     factory = SequencedRecordingOpenAIClientFactory(
         [
             json.dumps([{"index": index, "text": f"chunk-a-{index}"} for index in range(20)]),
@@ -800,20 +726,22 @@ def test_llm_translate_batches_long_transcripts(monkeypatch):
         for index in range(21)
     ]
 
-    response = llm_plugin.run(
+    response = translation_plugin.run(
         {
             "tool_name": "translate",
             "parameters": {
+                "provider": "openai",
                 "source_lang": "en",
                 "target_lang": "zh-Hans",
                 "model": "moonshot-v1-auto",
             },
             "inputs": {
-                "transcript": {
-                    "type": "asr_transcript",
+                "subtitle_segments": {
+                    "type": "subtitle_segments",
                     "content": transcript,
                 }
             },
+            "runtime": runtime_provider_payload(),
         },
         client_factory=factory,
     )
@@ -831,8 +759,7 @@ def test_llm_translate_batches_long_transcripts(monkeypatch):
     assert response["outputs"]["translation"]["metadata"]["segment_count"] == 21
 
 
-def test_llm_translate_splits_chunk_when_model_returns_too_few_segments(monkeypatch):
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+def test_translation_translate_splits_chunk_when_model_returns_too_few_segments():
     factory = SequencedRecordingOpenAIClientFactory(
         [
             json.dumps([{"index": index, "text": f"partial-{index}"} for index in range(10)]),
@@ -845,20 +772,22 @@ def test_llm_translate_splits_chunk_when_model_returns_too_few_segments(monkeypa
         for index in range(20)
     ]
 
-    response = llm_plugin.run(
+    response = translation_plugin.run(
         {
             "tool_name": "translate",
             "parameters": {
+                "provider": "openai",
                 "source_lang": "en",
                 "target_lang": "zh-Hans",
                 "model": "moonshot-v1-auto",
             },
             "inputs": {
-                "transcript": {
-                    "type": "asr_transcript",
+                "subtitle_segments": {
+                    "type": "subtitle_segments",
                     "content": transcript,
                 }
             },
+            "runtime": runtime_provider_payload(),
         },
         client_factory=factory,
     )
@@ -997,9 +926,7 @@ def test_translation_qa_reports_term_number_and_readability_issues():
     }
 
 
-def test_transcript_correct_uses_openai_client_and_returns_corrected_transcript(monkeypatch):
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
-    monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
+def test_transcript_correct_uses_openai_client_and_returns_corrected_transcript():
     factory = RecordingOpenAIClientFactory(
         json.dumps(
             [
@@ -1014,6 +941,7 @@ def test_transcript_correct_uses_openai_client_and_returns_corrected_transcript(
         {
             "tool_name": "correct",
             "parameters": {
+                "provider": "openai",
                 "source_lang": "en",
                 "model": "moonshot-v1-auto",
                 "domain_context": "Anime and software discussion.",
@@ -1050,6 +978,7 @@ def test_transcript_correct_uses_openai_client_and_returns_corrected_transcript(
                     ],
                 }
             },
+            "runtime": runtime_provider_payload(),
         },
         client_factory=factory,
     )
@@ -1096,7 +1025,7 @@ def test_transcript_correct_uses_openai_client_and_returns_corrected_transcript(
                 ],
                 "metadata": {
                     "source_lang": "en",
-                    "provider": "openai_compatible",
+                    "provider": "openai",
                     "model": "moonshot-v1-auto",
                     "segment_count": 2,
                     "corrected_segment_count": 1,
@@ -1117,17 +1046,11 @@ def test_transcript_correct_uses_runtime_provider_profile():
                 "provider": "openai",
                 "source_lang": "en",
             },
-            "runtime": {
-                "providers": {
-                    "openai": {
-                        "name": "openai",
-                        "type": "openai_compatible",
-                        "api_key": "sk-runtime",
-                        "base_url": "https://api.openai.com/v1",
-                        "default_chat_model": "gpt-4o-mini",
-                    }
-                }
-            },
+            "runtime": runtime_provider_payload(
+                api_key="sk-runtime",
+                base_url="https://api.openai.com/v1",
+                default_chat_model="gpt-4o-mini",
+            ),
             "inputs": {
                 "transcript": {
                     "type": "asr_transcript",
@@ -1143,8 +1066,7 @@ def test_transcript_correct_uses_runtime_provider_profile():
     assert response["outputs"]["transcript"]["metadata"]["provider"] == "openai"
 
 
-def test_transcript_correct_splits_chunk_when_model_returns_too_few_segments(monkeypatch):
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
+def test_transcript_correct_splits_chunk_when_model_returns_too_few_segments():
     factory = SequencedRecordingOpenAIClientFactory(
         [
             json.dumps([{"index": 0, "text": "bad-0"}]),
@@ -1171,6 +1093,7 @@ def test_transcript_correct_splits_chunk_when_model_returns_too_few_segments(mon
         {
             "tool_name": "correct",
             "parameters": {
+                "provider": "openai",
                 "source_lang": "en",
                 "model": "moonshot-v1-auto",
                 "max_segments_per_request": 4,
@@ -1181,6 +1104,7 @@ def test_transcript_correct_splits_chunk_when_model_returns_too_few_segments(mon
                     "content": transcript,
                 }
             },
+            "runtime": runtime_provider_payload(),
         },
         client_factory=factory,
     )

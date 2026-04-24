@@ -7,8 +7,6 @@ manifest_version = 2
 [[tools]]
 name = "extract_audio"
 description = "Extract audio from a file-backed video artifact with ffmpeg."
-input_artifact_types = ["video"]
-output_artifact_types = ["audio"]
 effects = ["reads_files", "writes_files"]
 
 [tools.parameter_schema]

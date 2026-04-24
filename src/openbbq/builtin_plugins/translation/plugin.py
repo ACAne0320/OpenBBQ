@@ -14,7 +14,6 @@ DEFAULT_SYSTEM_PROMPT = (
     'array, where every item has integer "index" and string "text".'
 )
 DEFAULT_MAX_SEGMENTS_PER_REQUEST = 20
-DEFAULT_PROVIDER = "openai_compatible"
 DEFAULT_MAX_LINES = 2
 DEFAULT_MAX_CHARS_PER_LINE = 42
 DEFAULT_MAX_CHARS_PER_SECOND = 20.0

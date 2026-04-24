@@ -7,8 +7,6 @@ manifest_version = 2
 [[tools]]
 name = "echo"
 description = "Echo literal text into a text artifact."
-input_artifact_types = []
-output_artifact_types = ["text"]
 effects = []
 
 [tools.parameter_schema]
@@ -28,8 +26,6 @@ description = "Echoed text."
 [[tools]]
 name = "uppercase"
 description = "Convert text input to uppercase."
-input_artifact_types = ["text"]
-output_artifact_types = ["text"]
 effects = []
 
 [tools.parameter_schema]
@@ -49,8 +45,6 @@ description = "Uppercase text."
 [[tools]]
 name = "glossary_replace"
 description = "Apply deterministic glossary replacements to an ASR transcript."
-input_artifact_types = ["asr_transcript"]
-output_artifact_types = ["asr_transcript"]
 effects = []
 
 [tools.parameter_schema]
@@ -70,8 +64,6 @@ description = "Rewritten transcript segments."
 [[tools]]
 name = "translate"
 description = "Produce deterministic translation output through OpenAI-compatible APIs in production."
-input_artifact_types = ["asr_transcript"]
-output_artifact_types = ["translation"]
 effects = []
 
 [tools.parameter_schema]
@@ -92,8 +84,6 @@ description = "Translated segments."
 [[tools]]
 name = "subtitle_export"
 description = "Export translated segments as subtitle text."
-input_artifact_types = ["translation"]
-output_artifact_types = ["subtitle"]
 effects = []
 
 [tools.parameter_schema]
@@ -114,8 +104,6 @@ description = "Subtitle text."
 [[tools]]
 name = "flaky_echo"
 description = "Echo text after a deterministic number of failed attempts."
-input_artifact_types = []
-output_artifact_types = ["text"]
 effects = []
 
 [tools.parameter_schema]
@@ -131,8 +119,6 @@ description = "Echoed text."
 [[tools]]
 name = "always_fail"
 description = "Raise a deterministic plugin failure."
-input_artifact_types = []
-output_artifact_types = ["text"]
 effects = []
 
 [tools.parameter_schema]

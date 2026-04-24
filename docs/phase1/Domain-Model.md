@@ -124,8 +124,8 @@ Required fields:
 
 - `name`: unique within the plugin.
 - `description`: short human-readable description.
-- `input_artifact_types`: accepted artifact types.
-- `output_artifact_types`: produced artifact types.
+- `inputs`: named input slots, each with accepted artifact types and required/optional status.
+- `outputs`: named output slots, each with one produced artifact type.
 - `parameter_schema`: JSON Schema compatible parameter definition.
 - `effects`: declared side effects, such as `reads_files`, `writes_files`, or `network`.
 
