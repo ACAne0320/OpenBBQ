@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from openbbq.api.schemas import ApiSuccess
+from openbbq.api.routes.events import event_stream, streaming_response
 from openbbq.application.workflows import workflow_events, workflow_status
 from openbbq.config.loader import load_project_config
 from openbbq.engine.validation import validate_workflow
@@ -91,6 +92,25 @@ def get_workflow_events(
         after_sequence=after_sequence,
     )
     return ApiSuccess(data=result.model_dump(mode="json"))
+
+
+@router.get("/workflows/{workflow_id}/events/stream")
+def stream_workflow_events(
+    workflow_id: str,
+    request: Request,
+    after_sequence: int = 0,
+):
+    settings = _settings(request)
+    return streaming_response(
+        event_stream(
+            request=request,
+            project_root=settings.project_root,
+            workflow_id=workflow_id,
+            after_sequence=after_sequence,
+            config_path=settings.config_path,
+            plugin_paths=settings.plugin_paths,
+        )
+    )
 
 
 def _settings(request: Request):
