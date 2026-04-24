@@ -8,8 +8,20 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 from uuid import uuid4
 
-from openbbq.domain.base import ArtifactMetadata, JsonObject, LineagePayload, dump_jsonable
+from openbbq.domain.base import ArtifactMetadata, JsonObject, LineagePayload
 from openbbq.errors import ArtifactNotFoundError
+from openbbq.storage.artifacts import (
+    ArtifactIndex,
+    read_artifact_index,
+    write_artifact_index,
+)
+from openbbq.storage import events as event_storage
+from openbbq.storage import workflows as workflow_storage
+from openbbq.storage.json_files import (
+    fsync_parent,
+    read_json_object,
+    write_json_atomic,
+)
 from openbbq.storage.models import (
     ArtifactRecord,
     ArtifactVersionRecord,
@@ -54,77 +66,37 @@ class ProjectStore:
         self.state_root.mkdir(parents=True, exist_ok=True)
 
     def write_json_atomic(self, path: Path, data: JsonObject) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(
-            dump_jsonable(data), ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        )
-        with NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=path.parent,
-            delete=False,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-        ) as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-            temp_path = Path(handle.name)
-        temp_path.replace(path)
-        self._fsync_parent(path.parent)
+        write_json_atomic(path, data)
 
     def append_event(self, workflow_id: str, event: JsonObject) -> WorkflowEvent:
-        events_path = self._workflow_dir(workflow_id) / "events.jsonl"
-        events_path.parent.mkdir(parents=True, exist_ok=True)
-        self._truncate_trailing_partial_jsonl_line(events_path)
-        record = dict(event)
-        record["workflow_id"] = workflow_id
-        record["sequence"] = self._next_event_sequence(events_path)
-        record.setdefault("id", self.id_generator.workflow_event_id())
-        record.setdefault("created_at", self._timestamp())
-        line = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
-        with events_path.open("a", encoding="utf-8") as handle:
-            handle.write(line)
-            handle.flush()
-            os.fsync(handle.fileno())
-        self._fsync_parent(events_path.parent)
-        return WorkflowEvent.model_validate(record)
+        return event_storage.append_event(
+            self.state_root,
+            workflow_id,
+            event,
+            id_generator=self.id_generator,
+            timestamp=self._timestamp(),
+        )
 
     def write_workflow_state(
         self, workflow_id: str, state: JsonObject | WorkflowState
     ) -> WorkflowState:
-        state_path = self._workflow_dir(workflow_id) / "state.json"
-        record = dict(dump_jsonable(state))
-        record["id"] = workflow_id
-        workflow_state = WorkflowState.model_validate(record)
-        self.write_json_atomic(state_path, workflow_state.model_dump(mode="json"))
-        return workflow_state
+        return workflow_storage.write_workflow_state(self.state_root, workflow_id, state)
 
     def read_workflow_state(self, workflow_id: str) -> WorkflowState:
-        state_path = self._workflow_dir(workflow_id) / "state.json"
-        if not state_path.exists():
-            raise FileNotFoundError(state_path)
-        return WorkflowState.model_validate(json.loads(state_path.read_text(encoding="utf-8")))
+        return workflow_storage.read_workflow_state(self.state_root, workflow_id)
 
     def write_step_run(
         self, workflow_id: str, step_run: JsonObject | StepRunRecord
     ) -> StepRunRecord:
-        record = dict(dump_jsonable(step_run))
-        record["workflow_id"] = workflow_id
-        step_run_id = record.get("id")
-        if not step_run_id:
-            step_run_id = self.id_generator.step_run_id()
-            record["id"] = step_run_id
-        typed = StepRunRecord.model_validate(record)
-        path = self._workflow_dir(workflow_id) / "step-runs" / f"{step_run_id}.json"
-        self.write_json_atomic(path, typed.model_dump(mode="json"))
-        return typed
+        return workflow_storage.write_step_run(
+            self.state_root,
+            workflow_id,
+            step_run,
+            id_generator=self.id_generator,
+        )
 
     def read_step_run(self, workflow_id: str, step_run_id: str) -> StepRunRecord:
-        path = self._workflow_dir(workflow_id) / "step-runs" / f"{step_run_id}.json"
-        if not path.exists():
-            raise FileNotFoundError(path)
-        return StepRunRecord.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        return workflow_storage.read_step_run(self.state_root, workflow_id, step_run_id)
 
     def list_artifacts(self) -> list[ArtifactRecord]:
         artifacts: list[ArtifactRecord] = []
@@ -132,9 +104,7 @@ class ProjectStore:
             artifact_file = artifact_dir / "artifact.json"
             if artifact_file.exists():
                 artifacts.append(
-                    ArtifactRecord.model_validate(
-                        json.loads(artifact_file.read_text(encoding="utf-8"))
-                    )
+                    ArtifactRecord.model_validate(read_json_object(artifact_file))
                 )
         artifacts.sort(key=lambda record: (record.created_at, record.id))
         return artifacts
@@ -143,15 +113,19 @@ class ProjectStore:
         artifact_file = self._artifact_dir(artifact_id) / "artifact.json"
         if not artifact_file.exists():
             raise ArtifactNotFoundError(f"artifact not found: {artifact_id}")
-        return ArtifactRecord.model_validate(json.loads(artifact_file.read_text(encoding="utf-8")))
+        return ArtifactRecord.model_validate(read_json_object(artifact_file))
 
     def read_artifact_version(self, version_id: str) -> StoredArtifactVersion:
-        version_path = self._find_version_path(version_id)
+        index = read_artifact_index(self.artifacts_root)
+        indexed_path = index.version_paths.get(version_id)
+        version_path = Path(indexed_path) if indexed_path is not None else None
+        if version_path is not None and not (version_path / "version.json").exists():
+            version_path = None
+        if version_path is None:
+            version_path = self._find_version_path(version_id)
         if version_path is None:
             raise ArtifactNotFoundError(f"artifact version not found: {version_id}")
-        record = ArtifactVersionRecord.model_validate(
-            json.loads((version_path / "version.json").read_text(encoding="utf-8"))
-        )
+        record = ArtifactVersionRecord.model_validate(read_json_object(version_path / "version.json"))
         content_path = record.content_path
         encoding = record.content_encoding
         if encoding == "file":
@@ -229,6 +203,20 @@ class ProjectStore:
         artifact["current_version_id"] = version_id
         artifact["updated_at"] = timestamp
         self.write_json_atomic(self._artifact_dir(artifact["id"]) / "artifact.json", artifact)
+        index = read_artifact_index(self.artifacts_root)
+        index = index.model_copy(
+            update={
+                "artifact_paths": {
+                    **index.artifact_paths,
+                    artifact["id"]: str(self._artifact_dir(artifact["id"])),
+                },
+                "version_paths": {
+                    **index.version_paths,
+                    version_id: str(version_dir),
+                },
+            }
+        )
+        write_artifact_index(self.artifacts_root, index)
         return (
             StoredArtifact(record=ArtifactRecord.model_validate(artifact)),
             StoredArtifactVersion(
@@ -236,6 +224,28 @@ class ProjectStore:
                 content=stored_content,
             ),
         )
+
+    def rebuild_artifact_index(self) -> ArtifactIndex:
+        artifact_paths: dict[str, str] = {}
+        version_paths: dict[str, str] = {}
+        for artifact_dir in sorted(self.artifacts_root.iterdir(), key=lambda path: path.name):
+            artifact_file = artifact_dir / "artifact.json"
+            if not artifact_file.exists():
+                continue
+            artifact = ArtifactRecord.model_validate(read_json_object(artifact_file))
+            artifact_paths[artifact.id] = str(artifact_dir)
+            versions_dir = artifact_dir / "versions"
+            if not versions_dir.exists():
+                continue
+            for version_dir in sorted(versions_dir.iterdir(), key=lambda path: path.name):
+                version_file = version_dir / "version.json"
+                if not version_file.exists():
+                    continue
+                record = ArtifactVersionRecord.model_validate(read_json_object(version_file))
+                version_paths[record.id] = str(version_dir)
+        index = ArtifactIndex(artifact_paths=artifact_paths, version_paths=version_paths)
+        write_artifact_index(self.artifacts_root, index)
+        return index
 
     def _load_or_create_artifact(
         self,
@@ -334,7 +344,7 @@ class ProjectStore:
         return str(content)
 
     def _workflow_dir(self, workflow_id: str) -> Path:
-        return self.state_root / workflow_id
+        return workflow_storage.workflow_dir(self.state_root, workflow_id)
 
     def _artifact_dir(self, artifact_id: str) -> Path:
         return self.artifacts_root / artifact_id
@@ -393,14 +403,7 @@ class ProjectStore:
         self._fsync_parent(path.parent)
 
     def _fsync_parent(self, path: Path) -> None:
-        try:
-            fd = os.open(path, os.O_RDONLY)
-        except OSError:
-            return
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        fsync_parent(path)
 
     def _timestamp(self) -> str:
         from datetime import UTC, datetime

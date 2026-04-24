@@ -22,6 +22,41 @@ def test_write_artifact_version_round_trip(tmp_path):
     assert loaded.record.artifact_id == artifact.id
 
 
+def test_artifact_version_index_supports_direct_lookup(tmp_path):
+    store = ProjectStore(tmp_path / ".openbbq")
+    artifact, version = store.write_artifact_version(
+        artifact_type="text",
+        name="seed.text",
+        content="hello",
+        metadata={},
+        created_by_step_id="seed",
+        lineage={"workflow_id": "text-demo", "step_id": "seed"},
+    )
+
+    index_path = tmp_path / ".openbbq" / "artifacts" / "index.json"
+    assert index_path.exists()
+    assert store.read_artifact_version(version.id).record.artifact_id == artifact.id
+
+
+def test_artifact_index_can_be_rebuilt_from_artifact_records(tmp_path):
+    store = ProjectStore(tmp_path / ".openbbq")
+    artifact, version = store.write_artifact_version(
+        artifact_type="text",
+        name="seed.text",
+        content="hello",
+        metadata={},
+        created_by_step_id="seed",
+        lineage={"workflow_id": "text-demo", "step_id": "seed"},
+    )
+    index_path = tmp_path / ".openbbq" / "artifacts" / "index.json"
+    index_path.unlink()
+
+    rebuilt = store.rebuild_artifact_index()
+
+    assert rebuilt.version_paths[version.id].endswith(f"1-{version.id}")
+    assert store.read_artifact(artifact.id).id == artifact.id
+
+
 def test_storage_models_dump_to_current_json_shape(tmp_path):
     state = WorkflowState(
         id="text-demo",
