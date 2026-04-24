@@ -88,9 +88,7 @@ def test_retry_policy_succeeds_after_failed_attempt(tmp_path):
     assert [step_run.status for step_run in step_runs] == ["failed", "completed"]
     current_version_id = store.list_artifacts()[0].current_version_id
     assert current_version_id is not None
-    assert (
-        store.read_artifact_version(current_version_id).content == "retry ok"
-    )
+    assert store.read_artifact_version(current_version_id).content == "retry ok"
 
 
 def test_retry_policy_exhaustion_marks_workflow_failed(tmp_path):

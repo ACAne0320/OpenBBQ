@@ -294,11 +294,7 @@ def _parse_tool_manifest(
     if not outputs:
         raise ValueError(f"tools[{index}].outputs must define at least one output.")
     input_artifact_types = sorted(
-        {
-            artifact_type
-            for spec in inputs.values()
-            for artifact_type in spec.artifact_types
-        }
+        {artifact_type for spec in inputs.values() for artifact_type in spec.artifact_types}
     )
     output_artifact_types = [spec.artifact_type for spec in outputs.values()]
     runtime_requirements = _parse_tool_runtime_requirements(
@@ -363,9 +359,7 @@ def _parse_tool_outputs(value: Any, plugin_name: str, index: int) -> dict[str, T
         try:
             parsed[name] = ToolOutputSpec.model_validate(raw)
         except PydanticValidationError as exc:
-            raise ValueError(
-                format_pydantic_error(f"tools[{index}].outputs.{name}", exc)
-            ) from exc
+            raise ValueError(format_pydantic_error(f"tools[{index}].outputs.{name}", exc)) from exc
     return parsed
 
 
@@ -377,7 +371,9 @@ def _parse_tool_runtime_requirements(value: Any, index: int) -> RuntimeRequireme
     try:
         return RuntimeRequirementSpec.model_validate(value)
     except PydanticValidationError as exc:
-        raise ValueError(format_pydantic_error(f"tools[{index}].runtime_requirements", exc)) from exc
+        raise ValueError(
+            format_pydantic_error(f"tools[{index}].runtime_requirements", exc)
+        ) from exc
 
 
 def _parse_tool_ui(value: Any, index: int) -> ToolUiSpec:

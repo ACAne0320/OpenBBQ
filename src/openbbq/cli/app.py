@@ -798,9 +798,7 @@ def _subtitle_youtube(args: argparse.Namespace) -> int:
         plugin_paths=tuple(Path(path) for path in args.plugins),
         workflow_id=generated.workflow_id,
     )
-    force = state.status == "completed" or (
-        args.force and state.status in {"completed", "running"}
-    )
+    force = state.status == "completed" or (args.force and state.status in {"completed", "running"})
     result = run_workflow_command(
         WorkflowRunRequest(
             project_root=generated.project_root,

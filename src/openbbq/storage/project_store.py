@@ -103,9 +103,7 @@ class ProjectStore:
         for artifact_dir in sorted(self.artifacts_root.iterdir(), key=lambda path: path.name):
             artifact_file = artifact_dir / "artifact.json"
             if artifact_file.exists():
-                artifacts.append(
-                    ArtifactRecord.model_validate(read_json_object(artifact_file))
-                )
+                artifacts.append(ArtifactRecord.model_validate(read_json_object(artifact_file)))
         artifacts.sort(key=lambda record: (record.created_at, record.id))
         return artifacts
 
@@ -125,7 +123,9 @@ class ProjectStore:
             version_path = self._find_version_path(version_id)
         if version_path is None:
             raise ArtifactNotFoundError(f"artifact version not found: {version_id}")
-        record = ArtifactVersionRecord.model_validate(read_json_object(version_path / "version.json"))
+        record = ArtifactVersionRecord.model_validate(
+            read_json_object(version_path / "version.json")
+        )
         content_path = record.content_path
         encoding = record.content_encoding
         if encoding == "file":

@@ -23,9 +23,7 @@ def write_project(tmp_path, fixture_name: str) -> Path:
 def test_workflow_application_service_runs_and_reports_status(tmp_path):
     project = write_project(tmp_path, "text-basic")
 
-    result = run_workflow_command(
-        WorkflowRunRequest(project_root=project, workflow_id="text-demo")
-    )
+    result = run_workflow_command(WorkflowRunRequest(project_root=project, workflow_id="text-demo"))
     status = workflow_status(project_root=project, workflow_id="text-demo")
 
     assert result.status == "completed"

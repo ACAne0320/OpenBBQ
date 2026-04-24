@@ -76,9 +76,7 @@ def execute_step_attempt(
             parameters=step.parameters,
             inputs=plugin_inputs,
             runtime=context.runtime_payload,
-            work_dir=str(
-                context.config.storage.root / "work" / context.workflow.id / step.id
-            ),
+            work_dir=str(context.config.storage.root / "work" / context.workflow.id / step.id),
         )
         raw_response = execute_plugin_tool(
             plugin,
