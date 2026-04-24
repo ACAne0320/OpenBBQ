@@ -1,13 +1,31 @@
 from pathlib import Path
 
+from pydantic import ValidationError as PydanticValidationError
+
 from openbbq.config.loader import load_project_config
 from openbbq.domain.models import StepConfig, StepOutput
 from openbbq.errors import ValidationError
+from openbbq.plugins.payloads import PluginOutputPayload, PluginResponse
 from openbbq.plugins.registry import ToolSpec
 from openbbq.workflow.bindings import build_plugin_inputs, persist_step_outputs
 from openbbq.plugins.registry import discover_plugins
 from openbbq.storage.project_store import ProjectStore
 import pytest
+
+
+def test_plugin_response_requires_outputs_object():
+    with pytest.raises(PydanticValidationError):
+        PluginResponse.model_validate({"pause_requested": False})
+
+
+def test_plugin_output_payload_requires_exactly_one_payload(tmp_path):
+    with pytest.raises(PydanticValidationError):
+        PluginOutputPayload(type="text")
+
+    with pytest.raises(PydanticValidationError):
+        PluginOutputPayload(type="text", content="hello", file_path=tmp_path / "content.txt")
+
+    assert PluginOutputPayload(type="text", content="hello").content == "hello"
 
 
 def test_build_plugin_inputs_resolves_literals_and_artifacts(tmp_path):

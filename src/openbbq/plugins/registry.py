@@ -17,6 +17,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from openbbq.domain.base import JsonObject, OpenBBQModel, format_pydantic_error
 from openbbq.errors import PluginError
+from openbbq.plugins.payloads import PluginRequest, PluginResponse
 
 
 SEMVER_PATTERN = re.compile(
@@ -101,9 +102,9 @@ def discover_plugins(plugin_paths: Iterable[Path | str]) -> PluginRegistry:
 def execute_plugin_tool(
     plugin: PluginSpec,
     tool: ToolSpec,
-    request: dict[str, Any],
+    request: PluginRequest,
     redactor=None,
-) -> dict[str, Any]:
+) -> PluginResponse:
     module_name, function_name = plugin.entrypoint.split(":", 1)
     module_path = plugin.manifest_path.parent / f"{module_name.replace('.', '/')}.py"
     if not module_path.is_file():
@@ -118,7 +119,7 @@ def execute_plugin_tool(
             f"Plugin '{plugin.name}' entrypoint '{plugin.entrypoint}' does not resolve to a callable.",
         )
     try:
-        response = entrypoint(request)
+        response = entrypoint(request.model_dump(mode="json"))
     except Exception as exc:
         message = f"Plugin '{plugin.name}' tool '{tool.name}' failed: {exc}"
         if redactor is not None:
@@ -128,7 +129,13 @@ def execute_plugin_tool(
         raise PluginError(
             f"Plugin '{plugin.name}' tool '{tool.name}' returned a non-object response."
         )
-    return response
+    try:
+        return PluginResponse.model_validate(response)
+    except PydanticValidationError as exc:
+        raise PluginError(
+            f"Plugin '{plugin.name}' tool '{tool.name}' returned an invalid response: "
+            f"{format_pydantic_error('response', exc)}"
+        ) from exc
 
 
 def _load_plugin_module(plugin: PluginSpec, module_path: Path) -> ModuleType:

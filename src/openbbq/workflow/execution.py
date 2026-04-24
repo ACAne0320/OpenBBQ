@@ -9,6 +9,7 @@ from openbbq.workflow.bindings import build_plugin_inputs, persist_step_outputs
 from openbbq.workflow.state import compute_workflow_config_hash
 from openbbq.errors import ExecutionError, PluginError, ValidationError
 from openbbq.domain.models import ProjectConfig, WorkflowConfig
+from openbbq.plugins.payloads import PluginRequest, PluginResponse
 from openbbq.plugins.registry import PluginRegistry, execute_plugin_tool
 from openbbq.runtime.models import RuntimeContext
 from openbbq.runtime.redaction import redact_values
@@ -249,22 +250,27 @@ def execute_steps(
                 running = dict(step_run)
                 running["input_artifact_version_ids"] = input_artifact_version_ids
                 store.write_step_run(workflow.id, running)
-                request = {
-                    "project_root": str(config.root_path),
-                    "workflow_id": workflow.id,
-                    "step_id": step.id,
-                    "attempt": attempt,
-                    "tool_name": tool.name,
-                    "parameters": step.parameters,
-                    "inputs": plugin_inputs,
-                    "runtime": runtime_payload,
-                    "work_dir": str(config.storage.root / "work" / workflow.id / step.id),
-                }
-                response = execute_plugin_tool(
+                request = PluginRequest(
+                    project_root=str(config.root_path),
+                    workflow_id=workflow.id,
+                    step_id=step.id,
+                    attempt=attempt,
+                    tool_name=tool.name,
+                    parameters=step.parameters,
+                    inputs=plugin_inputs,
+                    runtime=runtime_payload,
+                    work_dir=str(config.storage.root / "work" / workflow.id / step.id),
+                )
+                raw_response = execute_plugin_tool(
                     plugin,
                     tool,
                     request,
                     redactor=redact_runtime_secrets,
+                )
+                response = (
+                    raw_response
+                    if isinstance(raw_response, PluginResponse)
+                    else PluginResponse.model_validate(raw_response)
                 )
                 output_bindings_for_step = persist_step_outputs(
                     store,
@@ -336,7 +342,7 @@ def execute_steps(
             completed["output_bindings"] = output_bindings_for_step
             completed["completed_at"] = _timestamp()
             store.write_step_run(workflow.id, completed)
-            pause_requested = response.get("pause_requested") is True
+            pause_requested = response.pause_requested is True
             break
 
         for output_name, binding in output_bindings_for_step.items():

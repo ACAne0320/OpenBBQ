@@ -2,11 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+from collections.abc import Mapping
 from typing import Any
 
+from pydantic import ValidationError as PydanticValidationError
+
+from openbbq.domain.base import format_pydantic_error
 from openbbq.errors import ValidationError
 from openbbq.domain.models import StepConfig
+from openbbq.plugins.payloads import (
+    PluginArtifactInput,
+    PluginInputMap,
+    PluginLiteralInput,
+    PluginResponse,
+)
 from openbbq.plugins.registry import ToolSpec
+from openbbq.storage.models import ArtifactRecord, OutputBinding, OutputBindings
 from openbbq.storage.project_store import ProjectStore, StoredArtifactVersion
 
 STEP_SELECTOR_PATTERN = re.compile(r"^([a-z0-9_-]+)\.([a-z0-9_-]+)$")
@@ -25,8 +36,8 @@ def build_plugin_inputs(
     store: ProjectStore,
     step: StepConfig,
     output_bindings: dict[str, dict[str, Any]],
-) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
-    plugin_inputs: dict[str, dict[str, Any]] = {}
+) -> tuple[PluginInputMap, dict[str, str]]:
+    plugin_inputs: PluginInputMap = {}
     input_artifact_version_ids: dict[str, str] = {}
     for input_name, input_value in step.inputs.items():
         if isinstance(input_value, str) and input_value.startswith("project."):
@@ -50,22 +61,21 @@ def build_plugin_inputs(
             input_artifact_version_ids[input_value] = version.id
             continue
 
-        plugin_inputs[input_name] = {"literal": input_value}
+        plugin_inputs[input_name] = PluginLiteralInput(literal=input_value)
     return plugin_inputs, input_artifact_version_ids
 
 
-def artifact_input(artifact: dict[str, Any], version: StoredArtifactVersion) -> dict[str, Any]:
-    payload = {
-        "artifact_id": artifact["id"],
-        "artifact_version_id": version.id,
-        "type": artifact["type"],
-        "metadata": version.record.get("metadata", {}),
-    }
-    if version.record.get("content_encoding") == "file":
-        payload["file_path"] = version.content["file_path"]
-    else:
-        payload["content"] = version.content
-    return payload
+def artifact_input(artifact: ArtifactRecord, version: StoredArtifactVersion) -> PluginArtifactInput:
+    return PluginArtifactInput(
+        artifact_id=artifact.id,
+        artifact_version_id=version.id,
+        type=artifact.type,
+        metadata=version.record.metadata,
+        file_path=str(version.content["file_path"])
+        if version.record.content_encoding == "file"
+        else None,
+        content=None if version.record.content_encoding == "file" else version.content,
+    )
 
 
 def persist_step_outputs(
@@ -73,25 +83,37 @@ def persist_step_outputs(
     workflow_id: str,
     step: StepConfig,
     tool: ToolSpec,
-    response: dict[str, Any],
+    response: Mapping[str, Any] | PluginResponse,
     input_artifact_version_ids: dict[str, str],
     artifact_reuse: dict[str, str] | None = None,
-) -> dict[str, dict[str, str]]:
-    response_outputs = response.get("outputs")
+) -> OutputBindings:
+    try:
+        typed_response = (
+            response
+            if isinstance(response, PluginResponse)
+            else PluginResponse.model_validate(response)
+        )
+    except PydanticValidationError as exc:
+        raise ValidationError(
+            f"Plugin response for step '{step.id}' is invalid: "
+            f"{format_pydantic_error('response', exc)}"
+        ) from exc
+
+    response_outputs = typed_response.outputs
     if not isinstance(response_outputs, dict):
         raise ValidationError(
             f"Plugin response for step '{step.id}' must include an outputs object."
         )
 
-    bindings: dict[str, dict[str, str]] = {}
+    bindings: OutputBindings = {}
     declared_outputs = {output.name: output for output in step.outputs}
     for output_name, output in declared_outputs.items():
         payload = response_outputs.get(output_name)
-        if not isinstance(payload, dict):
+        if payload is None:
             raise ValidationError(
                 f"Plugin response for step '{step.id}' is missing output '{output_name}'."
             )
-        output_type = payload.get("type")
+        output_type = payload.type
         if output_type != output.type:
             raise ValidationError(
                 f"Plugin response for step '{step.id}' output '{output_name}' has type '{output_type}', expected '{output.type}'."
@@ -100,13 +122,8 @@ def persist_step_outputs(
             raise ValidationError(
                 f"Plugin response for step '{step.id}' output '{output_name}' type '{output_type}' is not allowed."
             )
-        has_content = payload.get("content") is not None
-        has_file = payload.get("file_path") is not None
-        if has_content == has_file:
-            raise ValidationError(
-                f"Plugin response for step '{step.id}' output '{output_name}' must include exactly one of content or file_path."
-            )
-        file_path = Path(payload["file_path"]) if has_file else None
+        has_content = payload.content is not None
+        file_path = Path(payload.file_path) if payload.file_path is not None else None
         if file_path is not None and not file_path.is_file():
             raise ValidationError(
                 f"Plugin response for step '{step.id}' output '{output_name}' file_path does not exist: {file_path}."
@@ -114,9 +131,9 @@ def persist_step_outputs(
         artifact, version = store.write_artifact_version(
             artifact_type=output.type,
             name=f"{step.id}.{output.name}",
-            content=payload.get("content") if has_content else None,
+            content=payload.content if has_content else None,
             file_path=file_path,
-            metadata=payload.get("metadata", {}),
+            metadata=payload.metadata,
             created_by_step_id=step.id,
             lineage={
                 "workflow_id": workflow_id,
@@ -126,8 +143,8 @@ def persist_step_outputs(
             },
             artifact_id=(artifact_reuse or {}).get(f"{step.id}.{output.name}"),
         )
-        bindings[output_name] = {
-            "artifact_id": artifact.id,
-            "artifact_version_id": version.id,
-        }
+        bindings[output_name] = OutputBinding(
+            artifact_id=artifact.id,
+            artifact_version_id=version.id,
+        )
     return bindings
