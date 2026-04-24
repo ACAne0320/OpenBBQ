@@ -88,6 +88,8 @@ Parameters:
 
 The output `asr_transcript` artifact contains an ordered list of word-level segments, each with `start`, `end`, `text`, and `confidence`.
 
+OpenBBQ resolves the faster-whisper model cache from `OPENBBQ_CACHE_DIR` or `~/.openbbq/config.toml`. The default cache root is `~/.cache/openbbq`.
+
 ---
 
 #### 4. Transcript Correction
@@ -104,7 +106,8 @@ Parameters:
 | Name | Type | Required | Description |
 |---|---|---|---|
 | `source_lang` | string | yes | BCP-47 source language code. |
-| `model` | string | yes | OpenAI-compatible correction model identifier. |
+| `provider` | string | no | Runtime provider profile name, such as `openai`. If omitted, the legacy OpenAI-compatible environment variables are used. |
+| `model` | string | no | OpenAI-compatible correction model identifier. If omitted, the provider profile `default_chat_model` is used. |
 | `temperature` | number | no | Sampling temperature. Defaults to `0`. |
 | `domain_context` | string | no | Free-text domain brief used to improve source-language correction. |
 | `glossary_rules` | array | no | Terminology hints in the form `[{"source": "...", "target": "...", "aliases": [...] }]`. Legacy `find` / `replace` fields remain accepted for compatibility. |
@@ -153,14 +156,22 @@ Parameters:
 
 | Name | Type | Required | Description |
 |---|---|---|---|
-| `provider` | string | no | Translation backend. The current built-in plugin supports `openai_compatible` only. |
+| `provider` | string | no | Runtime provider profile name, such as `openai`. `openai_compatible` remains the legacy environment-variable mode. |
 | `target_lang` | string | yes | BCP-47 target language code. |
 | `source_lang` | string | yes | BCP-47 source language code. |
-| `model` | string | yes | OpenAI-compatible model identifier. |
+| `model` | string | no | OpenAI-compatible model identifier. If omitted, the provider profile `default_chat_model` is used. |
 | `temperature` | number | no | Sampling temperature. Defaults to `0`. |
 | `system_prompt` | string | no | Optional system prompt override. |
-| `base_url` | string | no | Optional provider base URL override. |
+| `base_url` | string | no | Optional legacy provider base URL override when `provider` is omitted or set to `openai_compatible`. |
 | `glossary_rules` | array | no | Optional terminology rules forwarded to the translation prompt. Accepts `{source,target,aliases,protected}` and legacy `{find,replace}` forms. |
+
+Runtime provider profiles:
+
+- `provider` may name a provider from `~/.openbbq/config.toml`, such as `openai`.
+- Provider names must use only letters, digits, `_`, or `-`.
+- Provider profiles store `type`, `base_url`, optional default model, and an API key reference.
+- API keys must use `env:` or `keyring:` secret references and must not be written into `openbbq.yaml`.
+- If `provider` is omitted, the built-in tools still accept `OPENBBQ_LLM_API_KEY` and `OPENBBQ_LLM_BASE_URL` for compatibility.
 
 The output `translation` artifact preserves the segment structure and timing from the input subtitle-ready segments while replacing text with translated content.
 

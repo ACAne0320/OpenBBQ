@@ -109,3 +109,10 @@ def test_local_video_corrected_translate_subtitle_fixture_uses_builtin_plugins()
     assert "transcript.segment" in registry.tools
     assert "translation.translate" in registry.tools
     assert "subtitle.export" in registry.tools
+    workflow = config.workflows["local-video-corrected-translate-subtitle"]
+    correct_step = next(step for step in workflow.steps if step.id == "correct")
+    translate_step = next(step for step in workflow.steps if step.id == "translate")
+    assert correct_step.parameters["provider"] == "openai"
+    assert "model" not in correct_step.parameters
+    assert translate_step.parameters["provider"] == "openai"
+    assert "model" not in translate_step.parameters

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
-import os
 import re
 from typing import Any
 
 from openbbq.builtin_plugins.glossary.rules import normalize_rules
+from openbbq.runtime.provider import llm_provider_from_request
 
 
 DEFAULT_CORRECTION_SYSTEM_PROMPT = (
@@ -37,7 +37,11 @@ def run(request: dict, client_factory=None) -> dict:
 def _run_correct(request: dict, *, client_factory=None) -> dict:
     parameters = request.get("parameters", {})
     source_lang = _required_string(parameters, "source_lang", tool_name="transcript.correct")
-    model = _required_string(parameters, "model", tool_name="transcript.correct")
+    provider = llm_provider_from_request(request, error_prefix="transcript.correct")
+    model_value = parameters.get("model") or provider.model_default
+    if not isinstance(model_value, str) or not model_value.strip():
+        raise ValueError("transcript.correct parameter 'model' must be a non-empty string.")
+    model = model_value.strip()
     temperature = float(parameters.get("temperature", 0))
     system_prompt = parameters.get("system_prompt") or DEFAULT_CORRECTION_SYSTEM_PROMPT
     max_segments_per_request = int(
@@ -47,17 +51,13 @@ def _run_correct(request: dict, *, client_factory=None) -> dict:
         raise ValueError(
             "transcript.correct parameter 'max_segments_per_request' must be positive."
         )
-    api_key = os.environ.get("OPENBBQ_LLM_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENBBQ_LLM_API_KEY is required for transcript.correct.")
-    base_url = parameters.get("base_url") or os.environ.get("OPENBBQ_LLM_BASE_URL")
     domain_context = _optional_string(parameters.get("domain_context"))
     glossary_rules = _glossary_rules(parameters.get("glossary_rules", []))
     uncertainty_threshold = parameters.get("uncertainty_threshold")
     if uncertainty_threshold is not None:
         uncertainty_threshold = float(uncertainty_threshold)
     client_factory = _default_client_factory if client_factory is None else client_factory
-    client = client_factory(api_key=api_key, base_url=base_url)
+    client = client_factory(api_key=provider.api_key, base_url=provider.base_url)
     segments = _segments(request, error_prefix="transcript.correct")
     corrected_segments: list[dict[str, Any]] = []
     for chunk in _segment_chunks(segments, max_segments_per_request):
@@ -87,6 +87,7 @@ def _run_correct(request: dict, *, client_factory=None) -> dict:
                 "content": corrected_segments,
                 "metadata": {
                     "source_lang": source_lang,
+                    "provider": provider.name,
                     "model": model,
                     "segment_count": len(corrected_segments),
                     "corrected_segment_count": corrected_count,

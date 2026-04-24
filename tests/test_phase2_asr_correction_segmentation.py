@@ -103,7 +103,7 @@ def test_cli_runs_local_video_correction_and_segmentation_flow(tmp_path, monkeyp
         duration = 1.0
 
     class FakeWhisperModel:
-        def __init__(self, model, device, compute_type):
+        def __init__(self, model, device, compute_type, download_root=None):
             pass
 
         def transcribe(self, audio_path, **kwargs):
@@ -121,6 +121,19 @@ def test_cli_runs_local_video_correction_and_segmentation_flow(tmp_path, monkeyp
     monkeypatch.setattr(translation_plugin, "_default_client_factory", fake_translation_factory)
     monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "test-key")
     monkeypatch.setenv("OPENBBQ_LLM_BASE_URL", "https://llm.example/v1")
+    user_config = tmp_path / "user-config.toml"
+    user_config.write_text(
+        """
+version = 1
+[providers.openai]
+type = "openai_compatible"
+base_url = "https://llm.example/v1"
+api_key = "env:OPENBBQ_LLM_API_KEY"
+default_chat_model = "gpt-4o-mini"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(user_config))
 
     project = write_project(tmp_path)
     video = tmp_path / "sample.mp4"

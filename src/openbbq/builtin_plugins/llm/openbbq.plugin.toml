@@ -13,7 +13,10 @@ effects = ["network"]
 [tools.parameter_schema]
 type = "object"
 additionalProperties = false
-required = ["source_lang", "target_lang", "model"]
+required = ["source_lang", "target_lang"]
+
+[tools.parameter_schema.properties.provider]
+type = "string"
 
 [tools.parameter_schema.properties.source_lang]
 type = "string"

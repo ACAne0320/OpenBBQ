@@ -86,6 +86,32 @@ uv run openbbq run local-video-translate-subtitle --project ./demo-translate
 
 Default CI uses fake media and fake OpenAI clients; it does not require LLM credentials or network access.
 
+### Runtime Settings Preview
+
+OpenBBQ can load user runtime settings from `~/.openbbq/config.toml`. Project workflows should reference provider names, while API keys stay in environment variables or the OS keychain.
+
+Example:
+
+```toml
+version = 1
+
+[providers.openai]
+type = "openai_compatible"
+base_url = "https://api.openai.com/v1"
+api_key = "env:OPENBBQ_LLM_API_KEY"
+default_chat_model = "gpt-4o-mini"
+
+[models.faster_whisper]
+cache_dir = "~/.cache/openbbq/models/faster-whisper"
+default_model = "base"
+```
+
+Run preflight checks before a real workflow:
+
+```bash
+uv run openbbq doctor --workflow local-video-corrected-translate-subtitle --project ./demo --json
+```
+
 ## Phase 2 Remote Video Preview
 
 Slice 3 adds remote video download through `yt-dlp` and a full remote translated subtitle workflow. Install the download, media, and LLM optional dependency groups before running a real remote smoke test:

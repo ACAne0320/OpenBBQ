@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import logging
 import os
@@ -22,6 +23,16 @@ from openbbq.engine.service import (
 from openbbq.engine.validation import validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.plugins.registry import PluginRegistry, discover_plugins
+from openbbq.runtime.context import build_runtime_context
+from openbbq.runtime.doctor import check_workflow
+from openbbq.runtime.models import ProviderProfile
+from openbbq.runtime.models_assets import faster_whisper_model_status
+from openbbq.runtime.secrets import SecretResolver
+from openbbq.runtime.settings import (
+    load_runtime_settings,
+    with_provider_profile,
+    write_runtime_settings,
+)
 from openbbq.storage.project_store import ProjectStore
 
 FILE_BACKED_IMPORT_TYPES = frozenset({"audio", "image", "video"})
@@ -98,6 +109,31 @@ def _build_parser() -> argparse.ArgumentParser:
     plugin_sub.add_parser("list", parents=[subcommand_global_options])
     plugin_info = plugin_sub.add_parser("info", parents=[subcommand_global_options])
     plugin_info.add_argument("name")
+
+    settings = subparsers.add_parser("settings", parents=[subcommand_global_options])
+    settings_sub = settings.add_subparsers(dest="settings_command", required=True)
+    settings_sub.add_parser("show", parents=[subcommand_global_options])
+    settings_provider = settings_sub.add_parser("set-provider", parents=[subcommand_global_options])
+    settings_provider.add_argument("name")
+    settings_provider.add_argument("--type", required=True)
+    settings_provider.add_argument("--base-url")
+    settings_provider.add_argument("--api-key")
+    settings_provider.add_argument("--default-chat-model")
+    settings_provider.add_argument("--display-name")
+
+    secret = subparsers.add_parser("secret", parents=[subcommand_global_options])
+    secret_sub = secret.add_subparsers(dest="secret_command", required=True)
+    secret_check = secret_sub.add_parser("check", parents=[subcommand_global_options])
+    secret_check.add_argument("reference")
+    secret_set = secret_sub.add_parser("set", parents=[subcommand_global_options])
+    secret_set.add_argument("reference")
+
+    models = subparsers.add_parser("models", parents=[subcommand_global_options])
+    models_sub = models.add_subparsers(dest="models_command", required=True)
+    models_sub.add_parser("list", parents=[subcommand_global_options])
+
+    doctor = subparsers.add_parser("doctor", parents=[subcommand_global_options])
+    doctor.add_argument("--workflow")
 
     return parser
 
@@ -184,6 +220,21 @@ def _dispatch(args: argparse.Namespace) -> int:
             return _plugin_list(args)
         if args.plugin_command == "info":
             return _plugin_info(args)
+    if args.command == "settings":
+        if args.settings_command == "show":
+            return _settings_show(args)
+        if args.settings_command == "set-provider":
+            return _settings_set_provider(args)
+    if args.command == "secret":
+        if args.secret_command == "check":
+            return _secret_check(args)
+        if args.secret_command == "set":
+            return _secret_set(args)
+    if args.command == "models":
+        if args.models_command == "list":
+            return _models_list(args)
+    if args.command == "doctor":
+        return _doctor(args)
     return 2
 
 
@@ -250,7 +301,14 @@ def _validate(args: argparse.Namespace) -> int:
 
 def _run(args: argparse.Namespace) -> int:
     config, registry = _load_config_and_plugins(args)
-    result = run_workflow(config, registry, args.workflow, force=args.force, step_id=args.step)
+    result = run_workflow(
+        config,
+        registry,
+        args.workflow,
+        force=args.force,
+        step_id=args.step,
+        runtime_context=_runtime_context(),
+    )
     payload = {
         "ok": True,
         "workflow_id": result.workflow_id,
@@ -264,7 +322,12 @@ def _run(args: argparse.Namespace) -> int:
 
 def _resume(args: argparse.Namespace) -> int:
     config, registry = _load_config_and_plugins(args)
-    result = resume_workflow(config, registry, args.workflow)
+    result = resume_workflow(
+        config,
+        registry,
+        args.workflow,
+        runtime_context=_runtime_context(),
+    )
     payload = {
         "ok": True,
         "workflow_id": result.workflow_id,
@@ -477,6 +540,91 @@ def _plugin_info(args: argparse.Namespace) -> int:
     }
     _emit(payload, args.json_output, plugin.name)
     return 0
+
+
+def _settings_show(args: argparse.Namespace) -> int:
+    settings = load_runtime_settings()
+    payload = {"ok": True, "settings": settings.public_dict()}
+    _emit(payload, args.json_output, str(settings.config_path))
+    return 0
+
+
+def _settings_set_provider(args: argparse.Namespace) -> int:
+    settings = load_runtime_settings()
+    provider = ProviderProfile(
+        name=args.name,
+        type=args.type,
+        base_url=args.base_url,
+        api_key=args.api_key,
+        default_chat_model=args.default_chat_model,
+        display_name=args.display_name,
+    )
+    updated = with_provider_profile(settings, provider)
+    write_runtime_settings(updated)
+    payload = {
+        "ok": True,
+        "provider": provider.public_dict(),
+        "config_path": str(updated.config_path),
+    }
+    _emit(payload, args.json_output, f"Updated provider '{provider.name}'.")
+    return 0
+
+
+def _secret_check(args: argparse.Namespace) -> int:
+    check = SecretResolver().resolve(args.reference).public
+    payload = {
+        "ok": True,
+        "secret": {
+            "reference": check.reference,
+            "resolved": check.resolved,
+            "display": check.display,
+            "value_preview": check.value_preview,
+            "error": check.error,
+        },
+    }
+    _emit(payload, args.json_output, check.display)
+    return 0
+
+
+def _secret_set(args: argparse.Namespace) -> int:
+    if args.json_output:
+        raise ValidationError("secret set requires interactive input and cannot run in JSON mode.")
+    value = getpass.getpass("Secret value: ")
+    SecretResolver().set_secret(args.reference, value)
+    _emit({"ok": True, "reference": args.reference}, args.json_output, "Secret stored.")
+    return 0
+
+
+def _models_list(args: argparse.Namespace) -> int:
+    settings = load_runtime_settings()
+    status = faster_whisper_model_status(settings)
+    payload = {"ok": True, "models": [status.public_dict()]}
+    _emit(payload, args.json_output, status.public_dict())
+    return 0
+
+
+def _doctor(args: argparse.Namespace) -> int:
+    settings = load_runtime_settings()
+    if args.workflow:
+        config, registry = _load_config_and_plugins(args)
+        checks = check_workflow(
+            config=config,
+            registry=registry,
+            workflow_id=args.workflow,
+            settings=settings,
+        )
+    else:
+        checks = []
+    payload = {
+        "ok": all(check.status != "failed" for check in checks),
+        "checks": [check.public_dict() for check in checks],
+    }
+    _emit(payload, args.json_output, "\n".join(check.message for check in checks))
+    return 0
+
+
+def _runtime_context():
+    return build_runtime_context(load_runtime_settings())
 
 
 def _load_config(args: argparse.Namespace):
