@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
 import hashlib
 import json
 from typing import Any, Iterable
 
+from openbbq.domain.base import dump_jsonable
 from openbbq.errors import ExecutionError
 from openbbq.domain.models import ProjectConfig, WorkflowConfig
 from openbbq.storage.project_store import ProjectStore
@@ -42,7 +42,7 @@ def compute_workflow_config_hash(config: ProjectConfig, workflow_id: str) -> str
     payload = {
         "version": config.version,
         "workflow_id": workflow_id,
-        "workflow": _jsonable(workflow),
+        "workflow": dump_jsonable(workflow),
         "plugin_paths": [str(path) for path in config.plugin_paths],
     }
     normalized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -65,12 +65,3 @@ def rebuild_output_bindings(
             bindings[f"{step_id}.{output_name}"] = dict(binding)
     return bindings
 
-
-def _jsonable(value: Any) -> Any:
-    if is_dataclass(value):
-        return _jsonable(asdict(value))
-    if isinstance(value, dict):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_jsonable(item) for item in value]
-    return value

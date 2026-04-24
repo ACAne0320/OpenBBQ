@@ -4,10 +4,12 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 import os
 import re
-from typing import Any
+from typing import Any, TypeVar
 
+from pydantic import ValidationError as PydanticValidationError
 import yaml
 
+from openbbq.domain.base import OpenBBQModel, format_pydantic_error
 from openbbq.domain.models import (
     ARTIFACT_TYPES,
     PluginConfig,
@@ -27,6 +29,7 @@ VALID_ON_ERROR = {"abort", "retry", "skip"}
 DEFAULT_STORAGE_ROOT = Path(".openbbq")
 DEFAULT_CONFIG_NAME = "openbbq.yaml"
 BUILTIN_PLUGIN_ROOT = Path(__file__).resolve().parents[1] / "builtin_plugins"
+TModel = TypeVar("TModel", bound=OpenBBQModel)
 
 
 def load_project_config(
@@ -62,7 +65,13 @@ def load_project_config(
     state_path = _resolve_path(
         root_path, storage_raw.get("state", storage_root / "state"), "storage.state"
     )
-    storage = StorageConfig(root=storage_root, artifacts=artifacts_path, state=state_path)
+    storage = _build_model(
+        StorageConfig,
+        "storage",
+        root=storage_root,
+        artifacts=artifacts_path,
+        state=state_path,
+    )
 
     config_plugin_paths = _load_plugin_paths(root_path, raw_config, env)
     cli_plugin_paths = _normalize_plugin_paths(
@@ -71,7 +80,7 @@ def load_project_config(
     plugin_paths = _merge_paths(
         cli_plugin_paths, _merge_paths(config_plugin_paths, [BUILTIN_PLUGIN_ROOT])
     )
-    plugins = PluginConfig(paths=tuple(plugin_paths))
+    plugins = _build_model(PluginConfig, "plugins", paths=tuple(plugin_paths))
 
     workflows_raw = _require_mapping(raw_config.get("workflows"), "workflows")
     workflows: dict[str, WorkflowConfig] = {}
@@ -146,7 +155,14 @@ def load_project_config(
                     raise ValidationError(
                         f"Output type '{output_type}' in step '{step_id}' of workflow '{workflow_id}' is not registered.",
                     )
-                outputs.append(StepOutput(name=output_name, type=output_type))
+                outputs.append(
+                    _build_model(
+                        StepOutput,
+                        f"workflows.{workflow_id}.steps[{index}].outputs[{output_index}]",
+                        name=output_name,
+                        type=output_type,
+                    )
+                )
 
             on_error = step_mapping.get("on_error", "abort")
             if not isinstance(on_error, str) or on_error not in VALID_ON_ERROR:
@@ -170,7 +186,9 @@ def load_project_config(
             )
 
             steps.append(
-                StepConfig(
+                _build_model(
+                    StepConfig,
+                    f"workflows.{workflow_id}.steps[{index}]",
                     id=step_id,
                     name=step_name,
                     tool_ref=tool_ref,
@@ -192,15 +210,22 @@ def load_project_config(
                 inputs, step_id, workflow_id, step_index, step_positions, step_outputs
             )
 
-        workflows[workflow_id] = WorkflowConfig(
-            id=workflow_id, name=workflow_name, steps=tuple(steps)
+        workflows[workflow_id] = _build_model(
+            WorkflowConfig,
+            f"workflows.{workflow_id}",
+            id=workflow_id,
+            name=workflow_name,
+            steps=tuple(steps),
         )
 
-    return ProjectConfig(
+    project = _build_model(ProjectMetadata, "project", id=project_id, name=project_name)
+    return _build_model(
+        ProjectConfig,
+        "project config",
         version=1,
         root_path=root_path,
         config_path=resolved_config_path,
-        project=ProjectMetadata(id=project_id, name=project_name),
+        project=project,
         storage=storage,
         plugins=plugins,
         workflows=workflows,
@@ -217,6 +242,13 @@ def _load_yaml_mapping(path: Path) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ValidationError(f"Project config '{path}' must contain a YAML mapping.")
     return raw
+
+
+def _build_model(model_type: type[TModel], field_path: str, **values: Any) -> TModel:
+    try:
+        return model_type(**values)
+    except PydanticValidationError as exc:
+        raise ValidationError(format_pydantic_error(field_path, exc)) from exc
 
 
 def _resolve_config_path(project_root: Path, config_path: Path | str | None) -> Path:
