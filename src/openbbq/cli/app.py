@@ -12,18 +12,27 @@ from typing import Any
 from pydantic import ValidationError as PydanticValidationError
 
 from openbbq import __version__
+from openbbq.application.artifacts import (
+    ArtifactImportRequest,
+    diff_artifact_versions as diff_artifact_versions_command,
+    import_artifact,
+    list_artifacts as list_artifacts_command,
+    show_artifact,
+)
+from openbbq.application.workflows import (
+    WorkflowCommandRequest,
+    WorkflowRunRequest,
+    abort_workflow_command,
+    resume_workflow_command,
+    run_workflow_command,
+    unlock_workflow_command,
+    workflow_logs,
+    workflow_status,
+)
 from openbbq.cli.quickstart import DEFAULT_YOUTUBE_QUALITY, write_youtube_subtitle_workflow
 from openbbq.config.loader import load_project_config
-from openbbq.workflow.diff import diff_artifact_versions
-from openbbq.workflow.state import read_effective_workflow_state
 from openbbq.domain.base import JsonObject, dump_jsonable, format_pydantic_error
 from openbbq.domain.models import ProjectConfig
-from openbbq.engine.service import (
-    abort_workflow,
-    resume_workflow,
-    run_workflow,
-    unlock_workflow,
-)
 from openbbq.engine.validation import validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.plugins.registry import PluginRegistry, discover_plugins
@@ -347,14 +356,15 @@ def _validate(args: argparse.Namespace) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    config, registry = _load_config_and_plugins(args)
-    result = run_workflow(
-        config,
-        registry,
-        args.workflow,
-        force=args.force,
-        step_id=args.step,
-        runtime_context=_runtime_context(),
+    result = run_workflow_command(
+        WorkflowRunRequest(
+            project_root=Path(args.project),
+            config_path=Path(args.config) if args.config else None,
+            plugin_paths=tuple(Path(path) for path in args.plugins),
+            workflow_id=args.workflow,
+            force=args.force,
+            step_id=args.step,
+        )
     )
     payload = {
         "ok": True,
@@ -368,12 +378,13 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _resume(args: argparse.Namespace) -> int:
-    config, registry = _load_config_and_plugins(args)
-    result = resume_workflow(
-        config,
-        registry,
-        args.workflow,
-        runtime_context=_runtime_context(),
+    result = resume_workflow_command(
+        WorkflowCommandRequest(
+            project_root=Path(args.project),
+            config_path=Path(args.config) if args.config else None,
+            plugin_paths=tuple(Path(path) for path in args.plugins),
+            workflow_id=args.workflow,
+        )
     )
     payload = {
         "ok": True,
@@ -387,8 +398,14 @@ def _resume(args: argparse.Namespace) -> int:
 
 
 def _abort(args: argparse.Namespace) -> int:
-    config = _load_config(args)
-    result = abort_workflow(config, args.workflow)
+    result = abort_workflow_command(
+        WorkflowCommandRequest(
+            project_root=Path(args.project),
+            config_path=Path(args.config) if args.config else None,
+            plugin_paths=tuple(Path(path) for path in args.plugins),
+            workflow_id=args.workflow,
+        )
+    )
     payload = {"ok": True, "workflow_id": args.workflow, "status": result["status"]}
     message = (
         f"Workflow '{args.workflow}' abort requested."
@@ -410,8 +427,14 @@ def _unlock(args: argparse.Namespace) -> int:
         answer = input(f"Remove stale lock for workflow '{args.workflow}'? [y/N] ")
         if answer.strip().lower() not in {"y", "yes"}:
             raise OpenBBQError("unlock_cancelled", "Unlock cancelled.", 1)
-    config = _load_config(args)
-    result = unlock_workflow(config, args.workflow)
+    result = unlock_workflow_command(
+        WorkflowCommandRequest(
+            project_root=Path(args.project),
+            config_path=Path(args.config) if args.config else None,
+            plugin_paths=tuple(Path(path) for path in args.plugins),
+            workflow_id=args.workflow,
+        )
+    )
     payload = {"ok": True, **result}
     _emit(
         payload,
@@ -422,57 +445,49 @@ def _unlock(args: argparse.Namespace) -> int:
 
 
 def _status(args: argparse.Namespace) -> int:
-    config = _load_config(args)
-    workflow = config.workflows.get(args.workflow)
-    if workflow is None:
-        raise ValidationError(f"Workflow '{args.workflow}' is not defined.")
-    store = _project_store(config)
-    state = read_effective_workflow_state(store, workflow)
+    state = workflow_status(
+        project_root=Path(args.project),
+        config_path=Path(args.config) if args.config else None,
+        plugin_paths=tuple(Path(path) for path in args.plugins),
+        workflow_id=args.workflow,
+    )
     payload = {"ok": True, **dump_jsonable(state)}
     _emit(payload, args.json_output, f"{args.workflow}: {state.status}")
     return 0
 
 
 def _logs(args: argparse.Namespace) -> int:
-    config = _load_config(args)
-    events = _read_events(_project_store(config), args.workflow)
-    payload = {"ok": True, "workflow_id": args.workflow, "events": events}
+    result = workflow_logs(
+        project_root=Path(args.project),
+        config_path=Path(args.config) if args.config else None,
+        plugin_paths=tuple(Path(path) for path in args.plugins),
+        workflow_id=args.workflow,
+    )
+    events = list(result.events)
+    payload = {"ok": True, "workflow_id": result.workflow_id, "events": events}
     _emit(payload, args.json_output, "\n".join(_format_event(event) for event in events))
     return 0
 
 
 def _artifact_list(args: argparse.Namespace) -> int:
-    config = _load_config(args)
-    store = _project_store(config)
-    artifacts = store.list_artifacts()
-    if args.workflow:
-        artifacts = [
-            artifact
-            for artifact in artifacts
-            if _artifact_workflow_id(store, artifact) == args.workflow
-        ]
-    if args.step:
-        artifacts = [
-            artifact
-            for artifact in artifacts
-            if artifact.created_by_step_id == args.step
-            or artifact.name.startswith(f"{args.step}.")
-        ]
-    if args.artifact_type:
-        artifacts = [
-            artifact for artifact in artifacts if artifact.type == args.artifact_type
-        ]
+    artifacts = list_artifacts_command(
+        project_root=Path(args.project),
+        config_path=Path(args.config) if args.config else None,
+        workflow_id=args.workflow,
+        step_id=args.step,
+        artifact_type=args.artifact_type,
+    )
     payload = {"ok": True, "artifacts": artifacts}
     _emit(payload, args.json_output, "\n".join(artifact.id for artifact in artifacts))
     return 0
 
 
 def _artifact_diff(args: argparse.Namespace) -> int:
-    config = _load_config(args)
-    result = diff_artifact_versions(
-        _project_store(config),
-        args.from_version,
-        args.to_version,
+    result = diff_artifact_versions_command(
+        project_root=Path(args.project),
+        config_path=Path(args.config) if args.config else None,
+        from_version=args.from_version,
+        to_version=args.to_version,
     )
     payload = {"ok": True, **result}
     _emit(payload, args.json_output, result["diff"])
@@ -480,54 +495,35 @@ def _artifact_diff(args: argparse.Namespace) -> int:
 
 
 def _artifact_import(args: argparse.Namespace) -> int:
-    from openbbq.domain.models import ARTIFACT_TYPES
-
-    source = Path(args.path).expanduser().resolve()
-    if not source.is_file():
-        raise ValidationError(f"Artifact import source is not a file: {source}")
-    if args.artifact_type not in ARTIFACT_TYPES:
-        raise ValidationError(f"Artifact type '{args.artifact_type}' is not registered.")
-    if args.artifact_type not in FILE_BACKED_IMPORT_TYPES:
-        allowed = ", ".join(sorted(FILE_BACKED_IMPORT_TYPES))
-        raise ValidationError(
-            f"Artifact import supports file-backed artifact types only: {allowed}."
+    result = import_artifact(
+        ArtifactImportRequest(
+            project_root=Path(args.project),
+            config_path=Path(args.config) if args.config else None,
+            path=Path(args.path),
+            artifact_type=args.artifact_type,
+            name=args.name,
         )
-
-    config = _load_config(args)
-    artifact, version = _project_store(config).write_artifact_version(
-        artifact_type=args.artifact_type,
-        name=args.name,
-        content=None,
-        file_path=source,
-        metadata={},
-        created_by_step_id=None,
-        lineage={"source": "cli_import", "original_path": str(source)},
     )
-    payload = {"ok": True, "artifact": artifact.record, "version": version.record}
-    _emit(payload, args.json_output, artifact.id)
+    payload = {"ok": True, "artifact": result.artifact, "version": result.version.record}
+    _emit(payload, args.json_output, result.artifact.id)
     return 0
 
 
 def _artifact_show(args: argparse.Namespace) -> int:
-    config = _load_config(args)
-    store = _project_store(config)
-    artifact = store.read_artifact(args.artifact_id)
-    if artifact.current_version_id is None:
-        raise OpenBBQError(
-            "artifact_not_found",
-            f"Artifact '{artifact.id}' does not have a current version.",
-            1,
-        )
-    version = store.read_artifact_version(artifact.current_version_id)
+    result = show_artifact(
+        project_root=Path(args.project),
+        config_path=Path(args.config) if args.config else None,
+        artifact_id=args.artifact_id,
+    )
     payload = {
         "ok": True,
-        "artifact": artifact,
+        "artifact": result.artifact,
         "current_version": {
-            "record": version.record,
-            "content": _jsonable_content(version.content),
+            "record": result.current_version.record,
+            "content": _jsonable_content(result.current_version.content),
         },
     }
-    _emit(payload, args.json_output, _jsonable_content(version.content))
+    _emit(payload, args.json_output, _jsonable_content(result.current_version.content))
     return 0
 
 
@@ -795,18 +791,24 @@ def _subtitle_youtube(args: argparse.Namespace) -> int:
         config_path=generated.config_path,
         extra_plugin_paths=args.plugins,
     )
-    registry = discover_plugins(config.plugin_paths)
     store = _project_store(config)
-    state = read_effective_workflow_state(store, config.workflows[generated.workflow_id])
+    state = workflow_status(
+        project_root=generated.project_root,
+        config_path=generated.config_path,
+        plugin_paths=tuple(Path(path) for path in args.plugins),
+        workflow_id=generated.workflow_id,
+    )
     force = state.status == "completed" or (
         args.force and state.status in {"completed", "running"}
     )
-    result = run_workflow(
-        config,
-        registry,
-        generated.workflow_id,
-        force=force,
-        runtime_context=_runtime_context(),
+    result = run_workflow_command(
+        WorkflowRunRequest(
+            project_root=generated.project_root,
+            config_path=generated.config_path,
+            plugin_paths=tuple(Path(path) for path in args.plugins),
+            workflow_id=generated.workflow_id,
+            force=force,
+        )
     )
     artifact, content = _latest_workflow_artifact_content(
         store,
