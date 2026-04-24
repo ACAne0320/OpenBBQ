@@ -54,7 +54,7 @@ workflows:
             type: asr_transcript
         parameters:
           source_lang: en
-          model: gpt-4o-mini
+          provider: openai
           temperature: 0
           domain_context: Product and anime discussion.
           glossary_rules:
@@ -90,10 +90,9 @@ workflows:
           - name: translation
             type: translation
         parameters:
-          provider: openai_compatible
+          provider: openai
           source_lang: en
           target_lang: zh-Hans
-          model: gpt-4o-mini
           temperature: 0
         on_error: abort
         max_retries: 0
