@@ -97,7 +97,7 @@ def test_cli_abort_running_workflow_writes_request(tmp_path, capsys):
         "status": "abort_requested",
     }
     assert abort_request_path(store, "text-demo").exists()
-    assert store.read_workflow_state("text-demo")["status"] == "running"
+    assert store.read_workflow_state("text-demo").status == "running"
 
 
 def test_cli_run_force_reruns_completed_workflow(tmp_path, capsys):
@@ -113,7 +113,7 @@ def test_cli_run_force_reruns_completed_workflow(tmp_path, capsys):
     assert payload["workflow_id"] == "text-demo"
     assert payload["status"] == "completed"
     store = ProjectStore(project / ".openbbq")
-    assert [len(artifact["versions"]) for artifact in store.list_artifacts()] == [2, 2]
+    assert [len(artifact.versions) for artifact in store.list_artifacts()] == [2, 2]
 
 
 def test_cli_run_step_reruns_one_step(tmp_path, capsys):
@@ -129,4 +129,4 @@ def test_cli_run_step_reruns_one_step(tmp_path, capsys):
     assert payload["workflow_id"] == "text-demo"
     assert payload["status"] == "completed"
     store = ProjectStore(project / ".openbbq")
-    assert [len(artifact["versions"]) for artifact in store.list_artifacts()] == [2, 1]
+    assert [len(artifact.versions) for artifact in store.list_artifacts()] == [2, 1]

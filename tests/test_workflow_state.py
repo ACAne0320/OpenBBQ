@@ -21,10 +21,10 @@ def test_build_pending_state_for_missing_workflow_state():
 
     state = build_pending_state(workflow)
 
-    assert state["id"] == "text-demo"
-    assert state["status"] == "pending"
-    assert state["current_step_id"] == "seed"
-    assert state["step_run_ids"] == ()
+    assert state.id == "text-demo"
+    assert state.status == "pending"
+    assert state.current_step_id == "seed"
+    assert state.step_run_ids == ()
     assert state.model_dump(mode="json")["step_run_ids"] == []
 
 
@@ -35,8 +35,8 @@ def test_read_effective_workflow_state_returns_pending_when_missing(tmp_path):
 
     state = read_effective_workflow_state(store, workflow)
 
-    assert state["status"] == "pending"
-    assert state["current_step_id"] == "seed"
+    assert state.status == "pending"
+    assert state.current_step_id == "seed"
 
 
 def test_compute_workflow_config_hash_changes_when_step_parameters_change(tmp_path):
@@ -92,6 +92,6 @@ def test_rebuild_output_bindings_uses_completed_step_runs(tmp_path):
         },
     )
 
-    bindings = rebuild_output_bindings(store, "text-demo", [step_run["id"]])
+    bindings = rebuild_output_bindings(store, "text-demo", [step_run.id])
 
-    assert bindings["seed.text"]["artifact_version_id"] == version.id
+    assert bindings["seed.text"].artifact_version_id == version.id

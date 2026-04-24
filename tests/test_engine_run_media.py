@@ -23,7 +23,7 @@ def test_run_mock_youtube_subtitle_workflow(tmp_path):
     assert result.status == "completed"
     store = ProjectStore(project / ".openbbq")
     artifacts = store.list_artifacts()
-    assert [artifact["name"] for artifact in artifacts] == [
+    assert [artifact.name for artifact in artifacts] == [
         "download.video",
         "extract_audio.audio",
         "transcribe.transcript",
@@ -31,8 +31,9 @@ def test_run_mock_youtube_subtitle_workflow(tmp_path):
         "translate.translation",
         "subtitle.subtitle",
     ]
-    subtitle = [artifact for artifact in artifacts if artifact["type"] == "subtitle"][0]
-    version = store.read_artifact_version(subtitle["current_version_id"])
+    subtitle = [artifact for artifact in artifacts if artifact.type == "subtitle"][0]
+    assert subtitle.current_version_id is not None
+    version = store.read_artifact_version(subtitle.current_version_id)
     assert "OpenBBQ" in version.content
-    assert version.record["metadata"]["format"] == "srt"
-    assert version.record["metadata"]["segment_count"] == 1
+    assert version.record.metadata["format"] == "srt"
+    assert version.record.metadata["segment_count"] == 1

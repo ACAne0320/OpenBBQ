@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from openbbq.storage.project_store import ProjectStore
@@ -20,15 +18,15 @@ def test_write_file_backed_artifact_version_copies_file_and_returns_descriptor(t
         lineage={"source": "cli_import", "original_path": str(source.resolve())},
     )
 
-    assert artifact.record["created_by_step_id"] is None
-    assert artifact.record["name"] == "source.video"
-    assert version.record["content_encoding"] == "file"
-    assert version.record["content_size"] == len(b"video-bytes")
-    assert Path(version.record["content_path"]).read_bytes() == b"video-bytes"
+    assert artifact.record.created_by_step_id is None
+    assert artifact.record.name == "source.video"
+    assert version.record.content_encoding == "file"
+    assert version.record.content_size == len(b"video-bytes")
+    assert version.record.content_path.read_bytes() == b"video-bytes"
     assert version.content == {
-        "file_path": version.record["content_path"],
+        "file_path": version.record.content_path,
         "size": len(b"video-bytes"),
-        "sha256": version.record["content_hash"],
+        "sha256": version.record.content_hash,
     }
 
     reloaded = store.read_artifact_version(version.id)

@@ -49,7 +49,7 @@ def test_abort_running_workflow_writes_request_without_state_transition(tmp_path
 
     assert result["status"] == "abort_requested"
     assert aborts.abort_request_path(store, "text-demo").exists()
-    assert store.read_workflow_state("text-demo")["status"] == "running"
+    assert store.read_workflow_state("text-demo").status == "running"
 
 
 def test_run_processes_abort_request_between_steps(tmp_path):
@@ -66,9 +66,9 @@ def test_run_processes_abort_request_between_steps(tmp_path):
     assert result.status == "aborted"
     assert not aborts.abort_request_path(store, "text-demo").exists()
     state = store.read_workflow_state("text-demo")
-    assert state["status"] == "aborted"
-    assert state["current_step_id"] == "uppercase"
-    assert [artifact["name"] for artifact in store.list_artifacts()] == ["seed.text"]
+    assert state.status == "aborted"
+    assert state.current_step_id == "uppercase"
+    assert [artifact.name for artifact in store.list_artifacts()] == ["seed.text"]
     assert [event["type"] for event in read_events(store, "text-demo")] == [
         "workflow.started",
         "step.started",

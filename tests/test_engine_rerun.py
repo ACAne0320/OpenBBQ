@@ -29,20 +29,20 @@ def test_force_rerun_completed_workflow_reuses_artifact_ids_and_appends_versions
     run_workflow(config, registry, "text-demo")
     store = ProjectStore(project / ".openbbq")
     first_artifacts = store.list_artifacts()
-    first_ids = [artifact["id"] for artifact in first_artifacts]
-    first_versions = [artifact["current_version_id"] for artifact in first_artifacts]
+    first_ids = [artifact.id for artifact in first_artifacts]
+    first_versions = [artifact.current_version_id for artifact in first_artifacts]
 
     result = run_workflow(config, registry, "text-demo", force=True)
 
     assert result.status == "completed"
     second_artifacts = store.list_artifacts()
-    assert [artifact["id"] for artifact in second_artifacts] == first_ids
-    assert [artifact["name"] for artifact in second_artifacts] == ["seed.text", "uppercase.text"]
-    assert [artifact["current_version_id"] for artifact in second_artifacts] != first_versions
-    assert [len(artifact["versions"]) for artifact in second_artifacts] == [2, 2]
+    assert [artifact.id for artifact in second_artifacts] == first_ids
+    assert [artifact.name for artifact in second_artifacts] == ["seed.text", "uppercase.text"]
+    assert [artifact.current_version_id for artifact in second_artifacts] != first_versions
+    assert [len(artifact.versions) for artifact in second_artifacts] == [2, 2]
     state = store.read_workflow_state("text-demo")
-    assert state["status"] == "completed"
-    assert len(state["step_run_ids"]) == 2
+    assert state.status == "completed"
+    assert len(state.step_run_ids) == 2
 
 
 def test_force_rerun_crash_recovered_running_marks_dangling_step_run_failed(tmp_path):
@@ -75,9 +75,10 @@ def test_force_rerun_crash_recovered_running_marks_dangling_step_run_failed(tmp_
 
     assert result.status == "completed"
     dangling = store.read_step_run("text-demo", "sr_dangling")
-    assert dangling["status"] == "failed"
-    assert dangling["error"]["code"] == "engine.crash_recovery"
-    assert store.read_workflow_state("text-demo")["status"] == "completed"
+    assert dangling.status == "failed"
+    assert dangling.error is not None
+    assert dangling.error.code == "engine.crash_recovery"
+    assert store.read_workflow_state("text-demo").status == "completed"
 
 
 def test_step_rerun_completed_workflow_updates_only_target_step_outputs(tmp_path):
@@ -86,27 +87,27 @@ def test_step_rerun_completed_workflow_updates_only_target_step_outputs(tmp_path
     registry = discover_plugins(config.plugin_paths)
     run_workflow(config, registry, "text-demo")
     store = ProjectStore(project / ".openbbq")
-    first_artifacts = {artifact["name"]: artifact for artifact in store.list_artifacts()}
+    first_artifacts = {artifact.name: artifact for artifact in store.list_artifacts()}
 
     result = run_workflow(config, registry, "text-demo", step_id="seed")
 
     assert result.status == "completed"
-    second_artifacts = {artifact["name"]: artifact for artifact in store.list_artifacts()}
-    assert second_artifacts["seed.text"]["id"] == first_artifacts["seed.text"]["id"]
-    assert second_artifacts["uppercase.text"]["id"] == first_artifacts["uppercase.text"]["id"]
-    assert len(second_artifacts["seed.text"]["versions"]) == 2
-    assert len(second_artifacts["uppercase.text"]["versions"]) == 1
+    second_artifacts = {artifact.name: artifact for artifact in store.list_artifacts()}
+    assert second_artifacts["seed.text"].id == first_artifacts["seed.text"].id
+    assert second_artifacts["uppercase.text"].id == first_artifacts["uppercase.text"].id
+    assert len(second_artifacts["seed.text"].versions) == 2
+    assert len(second_artifacts["uppercase.text"].versions) == 1
     assert (
-        second_artifacts["seed.text"]["current_version_id"]
-        != first_artifacts["seed.text"]["current_version_id"]
+        second_artifacts["seed.text"].current_version_id
+        != first_artifacts["seed.text"].current_version_id
     )
     assert (
-        second_artifacts["uppercase.text"]["current_version_id"]
-        == first_artifacts["uppercase.text"]["current_version_id"]
+        second_artifacts["uppercase.text"].current_version_id
+        == first_artifacts["uppercase.text"].current_version_id
     )
     state = store.read_workflow_state("text-demo")
-    assert state["status"] == "completed"
-    assert len(state["step_run_ids"]) == 3
+    assert state.status == "completed"
+    assert len(state.step_run_ids) == 3
 
 
 def test_step_rerun_rejects_paused_workflow(tmp_path):

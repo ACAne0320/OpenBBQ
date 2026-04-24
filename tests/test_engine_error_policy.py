@@ -83,12 +83,13 @@ def test_retry_policy_succeeds_after_failed_attempt(tmp_path):
     assert result.status == "completed"
     store = ProjectStore(project / ".openbbq")
     state = store.read_workflow_state("demo")
-    step_runs = [store.read_step_run("demo", step_run_id) for step_run_id in state["step_run_ids"]]
-    assert [step_run["attempt"] for step_run in step_runs] == [1, 2]
-    assert [step_run["status"] for step_run in step_runs] == ["failed", "completed"]
+    step_runs = [store.read_step_run("demo", step_run_id) for step_run_id in state.step_run_ids]
+    assert [step_run.attempt for step_run in step_runs] == [1, 2]
+    assert [step_run.status for step_run in step_runs] == ["failed", "completed"]
+    current_version_id = store.list_artifacts()[0].current_version_id
+    assert current_version_id is not None
     assert (
-        store.read_artifact_version(store.list_artifacts()[0]["current_version_id"]).content
-        == "retry ok"
+        store.read_artifact_version(current_version_id).content == "retry ok"
     )
 
 
@@ -119,9 +120,9 @@ def test_retry_policy_exhaustion_marks_workflow_failed(tmp_path):
 
     store = ProjectStore(project / ".openbbq")
     state = store.read_workflow_state("demo")
-    assert state["status"] == "failed"
-    step_runs = [store.read_step_run("demo", step_run_id) for step_run_id in state["step_run_ids"]]
-    assert [step_run["status"] for step_run in step_runs] == ["failed", "failed"]
+    assert state.status == "failed"
+    step_runs = [store.read_step_run("demo", step_run_id) for step_run_id in state.step_run_ids]
+    assert [step_run.status for step_run in step_runs] == ["failed", "failed"]
 
 
 def test_skip_policy_continues_when_downstream_does_not_reference_skipped_output(tmp_path):
@@ -162,9 +163,9 @@ def test_skip_policy_continues_when_downstream_does_not_reference_skipped_output
     assert result.status == "completed"
     store = ProjectStore(project / ".openbbq")
     state = store.read_workflow_state("demo")
-    step_runs = [store.read_step_run("demo", step_run_id) for step_run_id in state["step_run_ids"]]
-    assert [step_run["status"] for step_run in step_runs] == ["skipped", "completed"]
-    assert [artifact["name"] for artifact in store.list_artifacts()] == ["seed.text"]
+    step_runs = [store.read_step_run("demo", step_run_id) for step_run_id in state.step_run_ids]
+    assert [step_run.status for step_run in step_runs] == ["skipped", "completed"]
+    assert [artifact.name for artifact in store.list_artifacts()] == ["seed.text"]
 
 
 def test_skipped_output_reference_fails_downstream_step(tmp_path):
@@ -203,7 +204,7 @@ def test_skipped_output_reference_fails_downstream_step(tmp_path):
     with pytest.raises(ExecutionError, match="optional.text"):
         run_workflow(config, registry, "demo")
 
-    assert ProjectStore(project / ".openbbq").read_workflow_state("demo")["status"] == "failed"
+    assert ProjectStore(project / ".openbbq").read_workflow_state("demo").status == "failed"
 
 
 def test_plugin_pause_requested_pauses_after_successful_step(tmp_path):
@@ -243,5 +244,5 @@ def test_plugin_pause_requested_pauses_after_successful_step(tmp_path):
 
     assert result.status == "paused"
     state = ProjectStore(project / ".openbbq").read_workflow_state("demo")
-    assert state["status"] == "paused"
-    assert state["current_step_id"] == "uppercase"
+    assert state.status == "paused"
+    assert state.current_step_id == "uppercase"

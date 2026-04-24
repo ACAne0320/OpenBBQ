@@ -9,6 +9,7 @@ from openbbq.plugins.payloads import PluginOutputPayload, PluginResponse
 from openbbq.plugins.registry import ToolSpec
 from openbbq.workflow.bindings import build_plugin_inputs, persist_step_outputs
 from openbbq.plugins.registry import discover_plugins
+from openbbq.storage.models import OutputBinding
 from openbbq.storage.project_store import ProjectStore
 import pytest
 
@@ -48,16 +49,16 @@ def test_build_plugin_inputs_resolves_literals_and_artifacts(tmp_path):
         store,
         uppercase_step,
         {
-            "seed.text": {
-                "artifact_id": artifact.id,
-                "artifact_version_id": version.id,
-            }
+            "seed.text": OutputBinding(
+                artifact_id=artifact.id,
+                artifact_version_id=version.id,
+            )
         },
     )
 
-    assert literal_inputs["text"] == {"literal": "hello openbbq"}
+    assert literal_inputs["text"].literal == "hello openbbq"
     assert literal_versions == {}
-    assert artifact_inputs["text"]["content"] == "hello openbbq"
+    assert artifact_inputs["text"].content == "hello openbbq"
     assert artifact_versions == {"seed.text": version.id}
 
 
@@ -77,7 +78,7 @@ def test_persist_step_outputs_writes_declared_artifact_version(tmp_path):
         {},
     )
 
-    version = store.read_artifact_version(bindings["text"]["artifact_version_id"])
+    version = store.read_artifact_version(bindings["text"].artifact_version_id)
     assert version.content == "hello openbbq"
 
 
@@ -107,8 +108,8 @@ def test_build_plugin_inputs_passes_file_path_for_file_backed_artifact(tmp_path)
 
     inputs, input_versions = build_plugin_inputs(store, step, {})
 
-    assert inputs["audio"]["file_path"] == str(version.content["file_path"])
-    assert "content" not in inputs["audio"]
+    assert inputs["audio"].file_path == str(version.content["file_path"])
+    assert inputs["audio"].content is None
     assert input_versions[f"project.{artifact.id}"] == version.id
 
 
@@ -146,8 +147,8 @@ def test_persist_step_outputs_accepts_file_path_payload(tmp_path):
         {},
     )
 
-    version = store.read_artifact_version(bindings["audio"]["artifact_version_id"])
-    assert version.record["content_encoding"] == "file"
+    version = store.read_artifact_version(bindings["audio"].artifact_version_id)
+    assert version.record.content_encoding == "file"
     assert Path(version.content["file_path"]).read_bytes() == b"audio"
 
 

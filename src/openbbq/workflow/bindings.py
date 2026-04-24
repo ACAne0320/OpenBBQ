@@ -42,7 +42,11 @@ def build_plugin_inputs(
         if isinstance(input_value, str) and input_value.startswith("project."):
             artifact_id = input_value.removeprefix("project.")
             artifact = store.read_artifact(artifact_id)
-            version = store.read_artifact_version(artifact["current_version_id"])
+            if artifact.current_version_id is None:
+                raise ValidationError(
+                    f"Step '{step.id}' input '{input_name}' references artifact '{artifact_id}' with no current version."
+                )
+            version = store.read_artifact_version(artifact.current_version_id)
             plugin_inputs[input_name] = artifact_input(artifact, version)
             input_artifact_version_ids[input_value] = version.id
             continue
@@ -54,8 +58,8 @@ def build_plugin_inputs(
                 raise ValidationError(
                     f"Step '{step.id}' input '{input_name}' references unavailable output '{input_value}'."
                 )
-            artifact = store.read_artifact(binding["artifact_id"])
-            version = store.read_artifact_version(binding["artifact_version_id"])
+            artifact = store.read_artifact(binding.artifact_id)
+            version = store.read_artifact_version(binding.artifact_version_id)
             plugin_inputs[input_name] = artifact_input(artifact, version)
             input_artifact_version_ids[input_value] = version.id
             continue

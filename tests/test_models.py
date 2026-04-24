@@ -8,7 +8,7 @@ from openbbq.domain.base import OpenBBQModel, format_pydantic_error
 from openbbq.engine.service import WorkflowRunResult
 from openbbq.engine.validation import WorkflowValidationResult
 from openbbq.plugins.payloads import PluginEventPayload, PluginResponse
-from openbbq.storage.models import WorkflowEvent
+from openbbq.storage.models import OutputBinding, WorkflowEvent, WorkflowState
 from openbbq.workflow.execution import ExecutionResult
 
 
@@ -193,3 +193,12 @@ def test_plugin_response_preserves_metadata_and_events():
             data={"input_chars": 5},
         ),
     )
+
+
+def test_storage_models_do_not_expose_dict_compatibility():
+    state = WorkflowState(id="text-demo", status="pending", current_step_id="seed")
+    binding = OutputBinding(artifact_id="art_1", artifact_version_id="av_1")
+
+    assert not hasattr(state, "__getitem__")
+    assert not hasattr(state, "get")
+    assert binding.artifact_id == "art_1"

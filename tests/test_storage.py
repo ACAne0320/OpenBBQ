@@ -19,7 +19,7 @@ def test_write_artifact_version_round_trip(tmp_path):
     )
     loaded = store.read_artifact_version(version.id)
     assert loaded.content == "hello openbbq"
-    assert loaded.record["artifact_id"] == artifact.id
+    assert loaded.record.artifact_id == artifact.id
 
 
 def test_storage_models_dump_to_current_json_shape(tmp_path):
@@ -76,7 +76,7 @@ def test_workflow_state_step_run_and_events_round_trip(tmp_path):
     assert store.read_workflow_state("text-demo") == state
 
     step_run = store.write_step_run("text-demo", {"id": "sr_1", "status": "running"})
-    assert step_run["id"] == "sr_1"
+    assert step_run.id == "sr_1"
     step_run_path = (
         tmp_path / ".openbbq" / "state" / "workflows" / "text-demo" / "step-runs" / "sr_1.json"
     )
@@ -91,9 +91,9 @@ def test_workflow_state_step_run_and_events_round_trip(tmp_path):
             "created_at": "2026-04-22T01:02:03+00:00",
         },
     )
-    assert event1["sequence"] == 1
-    assert event2["sequence"] == 2
-    assert datetime.fromisoformat(event1["created_at"]).tzinfo is not None
+    assert event1.sequence == 1
+    assert event2.sequence == 2
+    assert datetime.fromisoformat(event1.created_at).tzinfo is not None
     assert (
         json.loads(
             (tmp_path / ".openbbq" / "state" / "workflows" / "text-demo" / "events.jsonl")
@@ -121,7 +121,7 @@ def test_append_event_recovers_trailing_partial_jsonl_line(tmp_path):
     assert json.loads(lines[0])["type"] == "workflow.started"
     assert json.loads(lines[1])["sequence"] == 2
     assert json.loads(lines[1])["type"] == "workflow.completed"
-    assert event["sequence"] == 2
+    assert event.sequence == 2
 
 
 def test_append_event_preserves_valid_final_jsonl_line_without_newline(tmp_path):
@@ -139,7 +139,7 @@ def test_append_event_preserves_valid_final_jsonl_line_without_newline(tmp_path)
     assert len(lines) == 2
     assert json.loads(lines[0])["type"] == "workflow.started"
     assert json.loads(lines[1])["sequence"] == 2
-    assert event["sequence"] == 2
+    assert event.sequence == 2
 
 
 def test_write_workflow_state_overrides_conflicting_id(tmp_path):
@@ -147,7 +147,7 @@ def test_write_workflow_state_overrides_conflicting_id(tmp_path):
 
     state = store.write_workflow_state("text-demo", {"id": "wrong-workflow", "status": "running"})
 
-    assert state["id"] == "text-demo"
+    assert state.id == "text-demo"
     persisted = json.loads(
         (tmp_path / ".openbbq" / "state" / "workflows" / "text-demo" / "state.json").read_text(
             encoding="utf-8"
@@ -164,7 +164,7 @@ def test_write_step_run_overrides_conflicting_workflow_id(tmp_path):
         {"id": "sr_2", "workflow_id": "wrong-workflow", "status": "running"},
     )
 
-    assert step_run["workflow_id"] == "text-demo"
+    assert step_run.workflow_id == "text-demo"
     persisted = json.loads(
         (
             tmp_path / ".openbbq" / "state" / "workflows" / "text-demo" / "step-runs" / "sr_2.json"
@@ -202,8 +202,8 @@ def test_id_generator_injection_is_used_for_persisted_ids(tmp_path):
 
     assert artifact.id == "art_fixed"
     assert version.id == "av_fixed"
-    assert step_run["id"] == "sr_fixed"
-    assert event["id"] == "evt_fixed"
+    assert step_run.id == "sr_fixed"
+    assert event.id == "evt_fixed"
 
 
 @pytest.mark.parametrize(
@@ -228,7 +228,7 @@ def test_write_artifact_version_round_trips_content_types(tmp_path, content, exp
 
     loaded = store.read_artifact_version(version.id)
     assert loaded.content == expected
-    assert loaded.record["artifact_id"] == artifact.id
+    assert loaded.record.artifact_id == artifact.id
 
 
 def test_list_artifacts_and_read_artifact(tmp_path):
@@ -244,5 +244,5 @@ def test_list_artifacts_and_read_artifact(tmp_path):
     )
 
     artifacts = store.list_artifacts()
-    assert [record["name"] for record in artifacts] == ["seed.text"]
-    assert store.read_artifact(artifact.id)["current_version_id"] is not None
+    assert [record.name for record in artifacts] == ["seed.text"]
+    assert store.read_artifact(artifact.id).current_version_id is not None

@@ -429,7 +429,7 @@ def _status(args: argparse.Namespace) -> int:
     store = _project_store(config)
     state = read_effective_workflow_state(store, workflow)
     payload = {"ok": True, **dump_jsonable(state)}
-    _emit(payload, args.json_output, f"{args.workflow}: {state.get('status')}")
+    _emit(payload, args.json_output, f"{args.workflow}: {state.status}")
     return 0
 
 
@@ -455,15 +455,15 @@ def _artifact_list(args: argparse.Namespace) -> int:
         artifacts = [
             artifact
             for artifact in artifacts
-            if artifact.get("created_by_step_id") == args.step
-            or artifact.get("name", "").startswith(f"{args.step}.")
+            if artifact.created_by_step_id == args.step
+            or artifact.name.startswith(f"{args.step}.")
         ]
     if args.artifact_type:
         artifacts = [
-            artifact for artifact in artifacts if artifact.get("type") == args.artifact_type
+            artifact for artifact in artifacts if artifact.type == args.artifact_type
         ]
     payload = {"ok": True, "artifacts": artifacts}
-    _emit(payload, args.json_output, "\n".join(artifact["id"] for artifact in artifacts))
+    _emit(payload, args.json_output, "\n".join(artifact.id for artifact in artifacts))
     return 0
 
 
@@ -512,7 +512,13 @@ def _artifact_show(args: argparse.Namespace) -> int:
     config = _load_config(args)
     store = _project_store(config)
     artifact = store.read_artifact(args.artifact_id)
-    version = store.read_artifact_version(artifact["current_version_id"])
+    if artifact.current_version_id is None:
+        raise OpenBBQError(
+            "artifact_not_found",
+            f"Artifact '{artifact.id}' does not have a current version.",
+            1,
+        )
+    version = store.read_artifact_version(artifact.current_version_id)
     payload = {
         "ok": True,
         "artifact": artifact,
@@ -526,11 +532,10 @@ def _artifact_show(args: argparse.Namespace) -> int:
 
 
 def _artifact_workflow_id(store: ProjectStore, artifact: ArtifactRecord) -> str | None:
-    current_version_id = artifact.get("current_version_id")
-    if not isinstance(current_version_id, str):
+    if artifact.current_version_id is None:
         return None
-    version = store.read_artifact_version(current_version_id)
-    workflow_id = version.record.get("lineage", {}).get("workflow_id")
+    version = store.read_artifact_version(artifact.current_version_id)
+    workflow_id = version.record.lineage.get("workflow_id")
     return workflow_id if isinstance(workflow_id, str) else None
 
 
@@ -543,13 +548,12 @@ def _latest_workflow_artifact_content(
 ) -> tuple[ArtifactRecord, Any]:
     matches = []
     for artifact in store.list_artifacts():
-        if artifact.get("type") != artifact_type or artifact.get("name") != artifact_name:
+        if artifact.type != artifact_type or artifact.name != artifact_name:
             continue
-        current_version_id = artifact.get("current_version_id")
-        if not isinstance(current_version_id, str):
+        if artifact.current_version_id is None:
             continue
-        version = store.read_artifact_version(current_version_id)
-        if version.record.get("lineage", {}).get("workflow_id") != workflow_id:
+        version = store.read_artifact_version(artifact.current_version_id)
+        if version.record.lineage.get("workflow_id") != workflow_id:
             continue
         matches.append((artifact, version))
     if not matches:
@@ -558,7 +562,7 @@ def _latest_workflow_artifact_content(
             f"Workflow '{workflow_id}' did not produce artifact '{artifact_name}'.",
             1,
         )
-    matches.sort(key=lambda item: item[0].get("updated_at", ""))
+    matches.sort(key=lambda item: item[0].updated_at)
     artifact, version = matches[-1]
     return artifact, version.content
 
@@ -794,8 +798,8 @@ def _subtitle_youtube(args: argparse.Namespace) -> int:
     registry = discover_plugins(config.plugin_paths)
     store = _project_store(config)
     state = read_effective_workflow_state(store, config.workflows[generated.workflow_id])
-    force = state.get("status") == "completed" or (
-        args.force and state.get("status") in {"completed", "running"}
+    force = state.status == "completed" or (
+        args.force and state.status in {"completed", "running"}
     )
     result = run_workflow(
         config,
@@ -820,7 +824,7 @@ def _subtitle_youtube(args: argparse.Namespace) -> int:
         "step_count": result.step_count,
         "artifact_count": result.artifact_count,
         "output_path": str(output_path),
-        "subtitle_artifact_id": artifact["id"],
+        "subtitle_artifact_id": artifact.id,
         "generated_run_id": generated.run_id,
         "generated_project_root": str(generated.project_root),
         "generated_config_path": str(generated.config_path),

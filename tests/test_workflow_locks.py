@@ -76,4 +76,4 @@ def test_unlock_workflow_removes_stale_lock_without_changing_state(tmp_path):
         "stale": True,
     }
     assert not lock_path.exists()
-    assert store.read_workflow_state("text-demo")["status"] == "running"
+    assert store.read_workflow_state("text-demo").status == "running"

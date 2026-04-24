@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, Iterable
+from typing import Iterable
 
-from openbbq.storage.models import OutputBinding
 from openbbq.storage.project_store import ProjectStore
 
 
@@ -16,15 +15,13 @@ def build_artifact_reuse_map(
             step_run = store.read_step_run(workflow_id, step_run_id)
         except FileNotFoundError:
             continue
-        if step_run.get("status") != "completed":
+        if step_run.status != "completed":
             continue
-        step_id = step_run.get("step_id")
+        step_id = step_run.step_id
         if not isinstance(step_id, str):
             continue
-        for output_name, binding in step_run.get("output_bindings", {}).items():
-            artifact_id = _artifact_id(binding)
-            if artifact_id is not None:
-                artifact_ids[f"{step_id}.{output_name}"] = artifact_id
+        for output_name, binding in step_run.output_bindings.items():
+            artifact_ids[f"{step_id}.{output_name}"] = binding.artifact_id
     return artifact_ids
 
 
@@ -36,9 +33,9 @@ def mark_running_step_runs_failed(
             step_run = store.read_step_run(workflow_id, step_run_id)
         except FileNotFoundError:
             continue
-        if step_run.get("status") != "running":
+        if step_run.status != "running":
             continue
-        failed = dict(step_run)
+        failed = step_run.model_dump(mode="json")
         failed["status"] = "failed"
         failed["error"] = {
             "code": "engine.crash_recovery",
@@ -46,12 +43,3 @@ def mark_running_step_runs_failed(
         }
         failed["completed_at"] = datetime.now(UTC).isoformat()
         store.write_step_run(workflow_id, failed)
-
-
-def _artifact_id(binding: Any) -> str | None:
-    if isinstance(binding, OutputBinding):
-        return binding.artifact_id
-    if not isinstance(binding, dict):
-        return None
-    artifact_id = binding.get("artifact_id")
-    return artifact_id if isinstance(artifact_id, str) else None

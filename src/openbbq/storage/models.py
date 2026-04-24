@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal, TypeAlias
+from typing import Literal, TypeAlias
 
 from pydantic import Field
 
@@ -22,11 +22,7 @@ ArtifactContent: TypeAlias = JsonValue | bytes
 
 
 class RecordModel(OpenBBQModel):
-    def __getitem__(self, key: str) -> Any:
-        return getattr(self, key)
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return getattr(self, key, default)
+    pass
 
 
 class OutputBinding(RecordModel):

@@ -32,13 +32,14 @@ def test_run_text_workflow_to_completion(tmp_path):
     assert result.status == "completed"
     store = ProjectStore(project / ".openbbq")
     artifacts = store.list_artifacts()
-    assert [artifact["name"] for artifact in artifacts] == ["seed.text", "uppercase.text"]
-    latest = store.read_artifact_version(artifacts[-1]["current_version_id"])
+    assert [artifact.name for artifact in artifacts] == ["seed.text", "uppercase.text"]
+    assert artifacts[-1].current_version_id is not None
+    latest = store.read_artifact_version(artifacts[-1].current_version_id)
     assert latest.content == "HELLO OPENBBQ"
 
     state = store.read_workflow_state("text-demo")
-    assert state["status"] == "completed"
-    assert len(state["step_run_ids"]) == 2
+    assert state.status == "completed"
+    assert len(state.step_run_ids) == 2
     events_path = project / ".openbbq" / "state" / "workflows" / "text-demo" / "events.jsonl"
     events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
     assert [event["type"] for event in events] == [

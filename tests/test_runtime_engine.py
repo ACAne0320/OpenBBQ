@@ -33,7 +33,7 @@ def test_runtime_context_is_passed_to_plugin_request_without_persistence(
     captured = {}
 
     def fake_execute_plugin_tool(plugin, tool, request, redactor=None):
-        captured["runtime"] = request["runtime"]
+        captured["runtime"] = request.runtime
         return {
             "outputs": {
                 "text": {
@@ -56,8 +56,8 @@ def test_runtime_context_is_passed_to_plugin_request_without_persistence(
     assert captured["runtime"] == context.request_payload()
     store = ProjectStore(project / ".openbbq")
     state = store.read_workflow_state("text-demo")
-    step_run = store.read_step_run("text-demo", state["step_run_ids"][0])
-    assert "runtime" not in step_run
+    step_run = store.read_step_run("text-demo", state.step_run_ids[0])
+    assert not hasattr(step_run, "runtime")
 
 
 def test_plugin_error_is_redacted_before_state_and_cli_error(tmp_path, monkeypatch):
@@ -79,8 +79,9 @@ def test_plugin_error_is_redacted_before_state_and_cli_error(tmp_path, monkeypat
     assert "[REDACTED]" in exc.value.message
     store = ProjectStore(project / ".openbbq")
     state = store.read_workflow_state("text-demo")
-    step_run = store.read_step_run("text-demo", state["step_run_ids"][0])
-    assert "sk-secret" not in step_run["error"]["message"]
+    step_run = store.read_step_run("text-demo", state.step_run_ids[0])
+    assert step_run.error is not None
+    assert "sk-secret" not in step_run.error.message
 
 
 def test_plugin_events_are_wrapped_and_redacted(tmp_path, monkeypatch):

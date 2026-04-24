@@ -231,7 +231,7 @@ def execute_steps(
                     "started_at": _timestamp(),
                 },
             )
-            step_run_ids.append(step_run["id"])
+            step_run_ids.append(step_run.id)
             store.write_workflow_state(
                 workflow.id,
                 {
@@ -247,7 +247,7 @@ def execute_steps(
                 plugin_inputs, input_artifact_version_ids = build_plugin_inputs(
                     store, step, output_bindings
                 )
-                running = dict(step_run)
+                running = step_run.model_dump(mode="json")
                 running["input_artifact_version_ids"] = input_artifact_version_ids
                 store.write_step_run(workflow.id, running)
                 request = PluginRequest(
@@ -283,7 +283,7 @@ def execute_steps(
                 )
             except (PluginError, ValidationError) as exc:
                 redacted_message = redact_runtime_secrets(exc.message)
-                failed = dict(step_run)
+                failed = step_run.model_dump(mode="json")
                 failed["status"] = "failed"
                 failed["input_artifact_version_ids"] = input_artifact_version_ids
                 failed["error"] = _step_error(
@@ -336,7 +336,7 @@ def execute_steps(
                 )
                 raise ExecutionError(redacted_message) from exc
 
-            completed = dict(step_run)
+            completed = step_run.model_dump(mode="json")
             completed["status"] = "completed"
             completed["input_artifact_version_ids"] = input_artifact_version_ids
             completed["output_bindings"] = output_bindings_for_step

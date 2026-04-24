@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal, TypeAlias
+from typing import Literal, TypeAlias
 
 from pydantic import Field, model_validator
 
@@ -11,16 +11,7 @@ from openbbq.storage.models import OutputBinding
 
 
 class PluginPayloadModel(OpenBBQModel):
-    def __getitem__(self, key: str) -> Any:
-        return getattr(self, key)
-
-    def get(self, key: str, default: Any = None) -> Any:
-        return getattr(self, key, default)
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, dict):
-            return self.model_dump(mode="json", exclude_none=True) == other
-        return super().__eq__(other)
+    pass
 
 
 class PluginLiteralInput(PluginPayloadModel):
