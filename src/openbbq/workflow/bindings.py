@@ -35,7 +35,7 @@ def parse_step_selector(value: Any) -> tuple[str, str] | None:
 def build_plugin_inputs(
     store: ProjectStore,
     step: StepConfig,
-    output_bindings: dict[str, dict[str, Any]],
+    output_bindings: OutputBindings,
 ) -> tuple[PluginInputMap, dict[str, str]]:
     plugin_inputs: PluginInputMap = {}
     input_artifact_version_ids: dict[str, str] = {}

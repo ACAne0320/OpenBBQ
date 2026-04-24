@@ -107,7 +107,7 @@ def test_build_plugin_inputs_passes_file_path_for_file_backed_artifact(tmp_path)
 
     inputs, input_versions = build_plugin_inputs(store, step, {})
 
-    assert inputs["audio"]["file_path"] == version.content["file_path"]
+    assert inputs["audio"]["file_path"] == str(version.content["file_path"])
     assert "content" not in inputs["audio"]
     assert input_versions[f"project.{artifact.id}"] == version.id
 

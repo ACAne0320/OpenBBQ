@@ -1,5 +1,4 @@
 import json
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -79,12 +78,11 @@ def test_translation_translate_accepts_subtitle_segments_input_name(monkeypatch)
 def test_ffmpeg_extract_audio_rejects_unsupported_format_during_validation():
     project = load_project_config(Path("tests/fixtures/projects/local-video-subtitle"))
     workflow = project.workflows["local-video-subtitle"]
-    bad_step = replace(
-        workflow.steps[0],
-        parameters={**workflow.steps[0].parameters, "format": "mp3"},
+    bad_step = workflow.steps[0].model_copy(
+        update={"parameters": {**workflow.steps[0].parameters, "format": "mp3"}}
     )
-    project.workflows["local-video-subtitle"] = replace(
-        workflow, steps=(bad_step, *workflow.steps[1:])
+    project.workflows["local-video-subtitle"] = workflow.model_copy(
+        update={"steps": (bad_step, *workflow.steps[1:])}
     )
 
     with pytest.raises(ValidationError, match="format"):

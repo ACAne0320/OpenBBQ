@@ -67,4 +67,3 @@ def rebuild_output_bindings(
         for output_name, binding in step_run.output_bindings.items():
             bindings[f"{step_id}.{output_name}"] = binding
     return bindings
-

@@ -9,12 +9,14 @@ from pathlib import Path
 import sys
 from typing import Any
 
+from pydantic import ValidationError as PydanticValidationError
+
 from openbbq import __version__
 from openbbq.cli.quickstart import DEFAULT_YOUTUBE_QUALITY, write_youtube_subtitle_workflow
 from openbbq.config.loader import load_project_config
 from openbbq.workflow.diff import diff_artifact_versions
 from openbbq.workflow.state import read_effective_workflow_state
-from openbbq.domain.base import dump_jsonable
+from openbbq.domain.base import dump_jsonable, format_pydantic_error
 from openbbq.domain.models import ProjectConfig
 from openbbq.engine.service import (
     abort_workflow,
@@ -35,6 +37,7 @@ from openbbq.runtime.settings import (
     with_provider_profile,
     write_runtime_settings,
 )
+from openbbq.storage.models import ArtifactRecord
 from openbbq.storage.project_store import ProjectStore
 
 FILE_BACKED_IMPORT_TYPES = frozenset({"audio", "image", "video"})
@@ -522,7 +525,7 @@ def _artifact_show(args: argparse.Namespace) -> int:
     return 0
 
 
-def _artifact_workflow_id(store: ProjectStore, artifact: dict[str, Any]) -> str | None:
+def _artifact_workflow_id(store: ProjectStore, artifact: ArtifactRecord) -> str | None:
     current_version_id = artifact.get("current_version_id")
     if not isinstance(current_version_id, str):
         return None
@@ -537,7 +540,7 @@ def _latest_workflow_artifact_content(
     workflow_id: str,
     artifact_type: str,
     artifact_name: str,
-) -> tuple[dict[str, Any], Any]:
+) -> tuple[ArtifactRecord, Any]:
     matches = []
     for artifact in store.list_artifacts():
         if artifact.get("type") != artifact_type or artifact.get("name") != artifact_name:
@@ -628,14 +631,17 @@ def _settings_show(args: argparse.Namespace) -> int:
 
 def _settings_set_provider(args: argparse.Namespace) -> int:
     settings = load_runtime_settings()
-    provider = ProviderProfile(
-        name=args.name,
-        type=args.type,
-        base_url=args.base_url,
-        api_key=args.api_key,
-        default_chat_model=args.default_chat_model,
-        display_name=args.display_name,
-    )
+    try:
+        provider = ProviderProfile(
+            name=args.name,
+            type=args.type,
+            base_url=args.base_url,
+            api_key=args.api_key,
+            default_chat_model=args.default_chat_model,
+            display_name=args.display_name,
+        )
+    except PydanticValidationError as exc:
+        raise ValidationError(format_pydantic_error(f"providers.{args.name}", exc)) from exc
     updated = with_provider_profile(settings, provider)
     write_runtime_settings(updated)
     payload = {

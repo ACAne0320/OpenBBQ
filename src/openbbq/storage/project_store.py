@@ -156,7 +156,7 @@ class ProjectStore:
         encoding = record.content_encoding
         if encoding == "file":
             content = {
-                "file_path": str(content_path),
+                "file_path": content_path,
                 "size": record.content_size,
                 "sha256": record.content_hash,
             }
@@ -208,7 +208,7 @@ class ProjectStore:
             )
             content_hash = digest.hex()
             stored_content = {
-                "file_path": str(content_path),
+                "file_path": content_path,
                 "size": content_size,
                 "sha256": content_hash,
             }

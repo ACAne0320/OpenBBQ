@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
 
 from openbbq.domain.base import OpenBBQModel
 from openbbq.workflow.aborts import consume_abort_request
@@ -13,6 +12,7 @@ from openbbq.plugins.payloads import PluginRequest, PluginResponse
 from openbbq.plugins.registry import PluginRegistry, execute_plugin_tool
 from openbbq.runtime.models import RuntimeContext
 from openbbq.runtime.redaction import redact_values
+from openbbq.storage.models import OutputBindings
 from openbbq.storage.project_store import ProjectStore
 
 
@@ -33,7 +33,7 @@ def execute_workflow_from_start(
 ) -> ExecutionResult:
     config_hash = compute_workflow_config_hash(config, workflow.id)
     step_run_ids: list[str] = []
-    output_bindings: dict[str, dict[str, Any]] = {}
+    output_bindings: OutputBindings = {}
     store.write_workflow_state(
         workflow.id,
         {
@@ -70,7 +70,7 @@ def execute_workflow_from_resume(
     workflow: WorkflowConfig,
     current_step_id: str,
     step_run_ids: list[str],
-    output_bindings: dict[str, dict[str, Any]],
+    output_bindings: OutputBindings,
     runtime_context: RuntimeContext | None = None,
 ) -> ExecutionResult:
     start_index = _step_index(workflow, current_step_id)
@@ -112,7 +112,7 @@ def execute_workflow_step(
     workflow: WorkflowConfig,
     step_id: str,
     step_run_ids: list[str],
-    output_bindings: dict[str, dict[str, Any]],
+    output_bindings: OutputBindings,
     artifact_reuse: dict[str, str],
     runtime_context: RuntimeContext | None = None,
 ) -> ExecutionResult:
@@ -160,7 +160,7 @@ def execute_steps(
     workflow: WorkflowConfig,
     start_index: int,
     step_run_ids: list[str],
-    output_bindings: dict[str, dict[str, Any]],
+    output_bindings: OutputBindings,
     config_hash: str,
     skip_pause_before_step_id: str | None = None,
     artifact_reuse: dict[str, str] | None = None,
@@ -206,7 +206,7 @@ def execute_steps(
         plugin = registry.plugins[tool.plugin_name]
         attempt = 1
         max_attempts = 1 + (step.max_retries if step.on_error == "retry" else 0)
-        output_bindings_for_step: dict[str, dict[str, str]] = {}
+        output_bindings_for_step: OutputBindings = {}
         pause_requested = False
         skipped = False
         while True:
