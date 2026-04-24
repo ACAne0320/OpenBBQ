@@ -16,16 +16,18 @@
 | Frontend unit tests | Vitest |
 | Frontend end-to-end tests | Playwright |
 
-## Phase 1 — Backend Core & CLI (Current Focus)
+## Phase 1 — Backend Core & CLI
 
 See [Phase 1 Documentation](./phase1/README.md) and [Backend & CLI Goals](./phase1/Backend-CLI-Goals.md) for detailed short-term objectives.
 
-**Goal:** Establish a stable, well-tested backend with a CLI interface for debugging and early workflow execution.
+**Goal:** Establish a stable, well-tested headless backend with a CLI adapter for debugging and early workflow execution.
 
 - Project, Workflow, Tool, and Artifact domain models
-- Plugin system with manifest, parameter schema, and execution contract
+- Plugin manifest v2 with named inputs, named outputs, parameter schema, and execution contract
 - Workflow engine / orchestrator (step sequencing, pause/resume, error recovery)
-- Artifact persistence and versioning
+- Typed workflow events with severity `level` and structured `data`
+- Artifact persistence, versioning, and artifact indexes
+- Adapter-independent application services for workflow and artifact operations
 - CLI for project management, workflow execution, and artifact inspection
 - Configuration and plugin discovery
 
@@ -40,11 +42,14 @@ See [Phase 1 Documentation](./phase1/README.md) and [Backend & CLI Goals](./phas
 - Built-in ffmpeg audio extraction
 - Built-in faster-whisper transcription
 - Built-in glossary replacement
+- Built-in transcript correction and subtitle segmentation
 - Built-in OpenAI-compatible LLM translation
 - Built-in subtitle export
 - Deterministic tests with optional local real-media and real-LLM smoke runs
 
-> Agent and API surfaces move to a later phase after real CLI-driven workflows are stable.
+`llm.translate` and implicit LLM environment-variable fallback have been removed. LLM-backed tools require a named runtime provider profile, and environment variables are only read through explicit secret references such as `api_key = "env:OPENBBQ_LLM_API_KEY"`.
+
+> Desktop, API, and automation adapters should call application services or future API wrappers, not CLI parser internals.
 
 ## Phase 3 — Desktop Application
 

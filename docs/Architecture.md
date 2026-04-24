@@ -1,48 +1,38 @@
-# `Architecture`
+# Architecture
 
-A composable, traceable, reusable, and recoverable media workflow engine.
+OpenBBQ is a headless, artifact-driven media workflow backend. The current CLI is an adapter over typed application services; future desktop, API, and automation surfaces should use those services or API wrappers rather than CLI parser internals.
 
-## **Design Philosophy**
+## Design Principles
 
-1. Headless first，UI later
-2. Workflow
-    1. Source from(begin)
-    2. Tool(execute)
-    3. Artifact(preview)
-3. Tool as Plugin
-4. Artifact-driven
-5. Deterministic where possible, LLM where valuable
-6. Human-in-the-loop
+1. Headless backend first, UI adapters later.
+2. Workflows are explicit graphs of source inputs, tool steps, and artifact outputs.
+3. Tools are plugins with strict manifest v2 contracts.
+4. Artifacts are versioned, inspectable, and reusable across reruns.
+5. Execution is deterministic where possible and LLM-backed where useful.
+6. Human review should be modeled as workflow state, events, and artifacts.
 
-## System Layer Design
+## Backend Layers
 
-1. Project
-2. Workflow
-3. Tool
-4. Artifact
-5. Workflow Engine / Orchestrator
+1. Domain models: Pydantic models for project config, workflow state, plugin payloads, runtime settings, and artifacts.
+2. Plugin registry: loads `manifest_version = 2` manifests with named inputs and outputs, JSON Schema parameters, side effects, runtime requirements, and optional UI metadata.
+3. Workflow engine: validates named bindings, executes steps, persists transitions, emits typed events with `level` and `data`, and supports pause, resume, abort, retry, skip, and rerun.
+4. Storage: keeps workflow state, event logs, artifacts, artifact versions, indexes, and file-backed payloads under `.openbbq/`.
+5. Application services: expose workflow and artifact operations independent of the CLI.
+6. Adapters: CLI today; desktop, HTTP API, and worker adapters later.
 
-## UI Design
+## Runtime Contracts
 
-Use pencil-design skill, and build the following components:
+LLM-backed tools require a named runtime provider profile such as `openai`. Provider profiles own the OpenAI-compatible base URL, optional default chat model, and secret reference. Environment variables are only read through explicit secret references, for example `api_key = "env:OPENBBQ_LLM_API_KEY"`.
 
-1. Project Dashboard
-2. Workflow Configuration Dashboard
-3. Artifact Edit Panel
-4. Preview Panel
-5. Ruler Asset Pane
+The legacy `llm.translate` alias and implicit `OPENBBQ_LLM_API_KEY` fallback are removed. Translation flows should use `transcript.segment` to produce `subtitle_segments`, then `translation.translate` to produce `translation`.
 
-## Plugin System
+## Desktop Direction
 
-1. Tool (Capability Definition)
-    1. input / output
-    2. parameter
-    3. effect
-2. Step (in workflow)
-3. Plugin (packaging and distribution tool)
-    1. manifest
-    2. parameter schema
-    3. input/output artifact types
-    4. execution contract
-    5. optional UI schema
-4. Workflow Engine (run each step)
+The desktop should be a rich adapter over the backend, not a separate workflow implementation. Expected desktop surfaces include:
+
+1. Project dashboard.
+2. Workflow configuration dashboard.
+3. Artifact edit panel.
+4. Preview panel.
+5. Reusable asset pane for glossaries, style guides, and templates.
+6. Human-in-the-loop review queues.
