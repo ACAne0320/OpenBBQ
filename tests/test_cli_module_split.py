@@ -1,4 +1,5 @@
 import importlib
+from argparse import Namespace
 
 from openbbq.cli.app import _build_parser
 
@@ -82,6 +83,57 @@ def test_parser_accepts_representative_command_groups():
     for argv, expected in cases:
         args = parser.parse_args(argv)
         assert (args.command, _subcommand(args)) == expected
+
+
+def test_dispatch_delegates_project_plugin_and_api_modules(monkeypatch):
+    app = importlib.import_module("openbbq.cli.app")
+    calls = []
+
+    def project_dispatch(args):
+        calls.append(("projects", args.command))
+        return 7 if args.command == "init" else None
+
+    def plugin_dispatch(args):
+        calls.append(("plugins", args.command))
+        return 8 if args.command == "plugin" else None
+
+    def api_dispatch(args):
+        calls.append(("api", args.command))
+        return 9 if args.command == "api" else None
+
+    monkeypatch.setattr(app.projects, "dispatch", project_dispatch)
+    monkeypatch.setattr(app.plugins, "dispatch", plugin_dispatch)
+    monkeypatch.setattr(app.api, "dispatch", api_dispatch)
+
+    common = {
+        "json_output": False,
+        "debug": False,
+        "verbose": False,
+    }
+
+    assert app._dispatch(Namespace(command="init", **common)) == 7
+    assert calls == [("projects", "init")]
+
+    calls.clear()
+    assert app._dispatch(Namespace(command="plugin", plugin_command="list", **common)) == 8
+    assert calls == [("projects", "plugin"), ("plugins", "plugin")]
+
+    calls.clear()
+    assert app._dispatch(Namespace(command="api", api_command="serve", **common)) == 9
+    assert calls == [("projects", "api"), ("plugins", "api"), ("api", "api")]
+
+
+def test_app_no_longer_defines_project_or_plugin_handlers():
+    app = importlib.import_module("openbbq.cli.app")
+
+    for handler_name in (
+        "_init_project",
+        "_project_list",
+        "_project_info",
+        "_plugin_list",
+        "_plugin_info",
+    ):
+        assert not hasattr(app, handler_name)
 
 
 def _subcommand(args):

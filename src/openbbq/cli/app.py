@@ -16,13 +16,6 @@ from openbbq.application.artifacts import (
     show_artifact,
 )
 from openbbq.application.diagnostics import doctor as doctor_command
-from openbbq.application.plugins import plugin_info as plugin_info_command
-from openbbq.application.plugins import plugin_list as plugin_list_command
-from openbbq.application.projects import (
-    ProjectInitRequest,
-    init_project as init_project_command,
-    project_info as project_info_command,
-)
 from openbbq.application.runtime import (
     AuthSetRequest,
     ProviderSetRequest,
@@ -45,6 +38,7 @@ from openbbq.application.workflows import (
     workflow_logs,
     workflow_status,
 )
+from openbbq.cli import api, plugins, projects
 from openbbq.application.quickstart import (
     DEFAULT_YOUTUBE_QUALITY,
     write_local_subtitle_workflow,
@@ -91,7 +85,7 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("version", parents=[subcommand_global_options])
-    subparsers.add_parser("init", parents=[subcommand_global_options])
+    projects.register(subparsers, [subcommand_global_options])
     resume = subparsers.add_parser("resume", parents=[subcommand_global_options])
     resume.add_argument("workflow")
     abort = subparsers.add_parser("abort", parents=[subcommand_global_options])
@@ -99,11 +93,6 @@ def _build_parser() -> argparse.ArgumentParser:
     unlock = subparsers.add_parser("unlock", parents=[subcommand_global_options])
     unlock.add_argument("workflow")
     unlock.add_argument("--yes", action="store_true")
-
-    project = subparsers.add_parser("project", parents=[subcommand_global_options])
-    project_sub = project.add_subparsers(dest="project_command", required=True)
-    project_sub.add_parser("list", parents=[subcommand_global_options])
-    project_sub.add_parser("info", parents=[subcommand_global_options])
 
     validate = subparsers.add_parser("validate", parents=[subcommand_global_options])
     validate.add_argument("workflow")
@@ -135,11 +124,7 @@ def _build_parser() -> argparse.ArgumentParser:
     artifact_import.add_argument("--type", dest="artifact_type", required=True)
     artifact_import.add_argument("--name", required=True)
 
-    plugin = subparsers.add_parser("plugin", parents=[subcommand_global_options])
-    plugin_sub = plugin.add_subparsers(dest="plugin_command", required=True)
-    plugin_sub.add_parser("list", parents=[subcommand_global_options])
-    plugin_info = plugin_sub.add_parser("info", parents=[subcommand_global_options])
-    plugin_info.add_argument("name")
+    plugins.register(subparsers, [subcommand_global_options])
 
     settings = subparsers.add_parser("settings", parents=[subcommand_global_options])
     settings_sub = settings.add_subparsers(dest="settings_command", required=True)
@@ -178,14 +163,7 @@ def _build_parser() -> argparse.ArgumentParser:
     doctor = subparsers.add_parser("doctor", parents=[subcommand_global_options])
     doctor.add_argument("--workflow")
 
-    api = subparsers.add_parser("api", parents=[subcommand_global_options])
-    api_sub = api.add_subparsers(dest="api_command", required=True)
-    api_serve = api_sub.add_parser("serve", parents=[subcommand_global_options])
-    api_serve.add_argument("--host", default="127.0.0.1")
-    api_serve.add_argument("--port", type=int, default=0)
-    api_serve.add_argument("--token")
-    api_serve.add_argument("--allow-dev-cors", action="store_true")
-    api_serve.add_argument("--no-token-dev", action="store_true")
+    api.register(subparsers, [subcommand_global_options])
 
     subtitle = subparsers.add_parser("subtitle", parents=[subcommand_global_options])
     subtitle_sub = subtitle.add_subparsers(dest="subtitle_command", required=True)
@@ -265,19 +243,16 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "version":
         _emit({"ok": True, "version": __version__}, args.json_output, __version__)
         return 0
-    if args.command == "init":
-        return _init_project(args)
+    for module in (projects, plugins, api):
+        result = module.dispatch(args)
+        if result is not None:
+            return result
     if args.command == "resume":
         return _resume(args)
     if args.command == "abort":
         return _abort(args)
     if args.command == "unlock":
         return _unlock(args)
-    if args.command == "project":
-        if args.project_command == "list":
-            return _project_list(args)
-        if args.project_command == "info":
-            return _project_info(args)
     if args.command == "validate":
         return _validate(args)
     if args.command == "run":
@@ -301,11 +276,6 @@ def _dispatch(args: argparse.Namespace) -> int:
             return _artifact_list(args)
         if args.artifact_command == "show":
             return _artifact_show(args)
-    if args.command == "plugin":
-        if args.plugin_command == "list":
-            return _plugin_list(args)
-        if args.plugin_command == "info":
-            return _plugin_info(args)
     if args.command == "settings":
         if args.settings_command == "show":
             return _settings_show(args)
@@ -326,85 +296,12 @@ def _dispatch(args: argparse.Namespace) -> int:
             return _models_list(args)
     if args.command == "doctor":
         return _doctor(args)
-    if args.command == "api":
-        if args.api_command == "serve":
-            from openbbq.api.server import main as api_server_main
-
-            argv = [
-                "--project",
-                str(args.project),
-                "--host",
-                args.host,
-                "--port",
-                str(args.port),
-            ]
-            if args.config:
-                argv.extend(["--config", str(args.config)])
-            for plugin_path in args.plugins:
-                argv.extend(["--plugins", str(plugin_path)])
-            if args.token:
-                argv.extend(["--token", args.token])
-            if args.allow_dev_cors:
-                argv.append("--allow-dev-cors")
-            if args.no_token_dev:
-                argv.append("--no-token-dev")
-            return api_server_main(argv)
     if args.command == "subtitle":
         if args.subtitle_command == "local":
             return _subtitle_local(args)
         if args.subtitle_command == "youtube":
             return _subtitle_youtube(args)
     return 2
-
-
-def _init_project(args: argparse.Namespace) -> int:
-    result = init_project_command(
-        ProjectInitRequest(
-            project_root=Path(args.project),
-            config_path=Path(args.config) if args.config else None,
-        )
-    )
-    _emit(
-        {"ok": True, "config_path": str(result.config_path)},
-        args.json_output,
-        f"Initialized {result.config_path}",
-    )
-    return 0
-
-
-def _project_list(args: argparse.Namespace) -> int:
-    config = _load_config(args)
-    payload = {
-        "ok": True,
-        "projects": [
-            {
-                "id": config.project.id,
-                "name": config.project.name,
-                "root_path": str(config.root_path),
-            }
-        ],
-    }
-    _emit(payload, args.json_output, config.project.name)
-    return 0
-
-
-def _project_info(args: argparse.Namespace) -> int:
-    info = project_info_command(
-        project_root=Path(args.project),
-        config_path=Path(args.config) if args.config else None,
-        plugin_paths=tuple(Path(path) for path in args.plugins),
-    )
-    payload = {
-        "ok": True,
-        "project": {"id": info.id, "name": info.name},
-        "root_path": str(info.root_path),
-        "config_path": str(info.config_path),
-        "workflow_count": info.workflow_count,
-        "plugin_paths": [str(path) for path in info.plugin_paths],
-        "artifact_storage_path": str(info.artifact_storage_path),
-    }
-    _emit(payload, args.json_output, f"{info.name}: {info.workflow_count} workflow(s)")
-    return 0
 
 
 def _validate(args: argparse.Namespace) -> int:
@@ -613,34 +510,6 @@ def _latest_workflow_artifact_content(
     matches.sort(key=lambda item: item[0].updated_at)
     artifact, version = matches[-1]
     return artifact, version.content
-
-
-def _plugin_list(args: argparse.Namespace) -> int:
-    result = plugin_list_command(
-        project_root=Path(args.project),
-        config_path=Path(args.config) if args.config else None,
-        plugin_paths=tuple(Path(path) for path in args.plugins),
-    )
-    payload = {
-        "ok": True,
-        "plugins": list(result.plugins),
-        "invalid_plugins": list(result.invalid_plugins),
-        "warnings": list(result.warnings),
-    }
-    _emit(payload, args.json_output, "\n".join(plugin["name"] for plugin in result.plugins))
-    return 0
-
-
-def _plugin_info(args: argparse.Namespace) -> int:
-    result = plugin_info_command(
-        project_root=Path(args.project),
-        config_path=Path(args.config) if args.config else None,
-        plugin_paths=tuple(Path(path) for path in args.plugins),
-        plugin_name=args.name,
-    )
-    payload = {"ok": True, "plugin": result.plugin}
-    _emit(payload, args.json_output, result.plugin["name"])
-    return 0
 
 
 def _settings_show(args: argparse.Namespace) -> int:
