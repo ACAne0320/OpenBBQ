@@ -14,8 +14,6 @@
 
 - Create: `tests/helpers.py`
   - Owns fixture project copying and standard API client construction for tests.
-- Create: `tests/__init__.py`
-  - Marks `tests` as an importable package so test modules can use `from tests.helpers import ...` reliably under pytest.
 - Create: `tests/test_helpers.py`
   - Verifies helper behavior before migrating existing tests.
 - Modify: `tests/test_api_events.py`
@@ -50,19 +48,10 @@ Do not migrate these helpers in this plan because they create custom inline proj
 ### Task 1: Add tests for shared helpers
 
 **Files:**
-- Create: `tests/__init__.py`
 - Create: `tests/test_helpers.py`
 - Later create: `tests/helpers.py`
 
-- [ ] **Step 1: Mark the test directory as an importable package**
-
-Create `tests/__init__.py` with this content:
-
-```python
-"""Test support package for OpenBBQ."""
-```
-
-- [ ] **Step 2: Write failing tests for fixture copying and authenticated API clients**
+- [ ] **Step 1: Write failing tests for fixture copying and authenticated API clients**
 
 Create `tests/test_helpers.py` with this content:
 
@@ -93,7 +82,7 @@ def test_authed_client_returns_standard_token_headers(tmp_path):
     assert response.json()["data"]["name"] == "Text Basic"
 ```
 
-- [ ] **Step 3: Run helper tests and verify they fail because the helper module is missing**
+- [ ] **Step 2: Run helper tests and verify they fail because the helper module is missing**
 
 Run:
 
@@ -103,10 +92,10 @@ uv run pytest tests/test_helpers.py -q
 
 Expected: FAIL with `ModuleNotFoundError: No module named 'tests.helpers'`.
 
-- [ ] **Step 4: Commit the failing helper tests**
+- [ ] **Step 3: Commit the failing helper tests**
 
 ```bash
-git add tests/__init__.py tests/test_helpers.py
+git add tests/test_helpers.py
 git commit -m "test: Cover shared test helpers"
 ```
 
