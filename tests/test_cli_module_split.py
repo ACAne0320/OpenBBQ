@@ -85,7 +85,7 @@ def test_parser_accepts_representative_command_groups():
         assert (args.command, _subcommand(args)) == expected
 
 
-def test_dispatch_delegates_project_plugin_api_and_workflow_modules(monkeypatch):
+def test_dispatch_delegates_project_plugin_api_workflow_and_artifact_modules(monkeypatch):
     app = importlib.import_module("openbbq.cli.app")
     calls = []
 
@@ -105,10 +105,15 @@ def test_dispatch_delegates_project_plugin_api_and_workflow_modules(monkeypatch)
         calls.append(("workflows", args.command))
         return 10 if args.command == "validate" else None
 
+    def artifact_dispatch(args):
+        calls.append(("artifacts", args.command))
+        return 11 if args.command == "artifact" else None
+
     monkeypatch.setattr(app.projects, "dispatch", project_dispatch)
     monkeypatch.setattr(app.plugins, "dispatch", plugin_dispatch)
     monkeypatch.setattr(app.api, "dispatch", api_dispatch)
     monkeypatch.setattr(app.workflows, "dispatch", workflow_dispatch)
+    monkeypatch.setattr(app.artifacts, "dispatch", artifact_dispatch)
 
     common = {
         "json_output": False,
@@ -136,6 +141,16 @@ def test_dispatch_delegates_project_plugin_api_and_workflow_modules(monkeypatch)
         ("workflows", "validate"),
     ]
 
+    calls.clear()
+    assert app._dispatch(Namespace(command="artifact", artifact_command="list", **common)) == 11
+    assert calls == [
+        ("projects", "artifact"),
+        ("plugins", "artifact"),
+        ("api", "artifact"),
+        ("workflows", "artifact"),
+        ("artifacts", "artifact"),
+    ]
+
 
 def test_app_no_longer_defines_project_or_plugin_handlers():
     app = importlib.import_module("openbbq.cli.app")
@@ -154,6 +169,10 @@ def test_app_no_longer_defines_project_or_plugin_handlers():
         "_status",
         "_logs",
         "_format_event",
+        "_artifact_list",
+        "_artifact_diff",
+        "_artifact_import",
+        "_artifact_show",
     ):
         assert not hasattr(app, handler_name)
 

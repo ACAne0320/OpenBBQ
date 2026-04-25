@@ -10,10 +10,7 @@ from typing import Any
 from openbbq import __version__
 from openbbq.application.artifacts import (
     ArtifactImportRequest,
-    diff_artifact_versions as diff_artifact_versions_command,
     import_artifact,
-    list_artifacts as list_artifacts_command,
-    show_artifact,
 )
 from openbbq.application.diagnostics import doctor as doctor_command
 from openbbq.application.runtime import (
@@ -33,7 +30,7 @@ from openbbq.application.workflows import (
     run_workflow_command,
     workflow_status,
 )
-from openbbq.cli import api, plugins, projects, workflows
+from openbbq.cli import api, artifacts, plugins, projects, workflows
 from openbbq.application.quickstart import (
     DEFAULT_YOUTUBE_QUALITY,
     write_local_subtitle_workflow,
@@ -46,14 +43,11 @@ from openbbq.cli.context import (
 from openbbq.cli.output import (
     emit as _emit,
     emit_error as _emit_error,
-    jsonable_content as _jsonable_content,
 )
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.runtime.settings import load_runtime_settings
 from openbbq.storage.models import ArtifactRecord
 from openbbq.storage.project_store import ProjectStore
-
-FILE_BACKED_IMPORT_TYPES = frozenset({"audio", "image", "video"})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -80,23 +74,7 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("version", parents=[subcommand_global_options])
     projects.register(subparsers, [subcommand_global_options])
     workflows.register(subparsers, [subcommand_global_options])
-
-    artifact = subparsers.add_parser("artifact", parents=[subcommand_global_options])
-    artifact_sub = artifact.add_subparsers(dest="artifact_command", required=True)
-    artifact_list = artifact_sub.add_parser("list", parents=[subcommand_global_options])
-    artifact_list.add_argument("--workflow")
-    artifact_list.add_argument("--step")
-    artifact_list.add_argument("--type", dest="artifact_type")
-    artifact_show = artifact_sub.add_parser("show", parents=[subcommand_global_options])
-    artifact_show.add_argument("artifact_id")
-    artifact_diff = artifact_sub.add_parser("diff", parents=[subcommand_global_options])
-    artifact_diff.add_argument("from_version")
-    artifact_diff.add_argument("to_version")
-    artifact_import = artifact_sub.add_parser("import", parents=[subcommand_global_options])
-    artifact_import.add_argument("path")
-    artifact_import.add_argument("--type", dest="artifact_type", required=True)
-    artifact_import.add_argument("--name", required=True)
-
+    artifacts.register(subparsers, [subcommand_global_options])
     plugins.register(subparsers, [subcommand_global_options])
 
     settings = subparsers.add_parser("settings", parents=[subcommand_global_options])
@@ -216,19 +194,10 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "version":
         _emit({"ok": True, "version": __version__}, args.json_output, __version__)
         return 0
-    for module in (projects, plugins, api, workflows):
+    for module in (projects, plugins, api, workflows, artifacts):
         result = module.dispatch(args)
         if result is not None:
             return result
-    if args.command == "artifact":
-        if args.artifact_command == "diff":
-            return _artifact_diff(args)
-        if args.artifact_command == "import":
-            return _artifact_import(args)
-        if args.artifact_command == "list":
-            return _artifact_list(args)
-        if args.artifact_command == "show":
-            return _artifact_show(args)
     if args.command == "settings":
         if args.settings_command == "show":
             return _settings_show(args)
@@ -255,64 +224,6 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.subtitle_command == "youtube":
             return _subtitle_youtube(args)
     return 2
-
-
-def _artifact_list(args: argparse.Namespace) -> int:
-    artifacts = list_artifacts_command(
-        project_root=Path(args.project),
-        config_path=Path(args.config) if args.config else None,
-        workflow_id=args.workflow,
-        step_id=args.step,
-        artifact_type=args.artifact_type,
-    )
-    payload = {"ok": True, "artifacts": artifacts}
-    _emit(payload, args.json_output, "\n".join(artifact.id for artifact in artifacts))
-    return 0
-
-
-def _artifact_diff(args: argparse.Namespace) -> int:
-    result = diff_artifact_versions_command(
-        project_root=Path(args.project),
-        config_path=Path(args.config) if args.config else None,
-        from_version=args.from_version,
-        to_version=args.to_version,
-    )
-    payload = {"ok": True, **result}
-    _emit(payload, args.json_output, result["diff"])
-    return 0
-
-
-def _artifact_import(args: argparse.Namespace) -> int:
-    result = import_artifact(
-        ArtifactImportRequest(
-            project_root=Path(args.project),
-            config_path=Path(args.config) if args.config else None,
-            path=Path(args.path),
-            artifact_type=args.artifact_type,
-            name=args.name,
-        )
-    )
-    payload = {"ok": True, "artifact": result.artifact, "version": result.version.record}
-    _emit(payload, args.json_output, result.artifact.id)
-    return 0
-
-
-def _artifact_show(args: argparse.Namespace) -> int:
-    result = show_artifact(
-        project_root=Path(args.project),
-        config_path=Path(args.config) if args.config else None,
-        artifact_id=args.artifact_id,
-    )
-    payload = {
-        "ok": True,
-        "artifact": result.artifact,
-        "current_version": {
-            "record": result.current_version.record,
-            "content": _jsonable_content(result.current_version.content),
-        },
-    }
-    _emit(payload, args.json_output, _jsonable_content(result.current_version.content))
-    return 0
 
 
 def _latest_workflow_artifact_content(
