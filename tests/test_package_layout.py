@@ -16,7 +16,16 @@ def test_cli_app_does_not_keep_obsolete_slice_guard() -> None:
 
 def test_new_package_modules_are_importable() -> None:
     modules = [
+        "openbbq.cli.api",
         "openbbq.cli.app",
+        "openbbq.cli.artifacts",
+        "openbbq.cli.context",
+        "openbbq.cli.output",
+        "openbbq.cli.plugins",
+        "openbbq.cli.projects",
+        "openbbq.cli.quickstart",
+        "openbbq.cli.runtime",
+        "openbbq.cli.workflows",
         "openbbq.config.loader",
         "openbbq.domain.models",
         "openbbq.engine.service",

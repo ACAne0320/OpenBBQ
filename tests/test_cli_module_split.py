@@ -136,18 +136,28 @@ def test_dispatch_delegates_project_plugin_api_workflow_artifact_and_runtime_mod
 
     calls.clear()
     assert app._dispatch(Namespace(command="plugin", plugin_command="list", **common)) == 8
-    assert calls == [("projects", "plugin"), ("plugins", "plugin")]
+    assert calls == [
+        ("projects", "plugin"),
+        ("workflows", "plugin"),
+        ("artifacts", "plugin"),
+        ("plugins", "plugin"),
+    ]
 
     calls.clear()
     assert app._dispatch(Namespace(command="api", api_command="serve", **common)) == 9
-    assert calls == [("projects", "api"), ("plugins", "api"), ("api", "api")]
+    assert calls == [
+        ("projects", "api"),
+        ("workflows", "api"),
+        ("artifacts", "api"),
+        ("plugins", "api"),
+        ("runtime", "api"),
+        ("api", "api"),
+    ]
 
     calls.clear()
     assert app._dispatch(Namespace(command="validate", workflow="text-demo", **common)) == 10
     assert calls == [
         ("projects", "validate"),
-        ("plugins", "validate"),
-        ("api", "validate"),
         ("workflows", "validate"),
     ]
 
@@ -155,8 +165,6 @@ def test_dispatch_delegates_project_plugin_api_workflow_artifact_and_runtime_mod
     assert app._dispatch(Namespace(command="artifact", artifact_command="list", **common)) == 11
     assert calls == [
         ("projects", "artifact"),
-        ("plugins", "artifact"),
-        ("api", "artifact"),
         ("workflows", "artifact"),
         ("artifacts", "artifact"),
     ]
@@ -165,10 +173,9 @@ def test_dispatch_delegates_project_plugin_api_workflow_artifact_and_runtime_mod
     assert app._dispatch(Namespace(command="settings", settings_command="show", **common)) == 12
     assert calls == [
         ("projects", "settings"),
-        ("plugins", "settings"),
-        ("api", "settings"),
         ("workflows", "settings"),
         ("artifacts", "settings"),
+        ("plugins", "settings"),
         ("runtime", "settings"),
     ]
 
@@ -176,11 +183,11 @@ def test_dispatch_delegates_project_plugin_api_workflow_artifact_and_runtime_mod
     assert app._dispatch(Namespace(command="subtitle", subtitle_command="local", **common)) == 13
     assert calls == [
         ("projects", "subtitle"),
-        ("plugins", "subtitle"),
-        ("api", "subtitle"),
         ("workflows", "subtitle"),
         ("artifacts", "subtitle"),
+        ("plugins", "subtitle"),
         ("runtime", "subtitle"),
+        ("api", "subtitle"),
         ("quickstart", "subtitle"),
     ]
 

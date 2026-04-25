@@ -12,6 +12,16 @@ from openbbq.cli.output import (
 )
 from openbbq.errors import OpenBBQError
 
+_COMMAND_MODULES = (
+    projects,
+    workflows,
+    artifacts,
+    plugins,
+    runtime,
+    api,
+    quickstart,
+)
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
@@ -35,14 +45,8 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("version", parents=[subcommand_global_options])
-    projects.register(subparsers, [subcommand_global_options])
-    workflows.register(subparsers, [subcommand_global_options])
-    artifacts.register(subparsers, [subcommand_global_options])
-    plugins.register(subparsers, [subcommand_global_options])
-
-    runtime.register(subparsers, [subcommand_global_options])
-    api.register(subparsers, [subcommand_global_options])
-    quickstart.register(subparsers, [subcommand_global_options])
+    for command_module in _COMMAND_MODULES:
+        command_module.register(subparsers, [subcommand_global_options])
 
     return parser
 
@@ -88,8 +92,8 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "version":
         _emit({"ok": True, "version": __version__}, args.json_output, __version__)
         return 0
-    for module in (projects, plugins, api, workflows, artifacts, runtime, quickstart):
-        result = module.dispatch(args)
+    for command_module in _COMMAND_MODULES:
+        result = command_module.dispatch(args)
         if result is not None:
             return result
     return 2
