@@ -76,12 +76,17 @@ These audit items are complete enough to mark as closed:
     public load/write orchestration facade, preserving user database provider
     precedence, and reusing `model_payload()` for trivial runtime payload
     methods.
+- **P2: Config loader performs several phases in one file**
+  - Completed by splitting YAML/raw helpers into `src/openbbq/config/raw.py`,
+    path and plugin path helpers into `src/openbbq/config/paths.py`, and
+    workflow/step/input reference construction into
+    `src/openbbq/config/workflows.py`, with `src/openbbq/config/loader.py`
+    retained as the public `load_project_config()` orchestration facade.
 
 ### Remaining
 
 These items still need focused cleanup:
 
-- **P2: Config loader performs several phases in one file**
 - **P2: Storage database repository repeats serialization and upsert patterns**
 - **P2: Large test modules reduce failure locality**
 - **P3: Dynamic payload typing is necessary at boundaries but sometimes leaks
@@ -93,25 +98,22 @@ These items still need focused cleanup:
 
 The remaining cleanup should happen as separate slices, in this order:
 
-1. **Config loader phase cleanup**
-   - Split parsing, path normalization, Pydantic model construction, and
-     workflow validation helpers without changing existing exception messages.
-2. **Storage database helper cleanup**
+1. **Storage database helper cleanup**
    - Add private helpers for JSON serialization and repeated row-to-model
      mapping where SQL shapes are already identical.
    - Avoid hiding record-specific queries behind a premature repository
      abstraction.
-3. **Large test module split**
+2. **Large test module split**
    - Split only files touched by the previous cleanup slices or files where
      failure locality clearly improves.
    - Prefer grouping by plugin family, CLI command group, or storage record
      family.
-4. **Typed internal payloads**
+3. **Typed internal payloads**
    - Add typed internal models only where payloads are transformed repeatedly,
      especially transcript and translation segments.
    - Keep `dict[str, Any]` and JSON-like data at plugin, artifact, and config
      boundaries.
-5. **Missing-state domain errors**
+4. **Missing-state domain errors**
    - First add characterization tests for current `FileNotFoundError` and
      missing-state behavior.
    - Then introduce domain-specific errors at application/service boundaries
@@ -159,6 +161,7 @@ The audit register is considered fully closed when:
 
 ## Next slice
 
-The next implementation slice should be **Config loader phase cleanup**. It
-should split parsing, path normalization, Pydantic model construction, and
-workflow validation helpers without changing existing exception messages.
+The next implementation slice should be **Storage database helper cleanup**.
+It should add private helpers for JSON serialization and repeated row-to-model
+mapping where SQL shapes are already identical, while avoiding a premature
+repository abstraction.
