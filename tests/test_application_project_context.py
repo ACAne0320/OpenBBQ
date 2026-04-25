@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from openbbq.application.project_context import (
     load_project_context,
     project_store_from_config,
@@ -11,9 +9,12 @@ from tests.helpers import write_project_fixture
 def test_project_store_from_config_uses_configured_storage_roots(tmp_path):
     project = write_project_fixture(tmp_path, "text-basic")
     config_path = project / "openbbq.yaml"
+    source = config_path.read_text(encoding="utf-8")
+    target = "storage:\n  root: .openbbq\n"
+    assert target in source
     config_path.write_text(
-        config_path.read_text(encoding="utf-8").replace(
-            "storage:\n  root: .openbbq\n",
+        source.replace(
+            target,
             "storage:\n"
             "  root: runtime-root\n"
             "  artifacts: artifact-store\n"
