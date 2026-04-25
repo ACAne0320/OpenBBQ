@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from openbbq.api.context import active_project_settings
 from openbbq.api.schemas import (
     ApiSuccess,
     DoctorData,
@@ -28,7 +29,6 @@ from openbbq.application.runtime import (
 )
 from openbbq.application.runtime import SecretSetRequest as ApplicationSecretSetRequest
 from openbbq.application.runtime import SecretCheckResult
-from openbbq.errors import ValidationError
 
 router = APIRouter(tags=["runtime"])
 
@@ -86,9 +86,7 @@ def get_models() -> ApiSuccess[ModelListData]:
 
 @router.get("/doctor", response_model=ApiSuccess[DoctorData])
 def get_doctor(request: Request, workflow_id: str | None = None) -> ApiSuccess[DoctorData]:
-    settings = request.app.state.openbbq_settings
-    if settings.project_root is None:
-        raise ValidationError("API sidecar does not have an active project root.")
+    settings = active_project_settings(request)
     result = doctor(
         project_root=settings.project_root,
         config_path=settings.config_path,
