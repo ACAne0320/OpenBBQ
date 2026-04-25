@@ -5,6 +5,12 @@ import json
 import re
 from typing import Any
 
+from openbbq.builtin_plugins.llm import (
+    completion_content,
+    default_openai_client_factory,
+    parse_indexed_text_items,
+    segment_chunks,
+)
 from openbbq.builtin_plugins.glossary.rules import normalize_rules
 from openbbq.runtime.provider import llm_provider_from_request
 
@@ -68,7 +74,11 @@ def _run_correct(request: dict, *, client_factory=None) -> dict:
     client = client_factory(api_key=provider.api_key, base_url=provider.base_url)
     segments = _segments(request, error_prefix="transcript.correct")
     corrected_segments: list[dict[str, Any]] = []
-    for chunk in _segment_chunks(segments, max_segments_per_request):
+    for chunk in segment_chunks(
+        segments,
+        max_segments_per_request,
+        error_prefix="transcript.correct",
+    ):
         corrected_segments.extend(
             _correct_chunk(
                 client=client,
@@ -150,14 +160,7 @@ def _run_segment(request: dict) -> dict:
     }
 
 
-def _default_client_factory(*, api_key: str, base_url: str | None):
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise RuntimeError(
-            "openai is not installed. Install OpenBBQ with the llm optional dependencies."
-        ) from exc
-    return OpenAI(api_key=api_key, base_url=base_url)
+_default_client_factory = default_openai_client_factory
 
 
 def _correct_chunk(
@@ -244,7 +247,7 @@ def _correct_chunk_once(
         ],
     )
     corrected_items = _parse_correction_response(
-        _completion_content(completion),
+        completion_content(completion, error_prefix="transcript.correct"),
         expected_count=len(chunk),
     )
     output_segments: list[dict[str, Any]] = []
@@ -327,28 +330,15 @@ def _correction_segment_payload(
 
 
 def _parse_correction_response(content: str, *, expected_count: int) -> list[dict[str, Any]]:
-    try:
-        raw = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise ValueError("transcript.correct model response was not valid JSON.") from exc
-    if not isinstance(raw, list):
-        raise ValueError("transcript.correct model response must be an array.")
-    if len(raw) != expected_count:
-        raise ValueError(
-            f"transcript.correct expected {expected_count} corrected segments, got {len(raw)}."
-        )
+    raw_items = parse_indexed_text_items(
+        content,
+        expected_count=expected_count,
+        error_prefix="transcript.correct",
+        item_label="corrected segment",
+    )
     parsed = []
-    for expected_index, item in enumerate(raw):
-        if not isinstance(item, dict):
-            raise ValueError("transcript.correct corrected segments must be objects.")
-        if item.get("index") != expected_index:
-            raise ValueError(
-                "transcript.correct expected corrected segment index "
-                f"{expected_index}, got {item.get('index')}."
-            )
-        text = item.get("text")
-        if not isinstance(text, str):
-            raise ValueError("transcript.correct corrected segment text must be a string.")
+    for expected_index, item in enumerate(raw_items):
+        text = item["text"]
         status = item.get("status")
         if status is not None and status not in {"unchanged", "corrected", "uncertain"}:
             raise ValueError("transcript.correct corrected segment status is invalid.")
@@ -583,20 +573,3 @@ def _segments(request: dict, *, error_prefix: str) -> list[dict[str, Any]]:
         if "start" not in segment or "end" not in segment:
             raise ValueError(f"{error_prefix} transcript segments must include start and end.")
     return content
-
-
-def _completion_content(completion: Any) -> str:
-    choices = getattr(completion, "choices", None)
-    if not choices:
-        raise ValueError("transcript.correct received no choices from the model.")
-    message = getattr(choices[0], "message", None)
-    content = getattr(message, "content", None)
-    if not isinstance(content, str):
-        raise ValueError("transcript.correct model response content must be a string.")
-    return content
-
-
-def _segment_chunks(segments: list[dict[str, Any]], chunk_size: int) -> list[list[dict[str, Any]]]:
-    if chunk_size <= 0:
-        raise ValueError("transcript.correct chunk size must be positive.")
-    return [segments[index : index + chunk_size] for index in range(0, len(segments), chunk_size)]

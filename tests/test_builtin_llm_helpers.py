@@ -146,3 +146,32 @@ def test_default_openai_client_factory_preserves_missing_dependency_message(monk
         ),
     ):
         llm.default_openai_client_factory(api_key="sk-test", base_url=None)
+
+
+def test_transcript_correction_response_accepts_correction_specific_fields() -> None:
+    transcript_plugin = importlib.import_module("openbbq.builtin_plugins.transcript.plugin")
+
+    assert transcript_plugin._parse_correction_response(
+        '[{"index": 0, "text": "Hello", "status": "uncertain", "uncertain_reason": "noise"}]',
+        expected_count=1,
+    ) == [
+        {
+            "index": 0,
+            "text": "Hello",
+            "status": "uncertain",
+            "uncertain_reason": "noise",
+        }
+    ]
+
+
+def test_transcript_correction_response_rejects_invalid_status() -> None:
+    transcript_plugin = importlib.import_module("openbbq.builtin_plugins.transcript.plugin")
+
+    with pytest.raises(
+        ValueError,
+        match=re.escape("transcript.correct corrected segment status is invalid."),
+    ):
+        transcript_plugin._parse_correction_response(
+            '[{"index": 0, "text": "Hello", "status": "bad"}]',
+            expected_count=1,
+        )
