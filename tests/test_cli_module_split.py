@@ -113,12 +113,17 @@ def test_dispatch_delegates_project_plugin_api_workflow_artifact_and_runtime_mod
         calls.append(("runtime", args.command))
         return 12 if args.command == "settings" else None
 
+    def quickstart_dispatch(args):
+        calls.append(("quickstart", args.command))
+        return 13 if args.command == "subtitle" else None
+
     monkeypatch.setattr(app.projects, "dispatch", project_dispatch)
     monkeypatch.setattr(app.plugins, "dispatch", plugin_dispatch)
     monkeypatch.setattr(app.api, "dispatch", api_dispatch)
     monkeypatch.setattr(app.workflows, "dispatch", workflow_dispatch)
     monkeypatch.setattr(app.artifacts, "dispatch", artifact_dispatch)
     monkeypatch.setattr(app.runtime, "dispatch", runtime_dispatch)
+    monkeypatch.setattr(app.quickstart, "dispatch", quickstart_dispatch)
 
     common = {
         "json_output": False,
@@ -167,6 +172,18 @@ def test_dispatch_delegates_project_plugin_api_workflow_artifact_and_runtime_mod
         ("runtime", "settings"),
     ]
 
+    calls.clear()
+    assert app._dispatch(Namespace(command="subtitle", subtitle_command="local", **common)) == 13
+    assert calls == [
+        ("projects", "subtitle"),
+        ("plugins", "subtitle"),
+        ("api", "subtitle"),
+        ("workflows", "subtitle"),
+        ("artifacts", "subtitle"),
+        ("runtime", "subtitle"),
+        ("quickstart", "subtitle"),
+    ]
+
 
 def test_app_no_longer_defines_split_command_handlers():
     app = importlib.import_module("openbbq.cli.app")
@@ -198,6 +215,9 @@ def test_app_no_longer_defines_split_command_handlers():
         "_models_list",
         "_doctor",
         "_secret_payload",
+        "_subtitle_local",
+        "_subtitle_youtube",
+        "_latest_workflow_artifact_content",
     ):
         assert not hasattr(app, handler_name)
 
