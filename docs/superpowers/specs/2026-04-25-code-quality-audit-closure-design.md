@@ -69,13 +69,18 @@ These audit items are complete enough to mark as closed:
     content extraction, indexed JSON response parsing, and segment chunking
     helpers into `src/openbbq/builtin_plugins/llm.py` while preserving
     transcript and translation plugin contracts.
+- **P2: Runtime settings validation is split between model validators and
+  loader helpers**
+  - Completed by adding `src/openbbq/runtime/settings_parser.py` as the raw
+    TOML parsing boundary, keeping `src/openbbq/runtime/settings.py` as the
+    public load/write orchestration facade, preserving user database provider
+    precedence, and reusing `model_payload()` for trivial runtime payload
+    methods.
 
 ### Remaining
 
 These items still need focused cleanup:
 
-- **P2: Runtime settings validation is split between model validators and
-  loader helpers**
 - **P2: Config loader performs several phases in one file**
 - **P2: Storage database repository repeats serialization and upsert patterns**
 - **P2: Large test modules reduce failure locality**
@@ -88,28 +93,25 @@ These items still need focused cleanup:
 
 The remaining cleanup should happen as separate slices, in this order:
 
-1. **Runtime settings boundary cleanup**
-   - Make raw settings parsing and validated runtime model ownership explicit.
-   - Remove only trivial serializer duplication when it improves call sites.
-2. **Config loader phase cleanup**
+1. **Config loader phase cleanup**
    - Split parsing, path normalization, Pydantic model construction, and
      workflow validation helpers without changing existing exception messages.
-3. **Storage database helper cleanup**
+2. **Storage database helper cleanup**
    - Add private helpers for JSON serialization and repeated row-to-model
      mapping where SQL shapes are already identical.
    - Avoid hiding record-specific queries behind a premature repository
      abstraction.
-4. **Large test module split**
+3. **Large test module split**
    - Split only files touched by the previous cleanup slices or files where
      failure locality clearly improves.
    - Prefer grouping by plugin family, CLI command group, or storage record
      family.
-5. **Typed internal payloads**
+4. **Typed internal payloads**
    - Add typed internal models only where payloads are transformed repeatedly,
      especially transcript and translation segments.
    - Keep `dict[str, Any]` and JSON-like data at plugin, artifact, and config
      boundaries.
-6. **Missing-state domain errors**
+5. **Missing-state domain errors**
    - First add characterization tests for current `FileNotFoundError` and
      missing-state behavior.
    - Then introduce domain-specific errors at application/service boundaries
@@ -157,7 +159,6 @@ The audit register is considered fully closed when:
 
 ## Next slice
 
-The next implementation slice should be **Runtime settings boundary cleanup**.
-It should make raw settings parsing and validated runtime model ownership
-explicit while preserving configuration precedence and provider validation
-messages.
+The next implementation slice should be **Config loader phase cleanup**. It
+should split parsing, path normalization, Pydantic model construction, and
+workflow validation helpers without changing existing exception messages.
