@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 from uuid import uuid4
 
 from pydantic import model_validator
@@ -37,6 +39,12 @@ class RunCreateRequest(OpenBBQModel):
             raise ValueError("force cannot be combined with step_id")
         return self
 
+
+class _RunCommandResult(Protocol):
+    status: str
+
+
+_TERMINAL_RUN_STATUSES = frozenset({"completed", "failed", "aborted"})
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="openbbq-run")
 
@@ -132,16 +140,8 @@ def resume_run(
 
 
 def _execute_run(run_id: str, request: RunCreateRequest) -> None:
-    context = load_project_context(
-        request.project_root,
-        config_path=request.config_path,
-        plugin_paths=request.plugin_paths,
-    )
-    store = context.store
-    run = read_run(store.state_base, run_id)
-    write_run(store.state_base, run.model_copy(update={"status": "running", "started_at": _now()}))
-    try:
-        result = run_workflow_command(
+    def command() -> _RunCommandResult:
+        return run_workflow_command(
             WorkflowRunRequest(
                 project_root=request.project_root,
                 config_path=request.config_path,
@@ -151,36 +151,31 @@ def _execute_run(run_id: str, request: RunCreateRequest) -> None:
                 step_id=request.step_id,
             )
         )
-    except OpenBBQError as exc:
-        _mark_run_failed(
-            store,
-            run_id=run_id,
-            workflow_id=request.workflow_id,
-            code=exc.code,
-            message=exc.message,
-        )
-        return
-    except Exception as exc:
-        _mark_run_failed(
-            store,
-            run_id=run_id,
-            workflow_id=request.workflow_id,
-            code="internal_error",
-            message=str(exc),
-        )
-        return
-    latest = store.latest_event_sequence(request.workflow_id)
-    completed = read_run(store.state_base, run_id).model_copy(
-        update={
-            "status": result.status,
-            "completed_at": _now() if result.status in {"completed", "failed", "aborted"} else None,
-            "latest_event_sequence": latest,
-        }
-    )
-    write_run(store.state_base, completed)
+
+    _execute_run_lifecycle(run_id, request, command)
 
 
 def _execute_resume(run_id: str, request: RunCreateRequest) -> None:
+    def command() -> _RunCommandResult:
+        return resume_workflow_command(
+            WorkflowCommandRequest(
+                project_root=request.project_root,
+                config_path=request.config_path,
+                plugin_paths=request.plugin_paths,
+                workflow_id=request.workflow_id,
+            )
+        )
+
+    _execute_run_lifecycle(run_id, request, command, clear_error_on_success=True)
+
+
+def _execute_run_lifecycle(
+    run_id: str,
+    request: RunCreateRequest,
+    command: Callable[[], _RunCommandResult],
+    *,
+    clear_error_on_success: bool = False,
+) -> None:
     context = load_project_context(
         request.project_root,
         config_path=request.config_path,
@@ -190,14 +185,7 @@ def _execute_resume(run_id: str, request: RunCreateRequest) -> None:
     run = read_run(store.state_base, run_id)
     write_run(store.state_base, run.model_copy(update={"status": "running", "started_at": _now()}))
     try:
-        result = resume_workflow_command(
-            WorkflowCommandRequest(
-                project_root=request.project_root,
-                config_path=request.config_path,
-                plugin_paths=request.plugin_paths,
-                workflow_id=request.workflow_id,
-            )
-        )
+        result = command()
     except OpenBBQError as exc:
         _mark_run_failed(
             store,
@@ -216,15 +204,14 @@ def _execute_resume(run_id: str, request: RunCreateRequest) -> None:
             message=str(exc),
         )
         return
-    latest = store.latest_event_sequence(request.workflow_id)
-    completed = read_run(store.state_base, run_id).model_copy(
-        update={
-            "status": result.status,
-            "completed_at": _now() if result.status in {"completed", "failed", "aborted"} else None,
-            "latest_event_sequence": latest,
-            "error": None,
-        }
-    )
+    update = {
+        "status": result.status,
+        "completed_at": _now() if result.status in _TERMINAL_RUN_STATUSES else None,
+        "latest_event_sequence": store.latest_event_sequence(request.workflow_id),
+    }
+    if clear_error_on_success:
+        update["error"] = None
+    completed = read_run(store.state_base, run_id).model_copy(update=update)
     write_run(store.state_base, completed)
 
 
@@ -243,7 +230,7 @@ def _sync_run_from_workflow_state(*, project_root: Path, run_id: str, run: RunRe
     updated = read_run(store.state_base, run_id).model_copy(
         update={
             "status": state.status,
-            "completed_at": _now() if state.status in {"completed", "failed", "aborted"} else None,
+            "completed_at": _now() if state.status in _TERMINAL_RUN_STATUSES else None,
             "latest_event_sequence": latest,
         }
     )
