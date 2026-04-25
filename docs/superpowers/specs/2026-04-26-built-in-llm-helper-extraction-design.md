@@ -109,7 +109,10 @@ The module should own only generic OpenAI-compatible and JSON-list mechanics:
   - Validates array shape, expected count, zero-based indexes, and string text.
   - Preserves existing error wording by receiving the plugin-specific
     `item_label`, for example `translated segment` or `corrected segment`.
-  - Returns normalized `{"index": int, "text": str}` items.
+  - Returns validated item copies with `index` normalized to the expected
+    zero-based integer and `text` preserved as the validated string.
+  - Keeps any additional item fields so transcript correction can validate
+    `status` and `uncertain_reason` without parsing the same JSON twice.
 
 Keep plugin-specific behavior in each plugin module:
 
