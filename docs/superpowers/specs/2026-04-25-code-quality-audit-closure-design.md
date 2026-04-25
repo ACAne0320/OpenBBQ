@@ -82,12 +82,16 @@ These audit items are complete enough to mark as closed:
     workflow/step/input reference construction into
     `src/openbbq/config/workflows.py`, with `src/openbbq/config/loader.py`
     retained as the public `load_project_config()` orchestration facade.
+- **P2: Storage database repository repeats serialization and upsert patterns**
+  - Completed by extracting deterministic JSON serialization, nullable JSON
+    serialization, row upsert, and record-json reconstruction into
+    `src/openbbq/storage/database_records.py`, while keeping
+    `ProjectDatabase` record-specific queries and column assignments explicit.
 
 ### Remaining
 
 These items still need focused cleanup:
 
-- **P2: Storage database repository repeats serialization and upsert patterns**
 - **P2: Large test modules reduce failure locality**
 - **P3: Dynamic payload typing is necessary at boundaries but sometimes leaks
   inward**
@@ -98,22 +102,17 @@ These items still need focused cleanup:
 
 The remaining cleanup should happen as separate slices, in this order:
 
-1. **Storage database helper cleanup**
-   - Add private helpers for JSON serialization and repeated row-to-model
-     mapping where SQL shapes are already identical.
-   - Avoid hiding record-specific queries behind a premature repository
-     abstraction.
-2. **Large test module split**
+1. **Large test module split**
    - Split only files touched by the previous cleanup slices or files where
      failure locality clearly improves.
    - Prefer grouping by plugin family, CLI command group, or storage record
      family.
-3. **Typed internal payloads**
+2. **Typed internal payloads**
    - Add typed internal models only where payloads are transformed repeatedly,
      especially transcript and translation segments.
    - Keep `dict[str, Any]` and JSON-like data at plugin, artifact, and config
      boundaries.
-4. **Missing-state domain errors**
+3. **Missing-state domain errors**
    - First add characterization tests for current `FileNotFoundError` and
      missing-state behavior.
    - Then introduce domain-specific errors at application/service boundaries
@@ -161,7 +160,6 @@ The audit register is considered fully closed when:
 
 ## Next slice
 
-The next implementation slice should be **Storage database helper cleanup**.
-It should add private helpers for JSON serialization and repeated row-to-model
-mapping where SQL shapes are already identical, while avoiding a premature
-repository abstraction.
+The next implementation slice should be **Large test module split**. It should
+split only files where failure locality clearly improves, starting with storage
+tests that now cover both repository behavior and extracted database helpers.
