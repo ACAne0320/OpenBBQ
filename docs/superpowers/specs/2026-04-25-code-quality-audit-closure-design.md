@@ -59,12 +59,16 @@ These audit items are complete enough to mark as closed:
   - Completed by the CLI command split into focused modules under
     `src/openbbq/cli/`, with `src/openbbq/cli/app.py` retained as the thin entry
     point and parser/dispatch orchestrator.
+- **P2: Plugin registry has multiple responsibilities in one module**
+  - Completed by the plugin registry boundary split into focused model,
+    manifest parsing, discovery, and execution modules under
+    `src/openbbq/plugins/`, with `src/openbbq/plugins/registry.py` retained as
+    the public compatibility module.
 
 ### Remaining
 
 These items still need focused cleanup:
 
-- **P2: Plugin registry has multiple responsibilities in one module**
 - **P2: Built-in LLM plugins duplicate client and JSON-response plumbing**
 - **P2: Runtime settings validation is split between model validators and
   loader helpers**
@@ -80,37 +84,33 @@ These items still need focused cleanup:
 
 The remaining cleanup should happen as separate slices, in this order:
 
-1. **Plugin registry boundary split**
-   - Separate manifest parsing, plugin module loading, tool execution, and
-     registry lookup helpers while preserving `discover_plugins()` and the
-     current registry API.
-2. **Built-in LLM helper extraction**
+1. **Built-in LLM helper extraction**
    - Extract shared client setup, completion-content extraction, JSON list
      parsing, and chunk validation helpers used by transcript correction and
      translation.
    - Preserve plugin tool contracts and deterministic fixture behavior.
-3. **Runtime settings boundary cleanup**
+2. **Runtime settings boundary cleanup**
    - Make raw settings parsing and validated runtime model ownership explicit.
    - Remove only trivial serializer duplication when it improves call sites.
-4. **Config loader phase cleanup**
+3. **Config loader phase cleanup**
    - Split parsing, path normalization, Pydantic model construction, and
      workflow validation helpers without changing existing exception messages.
-5. **Storage database helper cleanup**
+4. **Storage database helper cleanup**
    - Add private helpers for JSON serialization and repeated row-to-model
      mapping where SQL shapes are already identical.
    - Avoid hiding record-specific queries behind a premature repository
      abstraction.
-6. **Large test module split**
+5. **Large test module split**
    - Split only files touched by the previous cleanup slices or files where
      failure locality clearly improves.
    - Prefer grouping by plugin family, CLI command group, or storage record
      family.
-7. **Typed internal payloads**
+6. **Typed internal payloads**
    - Add typed internal models only where payloads are transformed repeatedly,
      especially transcript and translation segments.
    - Keep `dict[str, Any]` and JSON-like data at plugin, artifact, and config
      boundaries.
-8. **Missing-state domain errors**
+7. **Missing-state domain errors**
    - First add characterization tests for current `FileNotFoundError` and
      missing-state behavior.
    - Then introduce domain-specific errors at application/service boundaries
@@ -158,6 +158,6 @@ The audit register is considered fully closed when:
 
 ## Next slice
 
-The next implementation slice should be **Plugin registry boundary split**. It
-is the highest-priority remaining P2 audit item and should preserve
-`discover_plugins()` and the current registry API.
+The next implementation slice should be **Built-in LLM helper extraction**. It
+is the highest-priority remaining P2 audit item and should preserve plugin tool
+contracts and deterministic fixture behavior.
