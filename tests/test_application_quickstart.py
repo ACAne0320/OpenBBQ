@@ -30,6 +30,20 @@ def test_youtube_workflow_template_is_packaged_as_workflow_dsl():
     assert "tool_ref: translation.translate" in template
 
 
+def test_quickstart_re_exports_template_constants_for_compatibility():
+    from openbbq.application.quickstart import (
+        LOCAL_SUBTITLE_TEMPLATE_NAME,
+        LOCAL_SUBTITLE_TEMPLATE_PACKAGE,
+        YOUTUBE_SUBTITLE_TEMPLATE_NAME,
+        YOUTUBE_SUBTITLE_TEMPLATE_PACKAGE,
+    )
+
+    assert YOUTUBE_SUBTITLE_TEMPLATE_PACKAGE == "openbbq.workflow_templates.youtube_subtitle"
+    assert YOUTUBE_SUBTITLE_TEMPLATE_NAME == "openbbq.yaml"
+    assert LOCAL_SUBTITLE_TEMPLATE_PACKAGE == "openbbq.workflow_templates.local_subtitle"
+    assert LOCAL_SUBTITLE_TEMPLATE_NAME == "openbbq.yaml"
+
+
 def test_direct_youtube_workflow_generation_renders_expected_config(tmp_path):
     generated = write_youtube_subtitle_workflow_direct(
         workspace_root=tmp_path,
