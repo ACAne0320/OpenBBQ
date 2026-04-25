@@ -14,7 +14,7 @@ from openbbq.application.workflows import (
     resume_workflow_command,
     run_workflow_command,
 )
-from openbbq.config.loader import load_project_config
+from openbbq.application.project_context import load_project_context
 from openbbq.domain.base import OpenBBQModel
 from openbbq.errors import ExecutionError, OpenBBQError, ValidationError
 from openbbq.storage.models import RunErrorRecord, RunRecord
@@ -42,19 +42,15 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="openbbq-run")
 
 
 def create_run(request: RunCreateRequest, *, execute_inline: bool = False) -> RunRecord:
-    config = load_project_config(
+    context = load_project_context(
         request.project_root,
         config_path=request.config_path,
-        extra_plugin_paths=request.plugin_paths,
+        plugin_paths=request.plugin_paths,
     )
-    workflow = config.workflows.get(request.workflow_id)
+    workflow = context.config.workflows.get(request.workflow_id)
     if workflow is None:
         raise ValidationError(f"Workflow '{request.workflow_id}' is not defined.")
-    store = ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
+    store = context.store
     active = list_active_runs(store.state_base, workflow_id=request.workflow_id)
     if active:
         raise ExecutionError(
@@ -83,25 +79,15 @@ def create_run(request: RunCreateRequest, *, execute_inline: bool = False) -> Ru
 
 
 def get_run(*, project_root: Path, run_id: str, config_path: Path | None = None) -> RunRecord:
-    config = load_project_config(project_root, config_path=config_path)
-    store = ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
-    return read_run(store.state_base, run_id)
+    context = load_project_context(project_root, config_path=config_path)
+    return read_run(context.store.state_base, run_id)
 
 
 def list_project_runs(
     *, project_root: Path, config_path: Path | None = None
 ) -> tuple[RunRecord, ...]:
-    config = load_project_config(project_root, config_path=config_path)
-    store = ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
-    return list_runs(store.state_base)
+    context = load_project_context(project_root, config_path=config_path)
+    return list_runs(context.store.state_base)
 
 
 def abort_run(*, project_root: Path, run_id: str, config_path: Path | None = None) -> RunRecord:
@@ -132,12 +118,8 @@ def resume_run(
         workflow_id=run.workflow_id,
         created_by=run.created_by,
     )
-    config = load_project_config(project_root, config_path=run.config_path)
-    store = ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
+    context = load_project_context(project_root, config_path=run.config_path)
+    store = context.store
     write_run(
         store.state_base,
         run.model_copy(update={"status": "queued", "completed_at": None, "error": None}),
@@ -150,16 +132,12 @@ def resume_run(
 
 
 def _execute_run(run_id: str, request: RunCreateRequest) -> None:
-    config = load_project_config(
+    context = load_project_context(
         request.project_root,
         config_path=request.config_path,
-        extra_plugin_paths=request.plugin_paths,
+        plugin_paths=request.plugin_paths,
     )
-    store = ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
+    store = context.store
     run = read_run(store.state_base, run_id)
     write_run(store.state_base, run.model_copy(update={"status": "running", "started_at": _now()}))
     try:
@@ -203,16 +181,12 @@ def _execute_run(run_id: str, request: RunCreateRequest) -> None:
 
 
 def _execute_resume(run_id: str, request: RunCreateRequest) -> None:
-    config = load_project_config(
+    context = load_project_context(
         request.project_root,
         config_path=request.config_path,
-        extra_plugin_paths=request.plugin_paths,
+        plugin_paths=request.plugin_paths,
     )
-    store = ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
+    store = context.store
     run = read_run(store.state_base, run_id)
     write_run(store.state_base, run.model_copy(update={"status": "running", "started_at": _now()}))
     try:
@@ -263,12 +237,8 @@ def _sync_run_from_workflow_state(*, project_root: Path, run_id: str, run: RunRe
         plugin_paths=run.plugin_paths,
         workflow_id=run.workflow_id,
     )
-    config = load_project_config(project_root, config_path=run.config_path)
-    store = ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
+    context = load_project_context(project_root, config_path=run.config_path)
+    store = context.store
     latest = store.latest_event_sequence(run.workflow_id)
     updated = read_run(store.state_base, run_id).model_copy(
         update={
