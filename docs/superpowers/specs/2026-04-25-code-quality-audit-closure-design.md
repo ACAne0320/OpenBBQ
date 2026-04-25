@@ -94,26 +94,26 @@ These audit items are complete enough to mark as closed:
     into focused database record, artifact content, repository, and storage
     model modules. Remaining ~300-line files are cohesive command or subsystem
     surfaces and should be revisited only when touched for related work.
+- **P3: Dynamic payload typing is necessary at boundaries but sometimes leaks
+  inward**
+  - Completed for the repeated transcript and translation paths by adding
+    typed internal segment helpers in `src/openbbq/builtin_plugins/segments.py`,
+    making LLM chunking generic, and refactoring transcript/translation plugins
+    to use typed segments after request-boundary validation while preserving
+    JSON request/response and artifact boundaries.
 
 ### Remaining
 
-These items still need focused cleanup:
+This item still needs focused cleanup:
 
-- **P3: Dynamic payload typing is necessary at boundaries but sometimes leaks
-  inward**
 - **P3: File-not-found and missing-state errors are not uniformly
   domain-specific**
 
 ## Execution strategy
 
-The remaining cleanup should happen as separate slices, in this order:
+The remaining cleanup should happen as this focused slice:
 
-1. **Typed internal payloads**
-   - Add typed internal models only where payloads are transformed repeatedly,
-     especially transcript and translation segments.
-   - Keep `dict[str, Any]` and JSON-like data at plugin, artifact, and config
-     boundaries.
-2. **Missing-state domain errors**
+1. **Missing-state domain errors**
    - First add characterization tests for current `FileNotFoundError` and
      missing-state behavior.
    - Then introduce domain-specific errors at application/service boundaries
@@ -161,7 +161,7 @@ The audit register is considered fully closed when:
 
 ## Next slice
 
-The next implementation slice should be **Typed internal payloads**. It should
-add typed internal models only where transcript or translation payloads are
-transformed repeatedly, while keeping JSON-like data at plugin, artifact, and
-config boundaries.
+The next implementation slice should be **Missing-state domain errors**. It
+should first add characterization tests for current file-not-found and
+missing-state behavior, then introduce domain-specific errors at
+application/service boundaries where that improves CLI/API consistency.
