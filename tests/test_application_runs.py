@@ -1,5 +1,6 @@
 from openbbq.application.runs import RunCreateRequest, abort_run, create_run, get_run, resume_run
 from openbbq.application.workflows import workflow_status
+from openbbq.errors import ExecutionError
 from tests.helpers import write_project_fixture
 
 
@@ -69,6 +70,30 @@ def test_create_run_records_unexpected_exception_as_failed(tmp_path, monkeypatch
     assert loaded.error is not None
     assert loaded.error.code == "internal_error"
     assert loaded.error.message == "boom"
+
+
+def test_create_run_records_openbbq_error_code_and_message(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+
+    def fail_with_domain_error(*args, **kwargs):
+        raise ExecutionError(
+            "workflow cannot start",
+            code="invalid_workflow_state",
+            exit_code=1,
+        )
+
+    monkeypatch.setattr("openbbq.application.runs.run_workflow_command", fail_with_domain_error)
+
+    created = create_run(
+        RunCreateRequest(project_root=project, workflow_id="text-demo"),
+        execute_inline=True,
+    )
+    loaded = get_run(project_root=project, run_id=created.id)
+
+    assert loaded.status == "failed"
+    assert loaded.error is not None
+    assert loaded.error.code == "invalid_workflow_state"
+    assert loaded.error.message == "workflow cannot start"
 
 
 def test_resume_run_can_submit_without_blocking(tmp_path, monkeypatch):
