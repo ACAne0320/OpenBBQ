@@ -1,8 +1,17 @@
+import os
 from pathlib import Path
 
 import pytest
 
 from openbbq.config.loader import load_project_config
+from openbbq.config.paths import (
+    load_plugin_paths,
+    merge_paths,
+    normalize_plugin_paths,
+    resolve_config_path,
+    resolve_project_path,
+)
+from openbbq.config.raw import load_yaml_mapping
 from openbbq.errors import ValidationError
 
 
@@ -11,6 +20,80 @@ def test_load_text_basic_defaults():
     assert config.project.name == "Text Basic"
     assert config.storage.root.name == ".openbbq"
     assert config.workflows["text-demo"].steps[0].id == "seed"
+
+
+def test_load_yaml_mapping_reports_missing_file(tmp_path):
+    missing = tmp_path / "missing.yaml"
+
+    with pytest.raises(ValidationError) as exc:
+        load_yaml_mapping(missing)
+
+    assert str(missing) in str(exc.value)
+    assert "was not found" in str(exc.value)
+
+
+def test_load_yaml_mapping_reports_malformed_yaml(tmp_path):
+    config = tmp_path / "openbbq.yaml"
+    config.write_text("version: [", encoding="utf-8")
+
+    with pytest.raises(ValidationError) as exc:
+        load_yaml_mapping(config)
+
+    assert "malformed yaml" in str(exc.value).lower()
+
+
+def test_load_yaml_mapping_requires_mapping(tmp_path):
+    config = tmp_path / "openbbq.yaml"
+    config.write_text("- not\n- a\n- mapping\n", encoding="utf-8")
+
+    with pytest.raises(ValidationError) as exc:
+        load_yaml_mapping(config)
+
+    assert "yaml mapping" in str(exc.value).lower()
+
+
+def test_resolve_config_path_defaults_and_resolves_relative_path(tmp_path):
+    assert resolve_config_path(tmp_path, None) == (tmp_path / "openbbq.yaml").resolve()
+    assert resolve_config_path(tmp_path, "configs/demo.yaml") == (
+        tmp_path / "configs/demo.yaml"
+    ).resolve()
+
+
+def test_resolve_project_path_rejects_non_path_value(tmp_path):
+    with pytest.raises(ValidationError) as exc:
+        resolve_project_path(tmp_path, ["bad"], "storage.root")
+
+    assert "storage.root" in str(exc.value)
+    assert "string path" in str(exc.value)
+
+
+def test_normalize_plugin_paths_deduplicates_after_resolution(tmp_path):
+    paths = normalize_plugin_paths(
+        tmp_path,
+        ["plugins", tmp_path / "plugins", "other"],
+        "plugins.paths",
+    )
+
+    assert paths == [(tmp_path / "plugins").resolve(), (tmp_path / "other").resolve()]
+
+
+def test_load_plugin_paths_uses_env_then_config_order(tmp_path):
+    raw_config = {"plugins": {"paths": ["./plugins-a"]}}
+
+    paths = load_plugin_paths(
+        tmp_path,
+        raw_config,
+        {"OPENBBQ_PLUGIN_PATH": f"./plugins-b{os.pathsep}./plugins-c"},
+    )
+
+    assert [path.name for path in paths] == ["plugins-b", "plugins-c", "plugins-a"]
+
+
+def test_merge_paths_preserves_preferred_then_fallback_order(tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+
+    assert merge_paths([first, second], [second, first]) == [first, second]
 
 
 def test_rejects_invalid_step_id(tmp_path):

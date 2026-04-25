@@ -4,12 +4,26 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 import os
 import re
-from typing import Any, TypeVar
 
-from pydantic import ValidationError as PydanticValidationError
-import yaml
-
-from openbbq.domain.base import JsonObject, OpenBBQModel, PluginInputs, format_pydantic_error
+from openbbq.config.paths import (
+    BUILTIN_PLUGIN_ROOT,
+    DEFAULT_CONFIG_NAME,
+    DEFAULT_STORAGE_ROOT,
+    load_plugin_paths as _load_plugin_paths,
+    merge_paths as _merge_paths,
+    normalize_plugin_paths as _normalize_plugin_paths,
+    resolve_config_path as _resolve_config_path,
+    resolve_project_path as _resolve_path,
+)
+from openbbq.config.raw import (
+    build_model as _build_model,
+    load_yaml_mapping as _load_yaml_mapping,
+    optional_mapping as _optional_mapping,
+    require_bool as _require_bool,
+    require_mapping as _require_mapping,
+    require_nonempty_string as _require_nonempty_string,
+)
+from openbbq.domain.base import PluginInputs
 from openbbq.domain.models import (
     ARTIFACT_TYPES,
     PluginConfig,
@@ -26,10 +40,13 @@ WORKFLOW_ID_PATTERN = re.compile(r"^[a-z0-9_-]+$")
 STEP_ID_PATTERN = WORKFLOW_ID_PATTERN
 STEP_SELECTOR_PATTERN = re.compile(r"^([a-z0-9_-]+)\.([a-z0-9_-]+)$")
 VALID_ON_ERROR = {"abort", "retry", "skip"}
-DEFAULT_STORAGE_ROOT = Path(".openbbq")
-DEFAULT_CONFIG_NAME = "openbbq.yaml"
-BUILTIN_PLUGIN_ROOT = Path(__file__).resolve().parents[1] / "builtin_plugins"
-TModel = TypeVar("TModel", bound=OpenBBQModel)
+
+__all__ = [
+    "BUILTIN_PLUGIN_ROOT",
+    "DEFAULT_CONFIG_NAME",
+    "DEFAULT_STORAGE_ROOT",
+    "load_project_config",
+]
 
 
 def load_project_config(
@@ -230,106 +247,6 @@ def load_project_config(
         plugins=plugins,
         workflows=workflows,
     )
-
-
-def _load_yaml_mapping(path: Path) -> JsonObject:
-    try:
-        raw = yaml.safe_load(path.read_text())
-    except FileNotFoundError as exc:
-        raise ValidationError(f"Project config '{path}' was not found.") from exc
-    except yaml.YAMLError as exc:
-        raise ValidationError(f"Project config '{path}' contains malformed YAML.") from exc
-    if not isinstance(raw, dict):
-        raise ValidationError(f"Project config '{path}' must contain a YAML mapping.")
-    return raw
-
-
-def _build_model(model_type: type[TModel], field_path: str, **values: Any) -> TModel:
-    try:
-        return model_type(**values)
-    except PydanticValidationError as exc:
-        raise ValidationError(format_pydantic_error(field_path, exc)) from exc
-
-
-def _resolve_config_path(project_root: Path, config_path: Path | str | None) -> Path:
-    if config_path is None:
-        return (project_root / DEFAULT_CONFIG_NAME).resolve()
-    path = Path(config_path).expanduser()
-    if path.is_absolute():
-        return path.resolve()
-    return (project_root / path).resolve()
-
-
-def _resolve_path(project_root: Path, value: Path | str, field_path: str) -> Path:
-    try:
-        path = Path(value).expanduser()
-    except (TypeError, ValueError, OSError) as exc:
-        raise ValidationError(
-            f"{field_path} must be a string path relative to the project root."
-        ) from exc
-    if path.is_absolute():
-        return path.resolve()
-    return (project_root / path).resolve()
-
-
-def _load_plugin_paths(
-    project_root: Path, raw_config: JsonObject, env: Mapping[str, str]
-) -> list[Path]:
-    config_plugins = _optional_mapping(raw_config.get("plugins"), "plugins")
-    config_paths = config_plugins.get("paths", [])
-    if not isinstance(config_paths, list):
-        raise ValidationError("plugins.paths must be a list when provided.")
-
-    env_paths_raw = env.get("OPENBBQ_PLUGIN_PATH", "")
-    env_paths = [path for path in env_paths_raw.split(os.pathsep) if path]
-    return _normalize_plugin_paths(project_root, env_paths + config_paths, "plugins.paths")
-
-
-def _normalize_plugin_paths(
-    project_root: Path, paths: Iterable[Path | str], field_path: str
-) -> list[Path]:
-    normalized: list[Path] = []
-    seen: set[Path] = set()
-    for index, raw_path in enumerate(paths):
-        path = _resolve_path(project_root, raw_path, f"{field_path}[{index}]")
-        if path not in seen:
-            seen.add(path)
-            normalized.append(path)
-    return normalized
-
-
-def _merge_paths(preferred: Iterable[Path], fallback: Iterable[Path]) -> list[Path]:
-    merged: list[Path] = []
-    seen: set[Path] = set()
-    for path in list(preferred) + list(fallback):
-        if path not in seen:
-            seen.add(path)
-            merged.append(path)
-    return merged
-
-
-def _require_mapping(value: Any, field_path: str) -> JsonObject:
-    if not isinstance(value, dict):
-        raise ValidationError(f"{field_path} must be a mapping.")
-    return value
-
-
-def _optional_mapping(value: Any, field_path: str) -> JsonObject:
-    if value is None:
-        return {}
-    return _require_mapping(value, field_path)
-
-
-def _require_nonempty_string(value: Any, field_path: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValidationError(f"{field_path} must be a non-empty string.")
-    return value
-
-
-def _require_bool(value: Any, field_path: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValidationError(f"{field_path} must be a boolean.")
-    return value
 
 
 def _validate_identifier(value: str, label: str) -> None:

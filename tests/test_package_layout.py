@@ -30,6 +30,8 @@ def test_new_package_modules_are_importable() -> None:
         "openbbq.cli.runtime",
         "openbbq.cli.workflows",
         "openbbq.config.loader",
+        "openbbq.config.paths",
+        "openbbq.config.raw",
         "openbbq.domain.models",
         "openbbq.engine.service",
         "openbbq.engine.validation",
