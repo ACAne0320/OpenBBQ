@@ -9,6 +9,8 @@ from openbbq.runtime.settings import (
     runtime_settings_to_toml,
     with_provider_profile,
 )
+from openbbq.runtime.settings_parser import parse_runtime_settings
+from openbbq.runtime.user_db import UserRuntimeDatabase
 
 
 def test_load_runtime_settings_defaults_when_file_is_absent(tmp_path, monkeypatch):
@@ -63,6 +65,65 @@ default_compute_type = "int8"
     assert provider.display_name == "OpenAI"
     assert settings.cache.root == (tmp_path / "runtime-cache").resolve()
     assert settings.models.faster_whisper.cache_dir == (tmp_path / "models/fw").resolve()
+
+
+def test_parse_runtime_settings_does_not_open_user_database(tmp_path):
+    config = tmp_path / "config.toml"
+    db_path = tmp_path / "openbbq.db"
+
+    settings = parse_runtime_settings(
+        {
+            "version": 1,
+            "cache": {"root": "runtime-cache"},
+            "providers": {
+                "file": {
+                    "type": "openai_compatible",
+                    "api_key": "env:FILE_PROVIDER_KEY",
+                }
+            },
+        },
+        config_path=config.resolve(),
+        env={"OPENBBQ_USER_DB": str(db_path)},
+    )
+
+    assert settings.config_path == config.resolve()
+    assert settings.cache.root == (tmp_path / "runtime-cache").resolve()
+    assert sorted(settings.providers) == ["file"]
+    assert settings.providers["file"].api_key == "env:FILE_PROVIDER_KEY"
+    assert not db_path.exists()
+
+
+def test_load_runtime_settings_merges_user_database_provider_over_file_provider(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text(
+        """
+version = 1
+
+[providers.openai]
+type = "openai_compatible"
+api_key = "env:FILE_PROVIDER_KEY"
+default_chat_model = "file-model"
+display_name = "File Provider"
+""",
+        encoding="utf-8",
+    )
+    env = {"OPENBBQ_USER_DB": str(tmp_path / "openbbq.db")}
+    UserRuntimeDatabase(env=env).upsert_provider(
+        ProviderProfile(
+            name="openai",
+            type="openai_compatible",
+            api_key="sqlite:openai",
+            default_chat_model="db-model",
+            display_name="Database Provider",
+        )
+    )
+
+    settings = load_runtime_settings(config_path=config, env=env)
+
+    provider = settings.providers["openai"]
+    assert provider.api_key == "sqlite:openai"
+    assert provider.default_chat_model == "db-model"
+    assert provider.display_name == "Database Provider"
 
 
 def test_cache_env_overrides_user_config(tmp_path):

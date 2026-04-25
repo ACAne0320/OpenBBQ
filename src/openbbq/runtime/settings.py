@@ -3,28 +3,19 @@ from __future__ import annotations
 from collections.abc import Mapping
 import os
 from pathlib import Path
-import re
-import tomllib
-from typing import Any
 
-from pydantic import ValidationError as PydanticValidationError
-
-from openbbq.domain.base import JsonObject, format_pydantic_error
-from openbbq.errors import ValidationError
 from openbbq.runtime.models import (
-    CacheSettings,
-    FasterWhisperSettings,
-    ModelsSettings,
     ProviderProfile,
-    ProviderMap,
     RuntimeSettings,
+)
+from openbbq.runtime.settings_parser import (
+    DEFAULT_CACHE_ROOT as DEFAULT_CACHE_ROOT,
+    load_toml_mapping,
+    parse_runtime_settings,
 )
 from openbbq.runtime.user_db import UserRuntimeDatabase
 
 DEFAULT_USER_CONFIG_PATH = Path("~/.openbbq/config.toml")
-DEFAULT_CACHE_ROOT = Path("~/.cache/openbbq")
-SUPPORTED_PROVIDER_TYPES = {"openai_compatible"}
-PROVIDER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def default_user_config_path(env: Mapping[str, str] | None = None) -> Path:
@@ -46,27 +37,12 @@ def load_runtime_settings(
         if config_path is not None
         else default_user_config_path(env)
     )
-    raw = _load_toml_mapping(path)
-    version = raw.get("version", 1)
-    if type(version) is not int or version != 1:
-        raise ValidationError("Runtime settings version must be 1.")
-
-    cache_root = _cache_root(raw, env, path.parent)
-    faster_whisper = _faster_whisper_settings(raw, cache_root, path.parent)
-    providers = _provider_profiles(raw)
+    settings = parse_runtime_settings(load_toml_mapping(path), config_path=path, env=env)
+    providers = dict(settings.providers)
     providers.update(
         {provider.name: provider for provider in UserRuntimeDatabase(env=env).list_providers()}
     )
-    try:
-        return RuntimeSettings(
-            version=1,
-            config_path=path,
-            cache=CacheSettings(root=cache_root),
-            providers=providers,
-            models=ModelsSettings(faster_whisper=faster_whisper),
-        )
-    except PydanticValidationError as exc:
-        raise ValidationError(format_pydantic_error("runtime settings", exc)) from exc
+    return settings.model_copy(update={"providers": providers})
 
 
 def runtime_settings_to_toml(settings: RuntimeSettings) -> str:
@@ -108,154 +84,6 @@ def with_provider_profile(
     providers = dict(settings.providers)
     providers[provider.name] = provider
     return settings.model_copy(update={"providers": providers})
-
-
-def _load_toml_mapping(path: Path) -> JsonObject:
-    if not path.exists():
-        return {}
-    try:
-        with path.open("rb") as handle:
-            raw = tomllib.load(handle)
-    except tomllib.TOMLDecodeError as exc:
-        raise ValidationError(f"Runtime settings '{path}' contains malformed TOML.") from exc
-    if not isinstance(raw, dict):
-        raise ValidationError(f"Runtime settings '{path}' must contain a TOML table.")
-    return raw
-
-
-def _cache_root(raw: JsonObject, env: Mapping[str, str], base_dir: Path) -> Path:
-    env_value = env.get("OPENBBQ_CACHE_DIR")
-    if env_value:
-        return Path(env_value).expanduser().resolve()
-    cache_raw = _optional_mapping(raw.get("cache"), "cache")
-    return _resolve_user_path(cache_raw.get("root", DEFAULT_CACHE_ROOT), base_dir, "cache.root")
-
-
-def _faster_whisper_settings(
-    raw: JsonObject,
-    cache_root: Path,
-    base_dir: Path,
-) -> FasterWhisperSettings:
-    models_raw = _optional_mapping(raw.get("models"), "models")
-    fw_raw = _optional_mapping(models_raw.get("faster_whisper"), "models.faster_whisper")
-    cache_dir = _resolve_user_path(
-        fw_raw.get("cache_dir", cache_root / "models" / "faster-whisper"),
-        base_dir,
-        "models.faster_whisper.cache_dir",
-    )
-    return FasterWhisperSettings(
-        cache_dir=cache_dir,
-        default_model=_required_string(
-            fw_raw.get("default_model", "base"), "models.faster_whisper.default_model"
-        ),
-        default_device=_required_string(
-            fw_raw.get("default_device", "cpu"), "models.faster_whisper.default_device"
-        ),
-        default_compute_type=_required_string(
-            fw_raw.get("default_compute_type", "int8"),
-            "models.faster_whisper.default_compute_type",
-        ),
-    )
-
-
-def _provider_profiles(raw: JsonObject) -> ProviderMap:
-    providers_raw = _optional_mapping(raw.get("providers"), "providers")
-    providers: dict[str, ProviderProfile] = {}
-    for name, provider_raw in providers_raw.items():
-        if not isinstance(name, str) or not name.strip():
-            raise ValidationError("Provider names must be non-empty strings.")
-        _validate_provider_name(name)
-        profile_raw = _require_mapping(provider_raw, f"providers.{name}")
-        provider_type = _required_string(profile_raw.get("type"), f"providers.{name}.type")
-        _validate_provider_type(provider_type, f"providers.{name}.type")
-        api_key = _optional_string(profile_raw.get("api_key"), f"providers.{name}.api_key")
-        if api_key is not None:
-            _validate_secret_reference(api_key, f"providers.{name}.api_key")
-        try:
-            providers[name] = ProviderProfile(
-                name=name,
-                type=provider_type,
-                base_url=_optional_string(
-                    profile_raw.get("base_url"), f"providers.{name}.base_url"
-                ),
-                api_key=api_key,
-                default_chat_model=_optional_string(
-                    profile_raw.get("default_chat_model"),
-                    f"providers.{name}.default_chat_model",
-                ),
-                display_name=_optional_string(
-                    profile_raw.get("display_name"), f"providers.{name}.display_name"
-                ),
-            )
-        except PydanticValidationError as exc:
-            raise ValidationError(format_pydantic_error(f"providers.{name}", exc)) from exc
-    return providers
-
-
-def _validate_provider_name(name: str) -> None:
-    if not name or PROVIDER_NAME_PATTERN.fullmatch(name) is None:
-        raise ValidationError("Provider names must use only letters, digits, '_' or '-'.")
-
-
-def _validate_provider_type(provider_type: str, field_path: str) -> None:
-    if provider_type not in SUPPORTED_PROVIDER_TYPES:
-        allowed = ", ".join(sorted(SUPPORTED_PROVIDER_TYPES))
-        raise ValidationError(f"{field_path} must be one of: {allowed}.")
-
-
-def _validate_secret_reference(reference: str, field_path: str) -> None:
-    if reference.startswith("env:"):
-        if reference == "env:":
-            raise ValidationError(f"{field_path} env secret reference must include a name.")
-        return
-    if reference.startswith("sqlite:"):
-        if reference == "sqlite:":
-            raise ValidationError(f"{field_path} sqlite secret reference must include a name.")
-        return
-    if reference.startswith("keyring:"):
-        payload = reference.removeprefix("keyring:")
-        service, separator, username = payload.partition("/")
-        if not separator or not service or not username:
-            raise ValidationError(
-                f"{field_path} keyring secret reference must be keyring:<service>/<username>."
-            )
-        return
-    raise ValidationError(f"{field_path} must use an env:, sqlite:, or keyring: secret reference.")
-
-
-def _resolve_user_path(value: Any, base_dir: Path, field_path: str) -> Path:
-    if not isinstance(value, (str, Path)):
-        raise ValidationError(f"{field_path} must be a string path.")
-    path = Path(value).expanduser()
-    if path.is_absolute():
-        return path.resolve()
-    if path == DEFAULT_CACHE_ROOT:
-        return path.expanduser().resolve()
-    return (base_dir / path).resolve()
-
-
-def _require_mapping(value: Any, field_path: str) -> JsonObject:
-    if not isinstance(value, dict):
-        raise ValidationError(f"{field_path} must be a mapping.")
-    return value
-
-
-def _optional_mapping(value: Any, field_path: str) -> JsonObject:
-    if value is None:
-        return {}
-    return _require_mapping(value, field_path)
-
-
-def _required_string(value: Any, field_path: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValidationError(f"{field_path} must be a non-empty string.")
-    return value
-
-
-def _optional_string(value: Any, field_path: str) -> str | None:
-    if value is None:
-        return None
-    return _required_string(value, field_path)
 
 
 def _escape_toml(value: str) -> str:

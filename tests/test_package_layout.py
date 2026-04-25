@@ -38,6 +38,7 @@ def test_new_package_modules_are_importable() -> None:
         "openbbq.plugins.manifests",
         "openbbq.plugins.models",
         "openbbq.plugins.registry",
+        "openbbq.runtime.settings_parser",
         "openbbq.storage.project_store",
         "openbbq.workflow.aborts",
         "openbbq.workflow.bindings",
