@@ -12,6 +12,7 @@ from openbbq.config.paths import (
     resolve_project_path,
 )
 from openbbq.config.raw import load_yaml_mapping
+from openbbq.config.workflows import build_workflows
 from openbbq.errors import ValidationError
 
 
@@ -219,6 +220,88 @@ def test_rejects_missing_output_selector(tmp_path):
         load_project_config(tmp_path)
 
     assert "missing_output" in str(exc.value).lower()
+
+
+def test_build_workflows_rejects_duplicate_step_ids():
+    raw_config = {
+        "workflows": {
+            "demo": {
+                "name": "Demo",
+                "steps": [
+                    {
+                        "id": "seed",
+                        "name": "Seed",
+                        "tool_ref": "x.y",
+                        "outputs": [{"name": "out", "type": "text"}],
+                    },
+                    {
+                        "id": "seed",
+                        "name": "Duplicate",
+                        "tool_ref": "x.y",
+                        "outputs": [{"name": "out", "type": "text"}],
+                    },
+                ],
+            }
+        }
+    }
+
+    with pytest.raises(ValidationError) as exc:
+        build_workflows(raw_config)
+
+    assert "duplicate step id" in str(exc.value).lower()
+
+
+def test_build_workflows_rejects_unregistered_output_type():
+    raw_config = {
+        "workflows": {
+            "demo": {
+                "name": "Demo",
+                "steps": [
+                    {
+                        "id": "seed",
+                        "name": "Seed",
+                        "tool_ref": "x.y",
+                        "outputs": [{"name": "out", "type": "unknown"}],
+                    }
+                ],
+            }
+        }
+    }
+
+    with pytest.raises(ValidationError) as exc:
+        build_workflows(raw_config)
+
+    assert "not registered" in str(exc.value).lower()
+
+
+def test_build_workflows_rejects_forward_input_reference():
+    raw_config = {
+        "workflows": {
+            "demo": {
+                "name": "Demo",
+                "steps": [
+                    {
+                        "id": "seed",
+                        "name": "Seed",
+                        "tool_ref": "x.y",
+                        "inputs": {"text": "later.out"},
+                        "outputs": [{"name": "out", "type": "text"}],
+                    },
+                    {
+                        "id": "later",
+                        "name": "Later",
+                        "tool_ref": "x.y",
+                        "outputs": [{"name": "out", "type": "text"}],
+                    },
+                ],
+            }
+        }
+    }
+
+    with pytest.raises(ValidationError) as exc:
+        build_workflows(raw_config)
+
+    assert "forward reference" in str(exc.value).lower()
 
 
 def test_missing_config_file_raises_validation_error(tmp_path):
