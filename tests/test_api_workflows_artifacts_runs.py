@@ -80,6 +80,27 @@ def test_run_route_rejects_project_root_outside_sidecar_project(tmp_path):
     assert response.json()["error"]["code"] == "validation_error"
 
 
+def test_missing_run_uses_api_not_found_envelope(tmp_path):
+    project = write_project(tmp_path, "text-basic")
+    client = TestClient(
+        create_app(ApiAppSettings(project_root=project, token="token")),
+        raise_server_exceptions=False,
+    )
+    headers = {"Authorization": "Bearer token"}
+
+    response = client.get("/runs/missing", headers=headers)
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "ok": False,
+        "error": {
+            "code": "not_found",
+            "message": "run not found: missing",
+            "details": {},
+        },
+    }
+
+
 def test_request_validation_errors_use_api_error_envelope(tmp_path):
     project = write_project(tmp_path, "text-basic")
     client = TestClient(
@@ -134,3 +155,35 @@ def test_artifact_route_filters_and_serves_file_backed_versions(tmp_path):
     assert imported.status_code == 200
     assert file_response.status_code == 200
     assert file_response.content == b"fake-video"
+
+
+def test_artifact_version_preview_and_export_routes(tmp_path):
+    project = write_project(tmp_path, "text-basic")
+    client = TestClient(
+        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
+    )
+    headers = {"Authorization": "Bearer token"}
+
+    client.post("/workflows/text-demo/runs", headers=headers, json={})
+    artifacts = client.get(
+        "/artifacts?workflow_id=text-demo&artifact_type=text",
+        headers=headers,
+    )
+    version_id = artifacts.json()["data"]["artifacts"][0]["current_version_id"]
+    preview = client.get(
+        f"/artifact-versions/{version_id}/preview?max_bytes=4",
+        headers=headers,
+    )
+    output = tmp_path / "exported.txt"
+    exported = client.post(
+        f"/artifact-versions/{version_id}/export",
+        headers=headers,
+        json={"path": str(output)},
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["data"]["version"]["id"] == version_id
+    assert preview.json()["data"]["truncated"] is True
+    assert exported.status_code == 200
+    assert exported.json()["data"]["path"] == str(output)
+    assert output.is_file()

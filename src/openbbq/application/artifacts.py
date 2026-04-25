@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 from openbbq.config.loader import load_project_config
-from openbbq.domain.base import OpenBBQModel
+from openbbq.domain.base import JsonValue, OpenBBQModel
 from openbbq.domain.models import ARTIFACT_TYPES, ProjectConfig
 from openbbq.errors import OpenBBQError, ValidationError
-from openbbq.storage.models import ArtifactRecord, StoredArtifactVersion
+from openbbq.storage.models import ArtifactRecord, ArtifactVersionRecord, StoredArtifactVersion
 from openbbq.storage.project_store import ProjectStore
 from openbbq.workflow.diff import diff_artifact_versions as diff_versions
 
@@ -30,6 +31,27 @@ class ArtifactImportResult(OpenBBQModel):
 class ArtifactShowResult(OpenBBQModel):
     artifact: ArtifactRecord
     current_version: StoredArtifactVersion
+
+
+class ArtifactPreviewResult(OpenBBQModel):
+    version: ArtifactVersionRecord
+    content: JsonValue | None
+    truncated: bool
+    content_encoding: str
+    content_size: int
+
+
+class ArtifactExportRequest(OpenBBQModel):
+    project_root: Path
+    version_id: str
+    path: Path
+    config_path: Path | None = None
+
+
+class ArtifactExportResult(OpenBBQModel):
+    version_id: str
+    path: Path
+    bytes_written: int
 
 
 def import_artifact(request: ArtifactImportRequest) -> ArtifactImportResult:
@@ -115,6 +137,65 @@ def show_artifact_version(
     return _store(config).read_artifact_version(version_id)
 
 
+def preview_artifact_version(
+    *,
+    project_root: Path,
+    version_id: str,
+    max_bytes: int = 65536,
+    config_path: Path | None = None,
+) -> ArtifactPreviewResult:
+    if max_bytes < 1:
+        raise ValidationError("Artifact preview max_bytes must be at least 1.")
+    version = show_artifact_version(
+        project_root=project_root,
+        config_path=config_path,
+        version_id=version_id,
+    )
+    if version.record.content_encoding in {"bytes", "file"} or isinstance(version.content, bytes):
+        return ArtifactPreviewResult(
+            version=version.record,
+            content=None,
+            truncated=False,
+            content_encoding=version.record.content_encoding,
+            content_size=version.record.content_size,
+        )
+    text = _content_text(version.content)
+    encoded = text.encode("utf-8")
+    truncated = len(encoded) > max_bytes
+    if truncated:
+        text = encoded[:max_bytes].decode("utf-8", errors="ignore")
+    return ArtifactPreviewResult(
+        version=version.record,
+        content=text,
+        truncated=truncated,
+        content_encoding=version.record.content_encoding,
+        content_size=version.record.content_size,
+    )
+
+
+def export_artifact_version(request: ArtifactExportRequest) -> ArtifactExportResult:
+    version = show_artifact_version(
+        project_root=request.project_root,
+        config_path=request.config_path,
+        version_id=request.version_id,
+    )
+    if version.record.content_encoding == "file":
+        raise ValidationError("Artifact export supports stored text, JSON, and bytes content only.")
+    output_path = request.path.expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(version.content, bytes):
+        payload = version.content
+        output_path.write_bytes(payload)
+    else:
+        payload = _content_text(version.content).encode("utf-8")
+        output_path.write_bytes(payload)
+    return ArtifactExportResult(
+        version_id=version.record.id,
+        path=output_path,
+        bytes_written=len(payload),
+    )
+
+
 def diff_artifact_versions(
     *,
     project_root: Path,
@@ -140,3 +221,9 @@ def _store(config: ProjectConfig) -> ProjectStore:
         artifacts_root=config.storage.artifacts,
         state_root=config.storage.state,
     )
+
+
+def _content_text(content: Any) -> str:
+    if isinstance(content, (dict, list)):
+        return json.dumps(content, ensure_ascii=False, indent=2, sort_keys=True)
+    return str(content)

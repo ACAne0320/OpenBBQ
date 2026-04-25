@@ -4,6 +4,7 @@ import sqlite3
 from fastapi.testclient import TestClient
 
 from openbbq.api.app import ApiAppSettings, create_app
+from openbbq.application.quickstart import SubtitleJobResult
 
 
 def write_project(tmp_path, fixture_name: str) -> Path:
@@ -116,9 +117,7 @@ def test_runtime_auth_route_stores_user_secret_in_sqlite(tmp_path, monkeypatch):
     check = client.get("/runtime/providers/openai/check", headers=headers)
 
     with sqlite3.connect(tmp_path / "openbbq.db") as connection:
-        row = connection.execute(
-            "select reference, value from credentials"
-        ).fetchone()
+        row = connection.execute("select reference, value from credentials").fetchone()
 
     assert response.status_code == 200
     assert response.json()["data"]["provider"]["api_key"] == (
@@ -126,3 +125,62 @@ def test_runtime_auth_route_stores_user_secret_in_sqlite(tmp_path, monkeypatch):
     )
     assert check.json()["data"]["secret"]["resolved"] is True
     assert row == ("sqlite:openbbq/providers/openai/api_key", "sk-api")
+
+
+def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monkeypatch):
+    project = write_project(tmp_path, "text-basic")
+    client, headers = authed_client(project)
+
+    def fake_local_job(request):
+        return SubtitleJobResult(
+            generated_project_root=tmp_path / "generated-local",
+            generated_config_path=tmp_path / "generated-local" / "openbbq.yaml",
+            workflow_id="local-to-srt",
+            run_id="run_local",
+            output_path=request.output_path,
+            source_artifact_id="art_source",
+        )
+
+    def fake_youtube_job(request):
+        return SubtitleJobResult(
+            generated_project_root=tmp_path / "generated-youtube",
+            generated_config_path=tmp_path / "generated-youtube" / "openbbq.yaml",
+            workflow_id="youtube-to-srt",
+            run_id="run_youtube",
+            output_path=request.output_path,
+            source_artifact_id=None,
+        )
+
+    monkeypatch.setattr("openbbq.api.routes.quickstart.create_local_subtitle_job", fake_local_job)
+    monkeypatch.setattr(
+        "openbbq.api.routes.quickstart.create_youtube_subtitle_job", fake_youtube_job
+    )
+
+    local = client.post(
+        "/quickstart/subtitle/local",
+        headers=headers,
+        json={
+            "input_path": str(tmp_path / "source.mp4"),
+            "source_lang": "en",
+            "target_lang": "zh",
+            "provider": "openai",
+            "output_path": str(tmp_path / "out.local.srt"),
+        },
+    )
+    youtube = client.post(
+        "/quickstart/subtitle/youtube",
+        headers=headers,
+        json={
+            "url": "https://www.youtube.com/watch?v=demo",
+            "source_lang": "en",
+            "target_lang": "zh",
+            "provider": "openai",
+            "output_path": str(tmp_path / "out.youtube.srt"),
+        },
+    )
+
+    assert local.status_code == 200
+    assert local.json()["data"]["workflow_id"] == "local-to-srt"
+    assert local.json()["data"]["source_artifact_id"] == "art_source"
+    assert youtube.status_code == 200
+    assert youtube.json()["data"]["workflow_id"] == "youtube-to-srt"

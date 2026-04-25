@@ -20,6 +20,7 @@ class ServerArgs(OpenBBQModel):
     port: int = 0
     token: str | None = None
     allow_dev_cors: bool = False
+    allow_no_token_dev: bool = False
 
 
 def parse_args(argv: list[str] | None = None) -> ServerArgs:
@@ -31,7 +32,10 @@ def parse_args(argv: list[str] | None = None) -> ServerArgs:
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--token")
     parser.add_argument("--allow-dev-cors", action="store_true")
+    parser.add_argument("--no-token-dev", action="store_true")
     parsed = parser.parse_args(argv)
+    if parsed.token is None and not parsed.no_token_dev:
+        parser.error("--token is required unless --no-token-dev is set")
     return ServerArgs(
         project=Path(parsed.project).expanduser().resolve() if parsed.project else None,
         config=Path(parsed.config).expanduser().resolve() if parsed.config else None,
@@ -40,6 +44,7 @@ def parse_args(argv: list[str] | None = None) -> ServerArgs:
         port=parsed.port,
         token=parsed.token,
         allow_dev_cors=parsed.allow_dev_cors,
+        allow_no_token_dev=parsed.no_token_dev,
     )
 
 

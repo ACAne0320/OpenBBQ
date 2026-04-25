@@ -42,9 +42,7 @@ def test_auth_set_requires_secret_reference_in_noninteractive_mode(tmp_path, mon
         auth_set(AuthSetRequest(name="openai", type="openai_compatible"))
 
 
-def test_auth_set_stores_user_entered_secret_plaintext_in_user_sqlite(
-    tmp_path, monkeypatch
-):
+def test_auth_set_stores_user_entered_secret_plaintext_in_user_sqlite(tmp_path, monkeypatch):
     user_config = tmp_path / "config.toml"
     monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(user_config))
 

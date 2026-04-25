@@ -115,7 +115,9 @@ def test_plugin_events_are_wrapped_and_redacted(tmp_path, monkeypatch):
 
     assert result.status == "completed"
     store = ProjectStore(project / ".openbbq")
-    plugin_events = [event for event in store.read_events("text-demo") if event.type == "plugin.event"]
+    plugin_events = [
+        event for event in store.read_events("text-demo") if event.type == "plugin.event"
+    ]
     assert plugin_events[0].level == "warning"
     assert plugin_events[0].message == "provider returned [REDACTED]"
     assert plugin_events[0].data == {"provider": "test"}

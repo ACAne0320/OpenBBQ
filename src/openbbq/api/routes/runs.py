@@ -62,7 +62,10 @@ def get_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
 def resume_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
     settings = _settings(request)
     run = resume_run(
-        project_root=settings.project_root, config_path=settings.config_path, run_id=run_id
+        project_root=settings.project_root,
+        config_path=settings.config_path,
+        run_id=run_id,
+        execute_inline=settings.execute_runs_inline,
     )
     return ApiSuccess(data=RunRecord(**run.model_dump()))
 

@@ -74,9 +74,7 @@ def post_secret_check(body: SecretCheckRequest) -> ApiSuccess[SecretCheckResult]
 @router.put("/runtime/secrets", response_model=ApiSuccess[SecretCheckResult])
 def put_secret(body: SecretSetRequest) -> ApiSuccess[SecretCheckResult]:
     return ApiSuccess(
-        data=secret_set(
-            ApplicationSecretSetRequest(reference=body.reference, value=body.value)
-        )
+        data=secret_set(ApplicationSecretSetRequest(reference=body.reference, value=body.value))
     )
 
 

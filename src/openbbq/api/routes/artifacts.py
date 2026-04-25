@@ -1,16 +1,28 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse
 
-from openbbq.api.schemas import ApiSuccess, ArtifactImportRequest
+from openbbq.api.schemas import (
+    ApiSuccess,
+    ArtifactDiffData,
+    ArtifactExportData,
+    ArtifactExportRequest,
+    ArtifactImportData,
+    ArtifactImportRequest,
+    ArtifactListData,
+    ArtifactPreviewData,
+    ArtifactShowData,
+    ArtifactVersionData,
+)
 from openbbq.application.artifacts import (
+    ArtifactExportRequest as ApplicationArtifactExportRequest,
     ArtifactImportRequest as ApplicationArtifactImportRequest,
     diff_artifact_versions,
+    export_artifact_version,
     import_artifact,
     list_artifacts,
+    preview_artifact_version,
     show_artifact,
     show_artifact_version,
 )
@@ -19,13 +31,13 @@ from openbbq.errors import ValidationError
 router = APIRouter(tags=["artifacts"])
 
 
-@router.get("/artifacts", response_model=ApiSuccess[dict[str, Any]])
+@router.get("/artifacts", response_model=ApiSuccess[ArtifactListData])
 def get_artifacts(
     request: Request,
     workflow_id: str | None = None,
     step_id: str | None = None,
     artifact_type: str | None = None,
-) -> ApiSuccess[dict[str, Any]]:
+) -> ApiSuccess[ArtifactListData]:
     settings = _settings(request)
     artifacts = list_artifacts(
         project_root=settings.project_root,
@@ -34,13 +46,11 @@ def get_artifacts(
         step_id=step_id,
         artifact_type=artifact_type,
     )
-    return ApiSuccess(
-        data={"artifacts": [artifact.model_dump(mode="json") for artifact in artifacts]}
-    )
+    return ApiSuccess(data=ArtifactListData(artifacts=tuple(artifacts)))
 
 
-@router.get("/artifacts/{artifact_id}", response_model=ApiSuccess[dict[str, Any]])
-def get_artifact(artifact_id: str, request: Request) -> ApiSuccess[dict[str, Any]]:
+@router.get("/artifacts/{artifact_id}", response_model=ApiSuccess[ArtifactShowData])
+def get_artifact(artifact_id: str, request: Request) -> ApiSuccess[ArtifactShowData]:
     settings = _settings(request)
     result = show_artifact(
         project_root=settings.project_root,
@@ -48,38 +58,43 @@ def get_artifact(artifact_id: str, request: Request) -> ApiSuccess[dict[str, Any
         artifact_id=artifact_id,
     )
     return ApiSuccess(
-        data={
-            "artifact": result.artifact.model_dump(mode="json"),
-            "current_version": {
-                "record": result.current_version.record.model_dump(mode="json"),
-                "content": _jsonable_content(result.current_version.content),
-            },
-        }
+        data=ArtifactShowData(
+            artifact=result.artifact,
+            current_version=ArtifactVersionData(
+                record=result.current_version.record,
+                content=_jsonable_content(result.current_version.content),
+            ),
+        )
     )
 
 
 @router.get(
     "/artifact-versions/{from_version_id}/diff/{to_version_id}",
-    response_model=ApiSuccess[dict[str, Any]],
+    response_model=ApiSuccess[ArtifactDiffData],
 )
 def get_artifact_diff(
     from_version_id: str,
     to_version_id: str,
     request: Request,
-) -> ApiSuccess[dict[str, Any]]:
+) -> ApiSuccess[ArtifactDiffData]:
     settings = _settings(request)
     return ApiSuccess(
-        data=diff_artifact_versions(
-            project_root=settings.project_root,
-            config_path=settings.config_path,
-            from_version=from_version_id,
-            to_version=to_version_id,
+        data=ArtifactDiffData.model_validate(
+            diff_artifact_versions(
+                project_root=settings.project_root,
+                config_path=settings.config_path,
+                from_version=from_version_id,
+                to_version=to_version_id,
+            )
         )
     )
 
 
-@router.get("/artifact-versions/{version_id}", response_model=ApiSuccess[dict[str, Any]])
-def get_artifact_version(version_id: str, request: Request) -> ApiSuccess[dict[str, Any]]:
+@router.get(
+    "/artifact-versions/{version_id}",
+    response_model=ApiSuccess[ArtifactVersionData],
+)
+def get_artifact_version(version_id: str, request: Request) -> ApiSuccess[ArtifactVersionData]:
     settings = _settings(request)
     version = show_artifact_version(
         project_root=settings.project_root,
@@ -87,18 +102,55 @@ def get_artifact_version(version_id: str, request: Request) -> ApiSuccess[dict[s
         version_id=version_id,
     )
     return ApiSuccess(
-        data={
-            "record": version.record.model_dump(mode="json"),
-            "content": _jsonable_content(version.content),
-        }
+        data=ArtifactVersionData(record=version.record, content=_jsonable_content(version.content))
     )
 
 
-@router.post("/artifacts/import", response_model=ApiSuccess[dict[str, Any]])
+@router.get(
+    "/artifact-versions/{version_id}/preview",
+    response_model=ApiSuccess[ArtifactPreviewData],
+)
+def get_artifact_version_preview(
+    version_id: str,
+    request: Request,
+    max_bytes: int = 65536,
+) -> ApiSuccess[ArtifactPreviewData]:
+    settings = _settings(request)
+    preview = preview_artifact_version(
+        project_root=settings.project_root,
+        config_path=settings.config_path,
+        version_id=version_id,
+        max_bytes=max_bytes,
+    )
+    return ApiSuccess(data=ArtifactPreviewData(**preview.model_dump()))
+
+
+@router.post(
+    "/artifact-versions/{version_id}/export",
+    response_model=ApiSuccess[ArtifactExportData],
+)
+def post_artifact_version_export(
+    version_id: str,
+    body: ArtifactExportRequest,
+    request: Request,
+) -> ApiSuccess[ArtifactExportData]:
+    settings = _settings(request)
+    result = export_artifact_version(
+        ApplicationArtifactExportRequest(
+            project_root=settings.project_root,
+            config_path=body.config_path or settings.config_path,
+            version_id=version_id,
+            path=body.path,
+        )
+    )
+    return ApiSuccess(data=ArtifactExportData(**result.model_dump()))
+
+
+@router.post("/artifacts/import", response_model=ApiSuccess[ArtifactImportData])
 def post_artifact_import(
     body: ArtifactImportRequest,
     request: Request,
-) -> ApiSuccess[dict[str, Any]]:
+) -> ApiSuccess[ArtifactImportData]:
     settings = _settings(request)
     result = import_artifact(
         ApplicationArtifactImportRequest(
@@ -110,10 +162,7 @@ def post_artifact_import(
         )
     )
     return ApiSuccess(
-        data={
-            "artifact": result.artifact.model_dump(mode="json"),
-            "version": result.version.record.model_dump(mode="json"),
-        }
+        data=ArtifactImportData(artifact=result.artifact, version=result.version.record)
     )
 
 

@@ -139,9 +139,7 @@ def test_alembic_revision_is_packaged_with_storage_models() -> None:
         if path.name != "__init__.py"
     )
 
-    assert [revision.name for revision in revisions] == [
-        "0001_initial_sqlalchemy_schema.py"
-    ]
+    assert [revision.name for revision in revisions] == ["0001_initial_sqlalchemy_schema.py"]
 
 
 def test_alembic_initial_revision_applies_to_sqlite_database(tmp_path) -> None:
@@ -166,9 +164,7 @@ def test_alembic_initial_revision_applies_to_sqlite_database(tmp_path) -> None:
     with sqlite3.connect(tmp_path / "openbbq.db") as connection:
         table_names = {
             row[0]
-            for row in connection.execute(
-                "select name from sqlite_master where type = 'table'"
-            )
+            for row in connection.execute("select name from sqlite_master where type = 'table'")
         }
     assert {
         "alembic_version",

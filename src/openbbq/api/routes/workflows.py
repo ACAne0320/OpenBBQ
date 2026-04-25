@@ -1,37 +1,44 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Request
 
-from openbbq.api.schemas import ApiSuccess
+from openbbq.api.schemas import (
+    ApiSuccess,
+    WorkflowDetailData,
+    WorkflowEventsData,
+    WorkflowListData,
+    WorkflowStepSummary,
+    WorkflowSummary,
+)
 from openbbq.api.routes.events import event_stream, streaming_response
 from openbbq.application.workflows import workflow_events, workflow_status
 from openbbq.config.loader import load_project_config
-from openbbq.engine.validation import validate_workflow
+from openbbq.domain.models import ProjectConfig, WorkflowConfig
+from openbbq.engine.validation import WorkflowValidationResult, validate_workflow
 from openbbq.errors import ValidationError
 from openbbq.plugins.registry import discover_plugins
+from openbbq.storage.models import WorkflowState
+from openbbq.storage.project_store import ProjectStore
+from openbbq.workflow.state import read_effective_workflow_state
 
 router = APIRouter(tags=["workflows"])
 
 
-@router.get("/workflows", response_model=ApiSuccess[dict[str, Any]])
-def list_workflows(request: Request) -> ApiSuccess[dict[str, Any]]:
+@router.get("/workflows", response_model=ApiSuccess[WorkflowListData])
+def list_workflows(request: Request) -> ApiSuccess[WorkflowListData]:
     settings = _settings(request)
     config = load_project_config(
         settings.project_root,
         config_path=settings.config_path,
         extra_plugin_paths=settings.plugin_paths,
     )
-    workflows = [
-        {"id": workflow.id, "name": workflow.name, "step_count": len(workflow.steps)}
-        for workflow in config.workflows.values()
-    ]
-    return ApiSuccess(data={"workflows": workflows})
+    store = _store(config)
+    workflows = tuple(_workflow_summary(store, workflow) for workflow in config.workflows.values())
+    return ApiSuccess(data=WorkflowListData(workflows=workflows))
 
 
-@router.get("/workflows/{workflow_id}", response_model=ApiSuccess[dict[str, Any]])
-def get_workflow(workflow_id: str, request: Request) -> ApiSuccess[dict[str, Any]]:
+@router.get("/workflows/{workflow_id}", response_model=ApiSuccess[WorkflowDetailData])
+def get_workflow(workflow_id: str, request: Request) -> ApiSuccess[WorkflowDetailData]:
     settings = _settings(request)
     config = load_project_config(
         settings.project_root,
@@ -41,17 +48,17 @@ def get_workflow(workflow_id: str, request: Request) -> ApiSuccess[dict[str, Any
     workflow = config.workflows.get(workflow_id)
     if workflow is None:
         raise ValidationError(f"Workflow '{workflow_id}' is not defined.")
-    return ApiSuccess(
-        data={
-            "id": workflow.id,
-            "name": workflow.name,
-            "steps": [step.model_dump(mode="json") for step in workflow.steps],
-        }
-    )
+    summary = _workflow_summary(_store(config), workflow)
+    return ApiSuccess(data=WorkflowDetailData(**summary.model_dump()))
 
 
-@router.post("/workflows/{workflow_id}/validate", response_model=ApiSuccess[dict[str, Any]])
-def validate_workflow_route(workflow_id: str, request: Request) -> ApiSuccess[dict[str, Any]]:
+@router.post(
+    "/workflows/{workflow_id}/validate",
+    response_model=ApiSuccess[WorkflowValidationResult],
+)
+def validate_workflow_route(
+    workflow_id: str, request: Request
+) -> ApiSuccess[WorkflowValidationResult]:
     settings = _settings(request)
     config = load_project_config(
         settings.project_root,
@@ -60,11 +67,11 @@ def validate_workflow_route(workflow_id: str, request: Request) -> ApiSuccess[di
     )
     registry = discover_plugins(config.plugin_paths)
     result = validate_workflow(config, registry, workflow_id)
-    return ApiSuccess(data=result.model_dump(mode="json"))
+    return ApiSuccess(data=result)
 
 
-@router.get("/workflows/{workflow_id}/status", response_model=ApiSuccess[dict[str, Any]])
-def get_workflow_status(workflow_id: str, request: Request) -> ApiSuccess[dict[str, Any]]:
+@router.get("/workflows/{workflow_id}/status", response_model=ApiSuccess[WorkflowState])
+def get_workflow_status(workflow_id: str, request: Request) -> ApiSuccess[WorkflowState]:
     settings = _settings(request)
     state = workflow_status(
         project_root=settings.project_root,
@@ -72,15 +79,15 @@ def get_workflow_status(workflow_id: str, request: Request) -> ApiSuccess[dict[s
         plugin_paths=settings.plugin_paths,
         workflow_id=workflow_id,
     )
-    return ApiSuccess(data=state.model_dump(mode="json"))
+    return ApiSuccess(data=state)
 
 
-@router.get("/workflows/{workflow_id}/events", response_model=ApiSuccess[dict[str, Any]])
+@router.get("/workflows/{workflow_id}/events", response_model=ApiSuccess[WorkflowEventsData])
 def get_workflow_events(
     workflow_id: str,
     request: Request,
     after_sequence: int = 0,
-) -> ApiSuccess[dict[str, Any]]:
+) -> ApiSuccess[WorkflowEventsData]:
     settings = _settings(request)
     result = workflow_events(
         project_root=settings.project_root,
@@ -89,7 +96,7 @@ def get_workflow_events(
         workflow_id=workflow_id,
         after_sequence=after_sequence,
     )
-    return ApiSuccess(data=result.model_dump(mode="json"))
+    return ApiSuccess(data=WorkflowEventsData(workflow_id=result.workflow_id, events=result.events))
 
 
 @router.get("/workflows/{workflow_id}/events/stream")
@@ -116,3 +123,30 @@ def _settings(request: Request):
     if settings.project_root is None:
         raise ValidationError("API sidecar does not have an active project root.")
     return settings
+
+
+def _workflow_summary(store: ProjectStore, workflow: WorkflowConfig) -> WorkflowSummary:
+    state = read_effective_workflow_state(store, workflow)
+    return WorkflowSummary(
+        id=workflow.id,
+        name=workflow.name,
+        steps=tuple(
+            WorkflowStepSummary(
+                id=step.id,
+                name=step.name,
+                tool_ref=step.tool_ref,
+                outputs=step.outputs,
+            )
+            for step in workflow.steps
+        ),
+        state=state,
+        latest_event_sequence=store.latest_event_sequence(workflow.id),
+    )
+
+
+def _store(config: ProjectConfig) -> ProjectStore:
+    return ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )

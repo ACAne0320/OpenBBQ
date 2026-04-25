@@ -18,6 +18,13 @@ def install_error_handlers(app: FastAPI) -> None:
             content=payload.model_dump(mode="json"),
         )
 
+    @app.exception_handler(FileNotFoundError)
+    async def file_not_found_error_handler(
+        request: Request, exc: FileNotFoundError
+    ) -> JSONResponse:
+        payload = ApiErrorResponse(error=ApiError(code="not_found", message=str(exc)))
+        return JSONResponse(status_code=404, content=payload.model_dump(mode="json"))
+
     @app.exception_handler(RequestValidationError)
     async def request_validation_error_handler(
         request: Request, exc: RequestValidationError

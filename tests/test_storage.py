@@ -17,9 +17,7 @@ def _sqlite_table_names(path) -> set[str]:
     with sqlite3.connect(path) as connection:
         return {
             row[0]
-            for row in connection.execute(
-                "select name from sqlite_master where type = 'table'"
-            )
+            for row in connection.execute("select name from sqlite_master where type = 'table'")
         }
 
 
@@ -59,8 +57,13 @@ def test_artifact_content_store_round_trips_json_text_bytes_and_files(tmp_path):
     assert store.read_content(json_content.path, json_content.encoding, json_content.size) == {
         "hello": "openbbq"
     }
-    assert store.read_content(text_content.path, text_content.encoding, text_content.size) == "hello"
-    assert store.read_content(bytes_content.path, bytes_content.encoding, bytes_content.size) == b"bytes"
+    assert (
+        store.read_content(text_content.path, text_content.encoding, text_content.size) == "hello"
+    )
+    assert (
+        store.read_content(bytes_content.path, bytes_content.encoding, bytes_content.size)
+        == b"bytes"
+    )
     assert store.read_content(file_content.path, file_content.encoding, file_content.size) == {
         "file_path": file_content.path,
         "size": 9,
@@ -312,9 +315,7 @@ def test_project_store_keeps_facts_in_database_not_legacy_json_files(tmp_path):
     )
 
     workflow_dir = tmp_path / ".openbbq" / "state" / "workflows" / "text-demo"
-    version_dir = (
-        tmp_path / ".openbbq" / "artifacts" / artifact.id / "versions" / f"1-{version.id}"
-    )
+    version_dir = tmp_path / ".openbbq" / "artifacts" / artifact.id / "versions" / f"1-{version.id}"
 
     assert store.read_workflow_state("text-demo").status == "running"
     assert store.read_step_run("text-demo", "sr_sqlite").status == "running"

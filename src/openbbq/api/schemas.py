@@ -6,6 +6,8 @@ from typing import Generic, Literal, TypeAlias, TypeVar
 from pydantic import Field, model_validator
 
 from openbbq.domain.base import JsonObject, JsonValue, OpenBBQModel
+from openbbq.domain.models import StepOutput
+from openbbq.engine.validation import WorkflowValidationResult
 from openbbq.runtime.models import DoctorCheck, ModelAssetStatus, ProviderProfile, RuntimeSettings
 from openbbq.storage.models import (
     ArtifactRecord,
@@ -67,7 +69,7 @@ class WorkflowStepSummary(OpenBBQModel):
     id: str
     name: str
     tool_ref: str
-    outputs: tuple[JsonObject, ...]
+    outputs: tuple[StepOutput, ...]
 
 
 class WorkflowSummary(OpenBBQModel):
@@ -76,6 +78,24 @@ class WorkflowSummary(OpenBBQModel):
     steps: tuple[WorkflowStepSummary, ...]
     state: WorkflowState
     latest_event_sequence: int
+
+
+class WorkflowListData(OpenBBQModel):
+    workflows: tuple[WorkflowSummary, ...]
+
+
+class WorkflowDetailData(OpenBBQModel):
+    id: str
+    name: str
+    steps: tuple[WorkflowStepSummary, ...]
+    state: WorkflowState
+    latest_event_sequence: int
+    validation: WorkflowValidationResult | None = None
+
+
+class WorkflowEventsData(OpenBBQModel):
+    workflow_id: str
+    events: tuple[WorkflowEvent, ...]
 
 
 class RunCreateRequest(OpenBBQModel):
@@ -128,6 +148,41 @@ class ArtifactShowData(OpenBBQModel):
     current_version: ArtifactVersionData
 
 
+class ArtifactListData(OpenBBQModel):
+    artifacts: tuple[ArtifactRecord, ...]
+
+
+class ArtifactImportData(OpenBBQModel):
+    artifact: ArtifactRecord
+    version: ArtifactVersionRecord
+
+
+class ArtifactDiffData(OpenBBQModel):
+    from_version: str = Field(alias="from")
+    to: str
+    format: str
+    diff: str
+
+
+class ArtifactPreviewData(OpenBBQModel):
+    version: ArtifactVersionRecord
+    content: JsonValue | None
+    truncated: bool
+    content_encoding: str
+    content_size: int
+
+
+class ArtifactExportRequest(OpenBBQModel):
+    path: Path
+    config_path: Path | None = None
+
+
+class ArtifactExportData(OpenBBQModel):
+    version_id: str
+    path: Path
+    bytes_written: int
+
+
 class ArtifactImportRequest(OpenBBQModel):
     path: Path
     artifact_type: str
@@ -175,6 +230,43 @@ class ModelListData(OpenBBQModel):
 class DoctorData(OpenBBQModel):
     ok: bool
     checks: tuple[DoctorCheck, ...]
+
+
+class SubtitleLocalJobRequest(OpenBBQModel):
+    input_path: Path
+    source_lang: str
+    target_lang: str
+    provider: str = "openai"
+    model: str | None = None
+    asr_model: str | None = None
+    asr_device: str | None = None
+    asr_compute_type: str | None = None
+    output_path: Path | None = None
+
+
+class SubtitleYouTubeJobRequest(OpenBBQModel):
+    url: str
+    source_lang: str
+    target_lang: str
+    provider: str = "openai"
+    model: str | None = None
+    asr_model: str | None = None
+    asr_device: str | None = None
+    asr_compute_type: str | None = None
+    quality: str = "best[ext=mp4][height<=720]/best[height<=720]/best"
+    auth: str = "auto"
+    browser: str | None = None
+    browser_profile: str | None = None
+    output_path: Path | None = None
+
+
+class SubtitleJobData(OpenBBQModel):
+    generated_project_root: Path
+    generated_config_path: Path
+    workflow_id: str
+    run_id: str
+    output_path: Path | None = None
+    source_artifact_id: str | None = None
 
 
 class EventStreamItem(OpenBBQModel):

@@ -145,9 +145,7 @@ class ArtifactRepository:
                     f"artifact type mismatch for {artifact_id}: {artifact.type} != {artifact_type}"
                 )
             if artifact.created_by_step_id is None and created_by_step_id is not None:
-                artifact = artifact.model_copy(
-                    update={"created_by_step_id": created_by_step_id}
-                )
+                artifact = artifact.model_copy(update={"created_by_step_id": created_by_step_id})
             return artifact
 
         artifact_id = self.id_generator.artifact_id()

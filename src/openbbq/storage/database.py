@@ -82,9 +82,7 @@ class ProjectDatabase:
 
     def list_runs(self) -> tuple[RunRecord, ...]:
         with self._session() as session:
-            rows = session.scalars(
-                select(RunRow).order_by(RunRow.started_at, RunRow.id)
-            ).all()
+            rows = session.scalars(select(RunRow).order_by(RunRow.started_at, RunRow.id)).all()
             return tuple(_model(RunRecord, row) for row in rows)
 
     def write_workflow_state(self, state: WorkflowState) -> WorkflowState:
@@ -118,9 +116,7 @@ class ProjectDatabase:
             row.step_id = step_run.step_id
             row.attempt = step_run.attempt
             row.status = step_run.status
-            row.input_artifact_version_ids_json = _json(
-                payload["input_artifact_version_ids"]
-            )
+            row.input_artifact_version_ids_json = _json(payload["input_artifact_version_ids"])
             row.output_bindings_json = _json(payload["output_bindings"])
             row.started_at = step_run.started_at
             row.completed_at = step_run.completed_at
@@ -169,9 +165,7 @@ class ProjectDatabase:
             self._write_event_in_session(session, event)
         return event
 
-    def read_events(
-        self, workflow_id: str, after_sequence: int = 0
-    ) -> tuple[WorkflowEvent, ...]:
+    def read_events(self, workflow_id: str, after_sequence: int = 0) -> tuple[WorkflowEvent, ...]:
         with self._session() as session:
             rows = session.scalars(
                 select(WorkflowEventRow)
@@ -223,9 +217,7 @@ class ProjectDatabase:
             ).all()
             return tuple(_model(ArtifactRecord, row) for row in rows)
 
-    def write_artifact_version(
-        self, version: ArtifactVersionRecord
-    ) -> ArtifactVersionRecord:
+    def write_artifact_version(self, version: ArtifactVersionRecord) -> ArtifactVersionRecord:
         payload = version.model_dump(mode="json")
         with self._session() as session:
             row = session.get(ArtifactVersionRow, version.id)

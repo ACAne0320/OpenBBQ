@@ -182,6 +182,7 @@ def _build_parser() -> argparse.ArgumentParser:
     api_serve.add_argument("--port", type=int, default=0)
     api_serve.add_argument("--token")
     api_serve.add_argument("--allow-dev-cors", action="store_true")
+    api_serve.add_argument("--no-token-dev", action="store_true")
 
     subtitle = subparsers.add_parser("subtitle", parents=[subcommand_global_options])
     subtitle_sub = subtitle.add_subparsers(dest="subtitle_command", required=True)
@@ -342,6 +343,8 @@ def _dispatch(args: argparse.Namespace) -> int:
                 argv.extend(["--token", args.token])
             if args.allow_dev_cors:
                 argv.append("--allow-dev-cors")
+            if args.no_token_dev:
+                argv.append("--no-token-dev")
             return api_server_main(argv)
     if args.command == "subtitle":
         if args.subtitle_command == "local":

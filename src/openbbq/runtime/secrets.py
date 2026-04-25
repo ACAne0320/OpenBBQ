@@ -143,7 +143,9 @@ class SecretResolver:
                     value_preview=_preview(value),
                 ),
             )
-        raise ValidationError("Unsupported secret reference scheme. Use env:, sqlite:, or keyring:.")
+        raise ValidationError(
+            "Unsupported secret reference scheme. Use env:, sqlite:, or keyring:."
+        )
 
     def set_secret(self, reference: str, value: str) -> None:
         if not value:
@@ -154,7 +156,9 @@ class SecretResolver:
             UserRuntimeDatabase(env=self.env).set_credential(reference, value)
             return
         if not reference.startswith("keyring:"):
-            raise ValidationError("Only keyring: or sqlite: secret references can be set by OpenBBQ.")
+            raise ValidationError(
+                "Only keyring: or sqlite: secret references can be set by OpenBBQ."
+            )
         service, username = _parse_keyring_reference(reference)
         if self.keyring_backend is None:
             raise ValidationError("Python keyring support is not installed or not available.")

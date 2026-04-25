@@ -92,7 +92,9 @@ def get_run(*, project_root: Path, run_id: str, config_path: Path | None = None)
     return read_run(store.state_base, run_id)
 
 
-def list_project_runs(*, project_root: Path, config_path: Path | None = None) -> tuple[RunRecord, ...]:
+def list_project_runs(
+    *, project_root: Path, config_path: Path | None = None
+) -> tuple[RunRecord, ...]:
     config = load_project_config(project_root, config_path=config_path)
     store = ProjectStore(
         config.storage.root,
@@ -115,7 +117,13 @@ def abort_run(*, project_root: Path, run_id: str, config_path: Path | None = Non
     return _sync_run_from_workflow_state(project_root=project_root, run_id=run_id, run=run)
 
 
-def resume_run(*, project_root: Path, run_id: str, config_path: Path | None = None) -> RunRecord:
+def resume_run(
+    *,
+    project_root: Path,
+    run_id: str,
+    config_path: Path | None = None,
+    execute_inline: bool = True,
+) -> RunRecord:
     run = get_run(project_root=project_root, run_id=run_id, config_path=config_path)
     request = RunCreateRequest(
         project_root=project_root,
@@ -124,7 +132,20 @@ def resume_run(*, project_root: Path, run_id: str, config_path: Path | None = No
         workflow_id=run.workflow_id,
         created_by=run.created_by,
     )
-    _execute_resume(run.id, request)
+    config = load_project_config(project_root, config_path=run.config_path)
+    store = ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )
+    write_run(
+        store.state_base,
+        run.model_copy(update={"status": "queued", "completed_at": None, "error": None}),
+    )
+    if execute_inline:
+        _execute_resume(run.id, request)
+    else:
+        _EXECUTOR.submit(_execute_resume, run.id, request)
     return get_run(project_root=project_root, run_id=run_id, config_path=config_path)
 
 
@@ -153,16 +174,22 @@ def _execute_run(run_id: str, request: RunCreateRequest) -> None:
             )
         )
     except OpenBBQError as exc:
-        latest = store.latest_event_sequence(request.workflow_id)
-        failed = read_run(store.state_base, run_id).model_copy(
-            update={
-                "status": "failed",
-                "completed_at": _now(),
-                "latest_event_sequence": latest,
-                "error": RunErrorRecord(code=exc.code, message=exc.message),
-            }
+        _mark_run_failed(
+            store,
+            run_id=run_id,
+            workflow_id=request.workflow_id,
+            code=exc.code,
+            message=exc.message,
         )
-        write_run(store.state_base, failed)
+        return
+    except Exception as exc:
+        _mark_run_failed(
+            store,
+            run_id=run_id,
+            workflow_id=request.workflow_id,
+            code="internal_error",
+            message=str(exc),
+        )
         return
     latest = store.latest_event_sequence(request.workflow_id)
     completed = read_run(store.state_base, run_id).model_copy(
@@ -198,16 +225,22 @@ def _execute_resume(run_id: str, request: RunCreateRequest) -> None:
             )
         )
     except OpenBBQError as exc:
-        latest = store.latest_event_sequence(request.workflow_id)
-        failed = read_run(store.state_base, run_id).model_copy(
-            update={
-                "status": "failed",
-                "completed_at": _now(),
-                "latest_event_sequence": latest,
-                "error": RunErrorRecord(code=exc.code, message=exc.message),
-            }
+        _mark_run_failed(
+            store,
+            run_id=run_id,
+            workflow_id=request.workflow_id,
+            code=exc.code,
+            message=exc.message,
         )
-        write_run(store.state_base, failed)
+        return
+    except Exception as exc:
+        _mark_run_failed(
+            store,
+            run_id=run_id,
+            workflow_id=request.workflow_id,
+            code="internal_error",
+            message=str(exc),
+        )
         return
     latest = store.latest_event_sequence(request.workflow_id)
     completed = read_run(store.state_base, run_id).model_copy(
@@ -245,6 +278,26 @@ def _sync_run_from_workflow_state(*, project_root: Path, run_id: str, run: RunRe
         }
     )
     return write_run(store.state_base, updated)
+
+
+def _mark_run_failed(
+    store: ProjectStore,
+    *,
+    run_id: str,
+    workflow_id: str,
+    code: str,
+    message: str,
+) -> RunRecord:
+    latest = store.latest_event_sequence(workflow_id)
+    failed = read_run(store.state_base, run_id).model_copy(
+        update={
+            "status": "failed",
+            "completed_at": _now(),
+            "latest_event_sequence": latest,
+            "error": RunErrorRecord(code=code, message=message),
+        }
+    )
+    return write_run(store.state_base, failed)
 
 
 def _new_run_id() -> str:
