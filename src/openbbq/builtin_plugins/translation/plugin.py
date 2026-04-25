@@ -5,6 +5,12 @@ import re
 from typing import Any
 
 from openbbq.builtin_plugins.glossary.rules import normalize_rules, source_matches
+from openbbq.builtin_plugins.llm import (
+    completion_content,
+    default_openai_client_factory,
+    parse_indexed_text_items,
+    segment_chunks,
+)
 from openbbq.runtime.provider import llm_provider_from_request
 
 
@@ -69,7 +75,7 @@ def run_translation(
     client = client_factory(api_key=provider.api_key, base_url=provider.base_url)
     segments = _timed_segments_any(request, input_names=input_names, error_prefix=error_prefix)
     translated_segments = []
-    for chunk in _segment_chunks(
+    for chunk in segment_chunks(
         segments, DEFAULT_MAX_SEGMENTS_PER_REQUEST, error_prefix=error_prefix
     ):
         translated_segments.extend(
@@ -243,14 +249,7 @@ def run_qa(request: dict) -> dict:
     }
 
 
-def _default_client_factory(*, api_key: str, base_url: str | None):
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise RuntimeError(
-            "openai is not installed. Install OpenBBQ with the llm optional dependencies."
-        ) from exc
-    return OpenAI(api_key=api_key, base_url=base_url)
+_default_client_factory = default_openai_client_factory
 
 
 def _translate_chunk(
@@ -342,7 +341,7 @@ def _translate_chunk_once(
         ],
     )
     translated_items = _parse_translation_response(
-        _completion_content(completion, error_prefix=error_prefix),
+        completion_content(completion, error_prefix=error_prefix),
         expected_count=len(chunk),
         error_prefix=error_prefix,
     )
@@ -418,51 +417,18 @@ def _user_message(
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _completion_content(completion: Any, *, error_prefix: str) -> str:
-    choices = getattr(completion, "choices", None)
-    if not choices:
-        raise ValueError(f"{error_prefix} received no choices from the model.")
-    message = getattr(choices[0], "message", None)
-    content = getattr(message, "content", None)
-    if not isinstance(content, str):
-        raise ValueError(f"{error_prefix} model response content must be a string.")
-    return content
-
-
-def _segment_chunks(
-    segments: list[dict[str, Any]], chunk_size: int, *, error_prefix: str
-) -> list[list[dict[str, Any]]]:
-    if chunk_size <= 0:
-        raise ValueError(f"{error_prefix} chunk size must be positive.")
-    return [segments[index : index + chunk_size] for index in range(0, len(segments), chunk_size)]
-
-
 def _parse_translation_response(
     content: str, *, expected_count: int, error_prefix: str
 ) -> list[dict[str, Any]]:
-    try:
-        raw = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{error_prefix} model response was not valid JSON.") from exc
-    if not isinstance(raw, list):
-        raise ValueError(f"{error_prefix} model response must be an array.")
-    if len(raw) != expected_count:
-        raise ValueError(
-            f"{error_prefix} expected {expected_count} translated segments, got {len(raw)}."
+    return [
+        {"index": item["index"], "text": item["text"]}
+        for item in parse_indexed_text_items(
+            content,
+            expected_count=expected_count,
+            error_prefix=error_prefix,
+            item_label="translated segment",
         )
-    parsed = []
-    for expected_index, item in enumerate(raw):
-        if not isinstance(item, dict):
-            raise ValueError(f"{error_prefix} translated segments must be objects.")
-        if item.get("index") != expected_index:
-            raise ValueError(
-                f"{error_prefix} expected translated segment index {expected_index}, got {item.get('index')}."
-            )
-        text = item.get("text")
-        if not isinstance(text, str):
-            raise ValueError(f"{error_prefix} translated segment text must be a string.")
-        parsed.append({"index": expected_index, "text": text})
-    return parsed
+    ]
 
 
 def _contains_term(text: str, term: str, *, case_sensitive: bool | None) -> bool:
