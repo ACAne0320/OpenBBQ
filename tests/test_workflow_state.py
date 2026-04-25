@@ -10,7 +10,7 @@ from openbbq.workflow.state import (
     rebuild_output_bindings,
     require_status,
 )
-from openbbq.errors import ExecutionError
+from openbbq.errors import ExecutionError, StepRunNotFoundError
 from openbbq.storage.models import WorkflowState
 from openbbq.storage.project_store import ProjectStore
 
@@ -95,3 +95,14 @@ def test_rebuild_output_bindings_uses_completed_step_runs(tmp_path):
     bindings = rebuild_output_bindings(store, "text-demo", [step_run.id])
 
     assert bindings["seed.text"].artifact_version_id == version.id
+
+
+def test_rebuild_output_bindings_ignores_missing_historical_step_runs(tmp_path):
+    store = ProjectStore(tmp_path / ".openbbq")
+
+    with pytest.raises(StepRunNotFoundError):
+        store.read_step_run("text-demo", "missing-step-run")
+
+    bindings = rebuild_output_bindings(store, "text-demo", ["missing-step-run"])
+
+    assert bindings == {}

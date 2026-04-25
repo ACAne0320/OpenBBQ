@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Iterable
 
+from openbbq.errors import StepRunNotFoundError
 from openbbq.storage.project_store import ProjectStore
 
 
@@ -13,7 +14,7 @@ def build_artifact_reuse_map(
     for step_run_id in step_run_ids:
         try:
             step_run = store.read_step_run(workflow_id, step_run_id)
-        except FileNotFoundError:
+        except StepRunNotFoundError:
             continue
         if step_run.status != "completed":
             continue
@@ -31,7 +32,7 @@ def mark_running_step_runs_failed(
     for step_run_id in step_run_ids:
         try:
             step_run = store.read_step_run(workflow_id, step_run_id)
-        except FileNotFoundError:
+        except StepRunNotFoundError:
             continue
         if step_run.status != "running":
             continue

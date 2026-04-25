@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from openbbq.api.schemas import ApiError, ApiErrorResponse
-from openbbq.errors import OpenBBQError
+from openbbq.errors import NotFoundError, OpenBBQError
 
 
 def install_error_handlers(app: FastAPI) -> None:
@@ -17,13 +17,6 @@ def install_error_handlers(app: FastAPI) -> None:
             status_code=_status_code(exc),
             content=payload.model_dump(mode="json"),
         )
-
-    @app.exception_handler(FileNotFoundError)
-    async def file_not_found_error_handler(
-        request: Request, exc: FileNotFoundError
-    ) -> JSONResponse:
-        payload = ApiErrorResponse(error=ApiError(code="not_found", message=str(exc)))
-        return JSONResponse(status_code=404, content=payload.model_dump(mode="json"))
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_error_handler(
@@ -42,7 +35,7 @@ def install_error_handlers(app: FastAPI) -> None:
 def _status_code(error: OpenBBQError) -> int:
     if error.code == "validation_error":
         return 422
-    if error.code == "artifact_not_found":
+    if isinstance(error, NotFoundError):
         return 404
     if error.code in {"invalid_workflow_state", "invalid_command_usage"}:
         return 409

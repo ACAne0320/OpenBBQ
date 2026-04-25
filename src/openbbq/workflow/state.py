@@ -5,7 +5,7 @@ import json
 from typing import Iterable
 
 from openbbq.domain.base import dump_jsonable
-from openbbq.errors import ExecutionError
+from openbbq.errors import ExecutionError, StepRunNotFoundError, WorkflowStateNotFoundError
 from openbbq.domain.models import ProjectConfig, WorkflowConfig
 from openbbq.storage.models import OutputBindings, WorkflowState
 from openbbq.storage.project_store import ProjectStore
@@ -24,7 +24,7 @@ def build_pending_state(workflow: WorkflowConfig) -> WorkflowState:
 def read_effective_workflow_state(store: ProjectStore, workflow: WorkflowConfig) -> WorkflowState:
     try:
         return store.read_workflow_state(workflow.id)
-    except FileNotFoundError:
+    except WorkflowStateNotFoundError:
         return build_pending_state(workflow)
 
 
@@ -57,7 +57,7 @@ def rebuild_output_bindings(
     for step_run_id in step_run_ids:
         try:
             step_run = store.read_step_run(workflow_id, step_run_id)
-        except FileNotFoundError:
+        except StepRunNotFoundError:
             continue
         if step_run.status != "completed":
             continue

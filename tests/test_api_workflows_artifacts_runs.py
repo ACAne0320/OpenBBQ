@@ -64,11 +64,22 @@ def test_missing_run_uses_api_not_found_envelope(tmp_path):
     assert response.json() == {
         "ok": False,
         "error": {
-            "code": "not_found",
+            "code": "run_not_found",
             "message": "run not found: missing",
             "details": {},
         },
     }
+
+
+def test_missing_artifact_uses_artifact_not_found_envelope(tmp_path):
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project, raise_server_exceptions=False)
+
+    response = client.get("/artifacts/missing", headers=headers)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "artifact_not_found"
+    assert response.json()["error"]["message"] == "artifact not found: missing"
 
 
 def test_request_validation_errors_use_api_error_envelope(tmp_path):
