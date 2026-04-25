@@ -361,6 +361,26 @@ def test_project_sqlite_records_workflow_state_step_run_event_and_artifact(tmp_p
     assert version_row == (version.id, artifact.id, "text")
 
 
+def test_project_database_updates_existing_workflow_state_row(tmp_path):
+    database = ProjectDatabase(tmp_path / ".openbbq" / "openbbq.db")
+
+    database.write_workflow_state(WorkflowState(id="demo", status="running"))
+    database.write_workflow_state(
+        WorkflowState(id="demo", status="completed", step_run_ids=("sr_1",))
+    )
+
+    with sqlite3.connect(tmp_path / ".openbbq" / "openbbq.db") as connection:
+        rows = connection.execute(
+            "select status, step_run_ids_json, record_json from workflow_states where id = ?",
+            ("demo",),
+        ).fetchall()
+
+    assert len(rows) == 1
+    assert rows[0][0] == "completed"
+    assert json.loads(rows[0][1]) == ["sr_1"]
+    assert json.loads(rows[0][2])["step_run_ids"] == ["sr_1"]
+
+
 def test_project_store_keeps_facts_in_database_not_legacy_json_files(tmp_path):
     store = ProjectStore(tmp_path / ".openbbq")
 
