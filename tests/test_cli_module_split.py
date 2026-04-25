@@ -85,7 +85,7 @@ def test_parser_accepts_representative_command_groups():
         assert (args.command, _subcommand(args)) == expected
 
 
-def test_dispatch_delegates_project_plugin_and_api_modules(monkeypatch):
+def test_dispatch_delegates_project_plugin_api_and_workflow_modules(monkeypatch):
     app = importlib.import_module("openbbq.cli.app")
     calls = []
 
@@ -101,9 +101,14 @@ def test_dispatch_delegates_project_plugin_and_api_modules(monkeypatch):
         calls.append(("api", args.command))
         return 9 if args.command == "api" else None
 
+    def workflow_dispatch(args):
+        calls.append(("workflows", args.command))
+        return 10 if args.command == "validate" else None
+
     monkeypatch.setattr(app.projects, "dispatch", project_dispatch)
     monkeypatch.setattr(app.plugins, "dispatch", plugin_dispatch)
     monkeypatch.setattr(app.api, "dispatch", api_dispatch)
+    monkeypatch.setattr(app.workflows, "dispatch", workflow_dispatch)
 
     common = {
         "json_output": False,
@@ -122,6 +127,15 @@ def test_dispatch_delegates_project_plugin_and_api_modules(monkeypatch):
     assert app._dispatch(Namespace(command="api", api_command="serve", **common)) == 9
     assert calls == [("projects", "api"), ("plugins", "api"), ("api", "api")]
 
+    calls.clear()
+    assert app._dispatch(Namespace(command="validate", workflow="text-demo", **common)) == 10
+    assert calls == [
+        ("projects", "validate"),
+        ("plugins", "validate"),
+        ("api", "validate"),
+        ("workflows", "validate"),
+    ]
+
 
 def test_app_no_longer_defines_project_or_plugin_handlers():
     app = importlib.import_module("openbbq.cli.app")
@@ -132,6 +146,14 @@ def test_app_no_longer_defines_project_or_plugin_handlers():
         "_project_info",
         "_plugin_list",
         "_plugin_info",
+        "_validate",
+        "_run",
+        "_resume",
+        "_abort",
+        "_unlock",
+        "_status",
+        "_logs",
+        "_format_event",
     ):
         assert not hasattr(app, handler_name)
 

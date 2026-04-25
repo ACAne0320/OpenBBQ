@@ -29,16 +29,11 @@ from openbbq.application.runtime import (
     settings_show as settings_show_command,
 )
 from openbbq.application.workflows import (
-    WorkflowCommandRequest,
     WorkflowRunRequest,
-    abort_workflow_command,
-    resume_workflow_command,
     run_workflow_command,
-    unlock_workflow_command,
-    workflow_logs,
     workflow_status,
 )
-from openbbq.cli import api, plugins, projects
+from openbbq.cli import api, plugins, projects, workflows
 from openbbq.application.quickstart import (
     DEFAULT_YOUTUBE_QUALITY,
     write_local_subtitle_workflow,
@@ -46,7 +41,6 @@ from openbbq.application.quickstart import (
 )
 from openbbq.cli.context import (
     load_config as _load_config,
-    load_config_and_plugins as _load_config_and_plugins,
     project_store as _project_store,
 )
 from openbbq.cli.output import (
@@ -54,10 +48,9 @@ from openbbq.cli.output import (
     emit_error as _emit_error,
     jsonable_content as _jsonable_content,
 )
-from openbbq.engine.validation import validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.runtime.settings import load_runtime_settings
-from openbbq.storage.models import ArtifactRecord, WorkflowEvent
+from openbbq.storage.models import ArtifactRecord
 from openbbq.storage.project_store import ProjectStore
 
 FILE_BACKED_IMPORT_TYPES = frozenset({"audio", "image", "video"})
@@ -86,27 +79,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("version", parents=[subcommand_global_options])
     projects.register(subparsers, [subcommand_global_options])
-    resume = subparsers.add_parser("resume", parents=[subcommand_global_options])
-    resume.add_argument("workflow")
-    abort = subparsers.add_parser("abort", parents=[subcommand_global_options])
-    abort.add_argument("workflow")
-    unlock = subparsers.add_parser("unlock", parents=[subcommand_global_options])
-    unlock.add_argument("workflow")
-    unlock.add_argument("--yes", action="store_true")
-
-    validate = subparsers.add_parser("validate", parents=[subcommand_global_options])
-    validate.add_argument("workflow")
-
-    run = subparsers.add_parser("run", parents=[subcommand_global_options])
-    run.add_argument("workflow")
-    run.add_argument("--force", action="store_true")
-    run.add_argument("--step")
-
-    status = subparsers.add_parser("status", parents=[subcommand_global_options])
-    status.add_argument("workflow")
-
-    logs = subparsers.add_parser("logs", parents=[subcommand_global_options])
-    logs.add_argument("workflow")
+    workflows.register(subparsers, [subcommand_global_options])
 
     artifact = subparsers.add_parser("artifact", parents=[subcommand_global_options])
     artifact_sub = artifact.add_subparsers(dest="artifact_command", required=True)
@@ -243,30 +216,10 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "version":
         _emit({"ok": True, "version": __version__}, args.json_output, __version__)
         return 0
-    for module in (projects, plugins, api):
+    for module in (projects, plugins, api, workflows):
         result = module.dispatch(args)
         if result is not None:
             return result
-    if args.command == "resume":
-        return _resume(args)
-    if args.command == "abort":
-        return _abort(args)
-    if args.command == "unlock":
-        return _unlock(args)
-    if args.command == "validate":
-        return _validate(args)
-    if args.command == "run":
-        if args.force and args.step:
-            raise OpenBBQError(
-                "invalid_command_usage",
-                "run --force cannot be combined with --step.",
-                2,
-            )
-        return _run(args)
-    if args.command == "status":
-        return _status(args)
-    if args.command == "logs":
-        return _logs(args)
     if args.command == "artifact":
         if args.artifact_command == "diff":
             return _artifact_diff(args)
@@ -302,128 +255,6 @@ def _dispatch(args: argparse.Namespace) -> int:
         if args.subtitle_command == "youtube":
             return _subtitle_youtube(args)
     return 2
-
-
-def _validate(args: argparse.Namespace) -> int:
-    config, registry = _load_config_and_plugins(args)
-    result = validate_workflow(config, registry, args.workflow)
-    payload = {"ok": True, "workflow_id": result.workflow_id, "step_count": result.step_count}
-    _emit(payload, args.json_output, f"Workflow '{result.workflow_id}' is valid.")
-    return 0
-
-
-def _run(args: argparse.Namespace) -> int:
-    result = run_workflow_command(
-        WorkflowRunRequest(
-            project_root=Path(args.project),
-            config_path=Path(args.config) if args.config else None,
-            plugin_paths=tuple(Path(path) for path in args.plugins),
-            workflow_id=args.workflow,
-            force=args.force,
-            step_id=args.step,
-        )
-    )
-    payload = {
-        "ok": True,
-        "workflow_id": result.workflow_id,
-        "status": result.status,
-        "step_count": result.step_count,
-        "artifact_count": result.artifact_count,
-    }
-    _emit(payload, args.json_output, f"Workflow '{result.workflow_id}' {result.status}.")
-    return 0
-
-
-def _resume(args: argparse.Namespace) -> int:
-    result = resume_workflow_command(
-        WorkflowCommandRequest(
-            project_root=Path(args.project),
-            config_path=Path(args.config) if args.config else None,
-            plugin_paths=tuple(Path(path) for path in args.plugins),
-            workflow_id=args.workflow,
-        )
-    )
-    payload = {
-        "ok": True,
-        "workflow_id": result.workflow_id,
-        "status": result.status,
-        "step_count": result.step_count,
-        "artifact_count": result.artifact_count,
-    }
-    _emit(payload, args.json_output, f"Workflow '{result.workflow_id}' {result.status}.")
-    return 0
-
-
-def _abort(args: argparse.Namespace) -> int:
-    result = abort_workflow_command(
-        WorkflowCommandRequest(
-            project_root=Path(args.project),
-            config_path=Path(args.config) if args.config else None,
-            plugin_paths=tuple(Path(path) for path in args.plugins),
-            workflow_id=args.workflow,
-        )
-    )
-    payload = {"ok": True, "workflow_id": args.workflow, "status": result["status"]}
-    message = (
-        f"Workflow '{args.workflow}' abort requested."
-        if result["status"] == "abort_requested"
-        else f"Workflow '{args.workflow}' aborted."
-    )
-    _emit(payload, args.json_output, message)
-    return 0
-
-
-def _unlock(args: argparse.Namespace) -> int:
-    if not args.yes:
-        if args.json_output:
-            raise OpenBBQError(
-                "confirmation_required",
-                "unlock requires --yes when --json is used.",
-                1,
-            )
-        answer = input(f"Remove stale lock for workflow '{args.workflow}'? [y/N] ")
-        if answer.strip().lower() not in {"y", "yes"}:
-            raise OpenBBQError("unlock_cancelled", "Unlock cancelled.", 1)
-    result = unlock_workflow_command(
-        WorkflowCommandRequest(
-            project_root=Path(args.project),
-            config_path=Path(args.config) if args.config else None,
-            plugin_paths=tuple(Path(path) for path in args.plugins),
-            workflow_id=args.workflow,
-        )
-    )
-    payload = {"ok": True, **result}
-    _emit(
-        payload,
-        args.json_output,
-        f"Unlocked workflow '{args.workflow}' stale lock from PID {result['pid']}.",
-    )
-    return 0
-
-
-def _status(args: argparse.Namespace) -> int:
-    state = workflow_status(
-        project_root=Path(args.project),
-        config_path=Path(args.config) if args.config else None,
-        plugin_paths=tuple(Path(path) for path in args.plugins),
-        workflow_id=args.workflow,
-    )
-    payload = {"ok": True, **state.model_dump(mode="json")}
-    _emit(payload, args.json_output, f"{args.workflow}: {state.status}")
-    return 0
-
-
-def _logs(args: argparse.Namespace) -> int:
-    result = workflow_logs(
-        project_root=Path(args.project),
-        config_path=Path(args.config) if args.config else None,
-        plugin_paths=tuple(Path(path) for path in args.plugins),
-        workflow_id=args.workflow,
-    )
-    events = list(result.events)
-    payload = {"ok": True, "workflow_id": result.workflow_id, "events": events}
-    _emit(payload, args.json_output, "\n".join(_format_event(event) for event in events))
-    return 0
 
 
 def _artifact_list(args: argparse.Namespace) -> int:
@@ -777,7 +608,3 @@ def _secret_payload(secret) -> dict[str, object]:
         "value_preview": secret.value_preview,
         "error": secret.error,
     }
-
-
-def _format_event(event: WorkflowEvent) -> str:
-    return f"{event.sequence} {event.type} {event.message or ''}".strip()
