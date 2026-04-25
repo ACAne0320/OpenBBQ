@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from openbbq.errors import RunNotFoundError
 from openbbq.storage.database import ProjectDatabase, project_database_path_from_state_base
 from openbbq.storage.models import RunRecord
 
@@ -15,7 +16,7 @@ def write_run(state_base: Path, run: RunRecord) -> RunRecord:
 def read_run(state_base: Path, run_id: str) -> RunRecord:
     record = _database(state_base).read_run(run_id)
     if record is None:
-        raise FileNotFoundError(f"run not found: {run_id}")
+        raise RunNotFoundError(f"run not found: {run_id}")
     return record
 
 

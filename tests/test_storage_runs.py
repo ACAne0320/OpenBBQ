@@ -1,6 +1,9 @@
 import json
 import sqlite3
 
+import pytest
+
+from openbbq.errors import RunNotFoundError
 from openbbq.storage.models import RunRecord
 from openbbq.storage.runs import list_active_runs, read_run, write_run
 
@@ -24,6 +27,17 @@ def test_write_read_and_list_active_runs(tmp_path):
     assert written == record
     assert loaded == record
     assert [run.id for run in active] == ["run_1"]
+
+
+def test_read_missing_run_raises_domain_not_found_error(tmp_path):
+    state_root = tmp_path / ".openbbq" / "state"
+
+    with pytest.raises(RunNotFoundError) as exc:
+        read_run(state_root, "missing")
+
+    assert exc.value.code == "run_not_found"
+    assert exc.value.message == "run not found: missing"
+    assert exc.value.exit_code == 6
 
 
 def test_run_records_are_written_to_project_sqlite_database(tmp_path):

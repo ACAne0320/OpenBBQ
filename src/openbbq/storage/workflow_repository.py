@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from openbbq.domain.base import JsonObject, dump_jsonable
+from openbbq.errors import StepRunNotFoundError, WorkflowStateNotFoundError
 from openbbq.storage.database import ProjectDatabase
 from openbbq.storage.id_generation import StepRunIdGenerator
 from openbbq.storage.models import StepRunRecord, WorkflowState
@@ -27,7 +28,7 @@ class WorkflowRepository:
     def read_workflow_state(self, workflow_id: str) -> WorkflowState:
         state = self.database.read_workflow_state(workflow_id)
         if state is None:
-            raise FileNotFoundError(f"workflow state not found: {workflow_id}")
+            raise WorkflowStateNotFoundError(f"workflow state not found: {workflow_id}")
         return state
 
     def write_step_run(
@@ -43,5 +44,5 @@ class WorkflowRepository:
     def read_step_run(self, workflow_id: str, step_run_id: str) -> StepRunRecord:
         step_run = self.database.read_step_run(workflow_id, step_run_id)
         if step_run is None:
-            raise FileNotFoundError(f"step run not found: {step_run_id}")
+            raise StepRunNotFoundError(f"step run not found: {step_run_id}")
         return step_run

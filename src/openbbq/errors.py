@@ -27,6 +27,28 @@ class ExecutionError(OpenBBQError):
         super().__init__(code, message, exit_code)
 
 
-class ArtifactNotFoundError(OpenBBQError):
-    def __init__(self, message: str, code: str = "artifact_not_found", exit_code: int = 6) -> None:
+class NotFoundError(OpenBBQError):
+    def __init__(self, message: str, code: str = "not_found", exit_code: int = 6) -> None:
         super().__init__(code, message, exit_code)
+
+
+class ArtifactNotFoundError(NotFoundError):
+    def __init__(self, message: str, code: str = "artifact_not_found", exit_code: int = 6) -> None:
+        super().__init__(message, code, exit_code)
+
+
+class RunNotFoundError(NotFoundError):
+    def __init__(self, message: str, code: str = "run_not_found", exit_code: int = 6) -> None:
+        super().__init__(message, code, exit_code)
+
+
+class WorkflowStateNotFoundError(NotFoundError):
+    def __init__(
+        self, message: str, code: str = "workflow_state_not_found", exit_code: int = 6
+    ) -> None:
+        super().__init__(message, code, exit_code)
+
+
+class StepRunNotFoundError(NotFoundError):
+    def __init__(self, message: str, code: str = "step_run_not_found", exit_code: int = 6) -> None:
+        super().__init__(message, code, exit_code)

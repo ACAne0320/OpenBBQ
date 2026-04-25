@@ -212,6 +212,21 @@ def test_source_does_not_use_raw_sqlite3_access() -> None:
     assert offenders == []
 
 
+def test_domain_not_found_errors_share_base_class() -> None:
+    from openbbq.errors import (
+        ArtifactNotFoundError,
+        NotFoundError,
+        RunNotFoundError,
+        StepRunNotFoundError,
+        WorkflowStateNotFoundError,
+    )
+
+    assert issubclass(ArtifactNotFoundError, NotFoundError)
+    assert RunNotFoundError("missing").code == "run_not_found"
+    assert WorkflowStateNotFoundError("missing").code == "workflow_state_not_found"
+    assert StepRunNotFoundError("missing").code == "step_run_not_found"
+
+
 def test_builtin_plugin_manifests_are_included_in_wheel(tmp_path) -> None:
     import subprocess
     import sys

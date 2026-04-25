@@ -2,6 +2,7 @@ from datetime import datetime
 
 import pytest
 
+from openbbq.errors import StepRunNotFoundError, WorkflowStateNotFoundError
 from openbbq.storage.artifact_repository import ArtifactRepository
 from openbbq.storage.database import ProjectDatabase
 from openbbq.storage.event_repository import EventRepository
@@ -56,6 +57,21 @@ def test_storage_repositories_round_trip_without_project_store(tmp_path):
     assert event_repo.latest_sequence("demo") == 1
     assert artifact_repo.read_artifact(artifact.id) == artifact.record
     assert artifact_repo.read_artifact_version(version.id).content == "hello"
+
+
+def test_workflow_repository_missing_records_raise_domain_not_found_errors(tmp_path):
+    database = ProjectDatabase(tmp_path / ".openbbq" / "openbbq.db")
+    repository = WorkflowRepository(database, id_generator=object())
+
+    with pytest.raises(WorkflowStateNotFoundError) as workflow_exc:
+        repository.read_workflow_state("missing-workflow")
+    assert workflow_exc.value.code == "workflow_state_not_found"
+    assert workflow_exc.value.message == "workflow state not found: missing-workflow"
+
+    with pytest.raises(StepRunNotFoundError) as step_exc:
+        repository.read_step_run("demo", "missing-step-run")
+    assert step_exc.value.code == "step_run_not_found"
+    assert step_exc.value.message == "step run not found: missing-step-run"
 
 
 def test_write_artifact_version_round_trip(tmp_path):
