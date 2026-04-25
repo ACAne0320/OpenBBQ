@@ -3,6 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse
 
+from openbbq.api.adapters import api_model
+from openbbq.api.context import active_project_settings
 from openbbq.api.schemas import (
     ApiSuccess,
     ArtifactDiffData,
@@ -26,7 +28,6 @@ from openbbq.application.artifacts import (
     show_artifact,
     show_artifact_version,
 )
-from openbbq.errors import ValidationError
 
 router = APIRouter(tags=["artifacts"])
 
@@ -38,7 +39,7 @@ def get_artifacts(
     step_id: str | None = None,
     artifact_type: str | None = None,
 ) -> ApiSuccess[ArtifactListData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     artifacts = list_artifacts(
         project_root=settings.project_root,
         config_path=settings.config_path,
@@ -51,7 +52,7 @@ def get_artifacts(
 
 @router.get("/artifacts/{artifact_id}", response_model=ApiSuccess[ArtifactShowData])
 def get_artifact(artifact_id: str, request: Request) -> ApiSuccess[ArtifactShowData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     result = show_artifact(
         project_root=settings.project_root,
         config_path=settings.config_path,
@@ -77,7 +78,7 @@ def get_artifact_diff(
     to_version_id: str,
     request: Request,
 ) -> ApiSuccess[ArtifactDiffData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     return ApiSuccess(
         data=ArtifactDiffData.model_validate(
             diff_artifact_versions(
@@ -95,7 +96,7 @@ def get_artifact_diff(
     response_model=ApiSuccess[ArtifactVersionData],
 )
 def get_artifact_version(version_id: str, request: Request) -> ApiSuccess[ArtifactVersionData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     version = show_artifact_version(
         project_root=settings.project_root,
         config_path=settings.config_path,
@@ -115,14 +116,14 @@ def get_artifact_version_preview(
     request: Request,
     max_bytes: int = 65536,
 ) -> ApiSuccess[ArtifactPreviewData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     preview = preview_artifact_version(
         project_root=settings.project_root,
         config_path=settings.config_path,
         version_id=version_id,
         max_bytes=max_bytes,
     )
-    return ApiSuccess(data=ArtifactPreviewData(**preview.model_dump()))
+    return ApiSuccess(data=api_model(ArtifactPreviewData, preview))
 
 
 @router.post(
@@ -134,7 +135,7 @@ def post_artifact_version_export(
     body: ArtifactExportRequest,
     request: Request,
 ) -> ApiSuccess[ArtifactExportData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     result = export_artifact_version(
         ApplicationArtifactExportRequest(
             project_root=settings.project_root,
@@ -143,7 +144,7 @@ def post_artifact_version_export(
             path=body.path,
         )
     )
-    return ApiSuccess(data=ArtifactExportData(**result.model_dump()))
+    return ApiSuccess(data=api_model(ArtifactExportData, result))
 
 
 @router.post("/artifacts/import", response_model=ApiSuccess[ArtifactImportData])
@@ -151,7 +152,7 @@ def post_artifact_import(
     body: ArtifactImportRequest,
     request: Request,
 ) -> ApiSuccess[ArtifactImportData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     result = import_artifact(
         ApplicationArtifactImportRequest(
             project_root=settings.project_root,
@@ -168,7 +169,7 @@ def post_artifact_import(
 
 @router.get("/artifact-versions/{version_id}/file")
 def get_artifact_version_file(version_id: str, request: Request) -> FileResponse:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     version = show_artifact_version(
         project_root=settings.project_root,
         config_path=settings.config_path,
@@ -179,13 +180,6 @@ def get_artifact_version_file(version_id: str, request: Request) -> FileResponse
         media_type="application/octet-stream",
         filename=version.record.content_path.name,
     )
-
-
-def _settings(request: Request):
-    settings = request.app.state.openbbq_settings
-    if settings.project_root is None:
-        raise ValidationError("API sidecar does not have an active project root.")
-    return settings
 
 
 def _jsonable_content(content):
