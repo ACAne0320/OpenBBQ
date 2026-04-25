@@ -140,6 +140,7 @@ def test_database_model_modules_are_importable() -> None:
         "openbbq.storage.artifact_content",
         "openbbq.storage.artifact_repository",
         "openbbq.storage.database",
+        "openbbq.storage.database_records",
         "openbbq.storage.event_repository",
         "openbbq.storage.migration_runner",
         "openbbq.storage.orm",
