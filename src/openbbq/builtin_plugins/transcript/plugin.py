@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import json
 import re
 from typing import Any
@@ -12,6 +11,11 @@ from openbbq.builtin_plugins.llm import (
     segment_chunks,
 )
 from openbbq.builtin_plugins.glossary.rules import normalize_rules
+from openbbq.builtin_plugins.segments import (
+    SegmentUnit,
+    TimedSegment,
+    timed_segments_from_request,
+)
 from openbbq.runtime.provider import llm_provider_from_request
 
 
@@ -166,7 +170,7 @@ _default_client_factory = default_openai_client_factory
 def _correct_chunk(
     *,
     client: Any,
-    chunk: list[dict[str, Any]],
+    chunk: list[TimedSegment],
     model: str,
     source_lang: str,
     temperature: float,
@@ -217,7 +221,7 @@ def _correct_chunk(
 def _correct_chunk_once(
     *,
     client: Any,
-    chunk: list[dict[str, Any]],
+    chunk: list[TimedSegment],
     model: str,
     source_lang: str,
     temperature: float,
@@ -252,8 +256,8 @@ def _correct_chunk_once(
     )
     output_segments: list[dict[str, Any]] = []
     for segment, corrected_item in zip(chunk, corrected_items, strict=True):
-        next_segment = deepcopy(segment)
-        source_text = str(segment.get("text", ""))
+        next_segment = segment.copy_payload()
+        source_text = segment.text
         corrected_text = corrected_item["text"]
         next_segment["source_text"] = source_text
         next_segment["text"] = corrected_text
@@ -287,37 +291,31 @@ def _correction_user_message(
 
 
 def _correction_segment_payload(
-    index: int, segment: dict[str, Any], *, uncertainty_threshold: float | None
+    index: int, segment: TimedSegment, *, uncertainty_threshold: float | None
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "index": index,
-        "start": float(segment["start"]),
-        "end": float(segment["end"]),
-        "text": str(segment.get("text", "")),
+        "start": segment.start,
+        "end": segment.end,
+        "text": segment.text,
     }
-    confidence = segment.get("confidence")
-    if isinstance(confidence, (int, float)):
-        payload["confidence"] = float(confidence)
-    words = segment.get("words")
-    if isinstance(words, list):
-        compact_words = []
-        low_confidence_words = []
-        for word in words:
-            if not isinstance(word, dict):
-                continue
+    confidence = segment.confidence
+    if confidence is not None:
+        payload["confidence"] = confidence
+    if segment.words:
+        compact_words: list[dict[str, Any]] = []
+        low_confidence_words: list[dict[str, Any]] = []
+        for word in segment.words:
             entry: dict[str, Any] = {
-                "text": str(word.get("text", "")),
+                "text": word.text,
             }
-            if isinstance(word.get("start"), (int, float)):
-                entry["start"] = float(word["start"])
-            if isinstance(word.get("end"), (int, float)):
-                entry["end"] = float(word["end"])
-            if isinstance(word.get("confidence"), (int, float)):
-                entry["confidence"] = float(word["confidence"])
-                if (
-                    uncertainty_threshold is not None
-                    and float(word["confidence"]) < uncertainty_threshold
-                ):
+            if word.start is not None:
+                entry["start"] = word.start
+            if word.end is not None:
+                entry["end"] = word.end
+            if word.confidence is not None:
+                entry["confidence"] = word.confidence
+                if uncertainty_threshold is not None and word.confidence < uncertainty_threshold:
                     low_confidence_words.append(entry)
             compact_words.append(entry)
         if compact_words:
@@ -325,7 +323,7 @@ def _correction_segment_payload(
         if low_confidence_words:
             payload["low_confidence_words"] = low_confidence_words
     if uncertainty_threshold is not None and isinstance(confidence, (int, float)):
-        payload["below_uncertainty_threshold"] = float(confidence) < uncertainty_threshold
+        payload["below_uncertainty_threshold"] = confidence < uncertainty_threshold
     return payload
 
 
@@ -362,16 +360,16 @@ def _glossary_rules(value: Any) -> list[dict[str, Any]]:
     )
 
 
-def _run_text(block_units: list[dict[str, Any]]) -> str:
+def _run_text(block_units: list[SegmentUnit]) -> str:
     text = ""
     for unit in block_units:
-        text = _append_token(text, unit["text"])
+        text = _append_token(text, unit.text)
     return text.strip()
 
 
 def _segment_transcript(
     *,
-    segments: list[dict[str, Any]],
+    segments: list[TimedSegment],
     max_duration_seconds: float,
     min_duration_seconds: float,
     max_lines: int,
@@ -383,8 +381,8 @@ def _segment_transcript(
     units = _segmentation_units(segments)
     if not units:
         return []
-    blocks: list[list[dict[str, Any]]] = []
-    current: list[dict[str, Any]] = []
+    blocks: list[list[SegmentUnit]] = []
+    current: list[SegmentUnit] = []
     for unit in units:
         if not current:
             current = [unit]
@@ -418,53 +416,48 @@ def _segment_transcript(
     ]
 
 
-def _segmentation_units(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    units: list[dict[str, Any]] = []
+def _segmentation_units(segments: list[TimedSegment]) -> list[SegmentUnit]:
+    units: list[SegmentUnit] = []
     for segment_index, segment in enumerate(segments):
-        words = segment.get("words")
-        text = str(segment.get("text", "")).strip()
-        source_text = segment.get("source_text")
-        can_split_by_words = (
-            isinstance(words, list) and words and (source_text is None or str(source_text) == text)
-        )
+        text = segment.text.strip()
+        source_text = segment.source_text
+        can_split_by_words = bool(segment.words) and (source_text is None or source_text == text)
         if can_split_by_words:
-            word_units: list[dict[str, Any]] = []
-            for word in words:
-                if not isinstance(word, dict):
-                    continue
-                word_text = str(word.get("text", "")).strip()
+            word_units: list[SegmentUnit] = []
+            for word in segment.words:
+                word_text = word.text.strip()
                 if not word_text:
                     continue
-                start = float(word.get("start", segment["start"]))
-                end = float(word.get("end", start))
+                start = word.start if word.start is not None else segment.start
+                end = word.end if word.end is not None else start
                 word_units.append(
-                    {
-                        "start": start,
-                        "end": end,
-                        "text": word_text,
-                        "source_segment_indexes": [segment_index],
-                    }
+                    SegmentUnit(
+                        start=start,
+                        end=end,
+                        text=word_text,
+                        source_segment_indexes=(segment_index,),
+                    )
                 )
             units.extend(word_units)
             if word_units:
                 continue
         if text:
             units.append(
-                {
-                    "start": float(segment["start"]),
-                    "end": float(segment["end"]),
-                    "text": text,
-                    "source_segment_indexes": [segment_index],
-                }
+                SegmentUnit(
+                    start=segment.start,
+                    end=segment.end,
+                    text=text,
+                    source_segment_indexes=(segment_index,),
+                )
             )
     return units
 
 
 def _should_break_before(
     *,
-    current: list[dict[str, Any]],
-    candidate: list[dict[str, Any]],
-    next_unit: dict[str, Any],
+    current: list[SegmentUnit],
+    candidate: list[SegmentUnit],
+    next_unit: SegmentUnit,
     max_duration_seconds: float,
     min_duration_seconds: float,
     max_chars_per_line: int,
@@ -474,14 +467,14 @@ def _should_break_before(
     prefer_sentence_boundaries: bool,
 ) -> bool:
     current_text = _run_text(current)
-    current_duration = current[-1]["end"] - current[0]["start"]
-    pause_gap = next_unit["start"] - current[-1]["end"]
+    current_duration = current[-1].end - current[0].start
+    pause_gap = next_unit.start - current[-1].end
     if pause_gap >= pause_threshold_seconds and current_duration >= min_duration_seconds:
         return True
     if prefer_sentence_boundaries and SENTENCE_BOUNDARY_RE.search(current_text):
         return True
     candidate_text = _run_text(candidate)
-    candidate_duration = candidate[-1]["end"] - candidate[0]["start"]
+    candidate_duration = candidate[-1].end - candidate[0].start
     if candidate_duration > max_duration_seconds:
         return True
     if len(candidate_text) > max_chars_per_line * max_lines:
@@ -492,23 +485,23 @@ def _should_break_before(
 
 
 def _materialize_block(
-    block: list[dict[str, Any]], *, max_chars_per_line: int, max_lines: int
+    block: list[SegmentUnit], *, max_chars_per_line: int, max_lines: int
 ) -> dict[str, Any]:
     text = _wrap_lines(_run_text(block), max_chars_per_line=max_chars_per_line, max_lines=max_lines)
     source_indexes: list[int] = []
     for unit in block:
-        for index in unit.get("source_segment_indexes", []):
+        for index in unit.source_segment_indexes:
             if index not in source_indexes:
                 source_indexes.append(index)
-    start = float(block[0]["start"])
-    end = float(block[-1]["end"])
+    start = block[0].start
+    end = block[-1].end
     duration = max(end - start, 0.001)
     return {
         "start": start,
         "end": end,
         "text": text,
         "source_segment_indexes": source_indexes,
-        "word_count": sum(len(str(unit["text"]).split()) for unit in block),
+        "word_count": sum(len(unit.text.split()) for unit in block),
         "line_count": len(text.splitlines()) if text else 1,
         "cps": round(len(text.replace("\n", "")) / duration, 3),
     }
@@ -562,14 +555,5 @@ def _optional_string(value: Any) -> str | None:
     return value.strip()
 
 
-def _segments(request: dict, *, error_prefix: str) -> list[dict[str, Any]]:
-    transcript = request.get("inputs", {}).get("transcript", {})
-    if not isinstance(transcript, dict) or "content" not in transcript:
-        raise ValueError(f"{error_prefix} requires transcript content.")
-    content = transcript["content"]
-    if not isinstance(content, list) or any(not isinstance(segment, dict) for segment in content):
-        raise ValueError(f"{error_prefix} transcript content must be a list of objects.")
-    for segment in content:
-        if "start" not in segment or "end" not in segment:
-            raise ValueError(f"{error_prefix} transcript segments must include start and end.")
-    return content
+def _segments(request: dict, *, error_prefix: str) -> list[TimedSegment]:
+    return timed_segments_from_request(request, input_name="transcript", error_prefix=error_prefix)
