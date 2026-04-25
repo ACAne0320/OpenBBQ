@@ -170,11 +170,11 @@ Event records should not depend on process memory. A workflow run that crashes s
 
 Storage requirements:
 
-- Store workflow events in `<workflow-state-dir>/<workflow-id>/events.jsonl`.
-- Each line is one JSON event object with the schema from [Domain Model](./Domain-Model.md).
-- Append events synchronously: write one line, flush, and fsync before returning from the state transition.
-- Assign `sequence` by reading the last valid event sequence for the workflow and adding `1`.
-- On recovery, ignore a trailing partial JSONL line and report it only in `--debug` output.
+- Store workflow events in the project SQLite `workflow_events` table.
+- Each row stores query columns and the canonical event JSON object with the schema from [Domain Model](./Domain-Model.md).
+- Append events synchronously in a database transaction before returning from the state transition.
+- Assign `sequence` by reading the current maximum event sequence for the workflow and adding `1`.
+- Do not write or recover `events.jsonl`; SQLite is the event source of truth.
 
 ## Validation Before Execution
 

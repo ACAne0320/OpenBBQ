@@ -7,6 +7,7 @@ from typing import Protocol
 from openbbq.domain.base import OpenBBQModel
 from openbbq.errors import ValidationError
 from openbbq.runtime.models import SecretCheck
+from openbbq.runtime.user_db import UserRuntimeDatabase
 
 
 class KeyringBackend(Protocol):
@@ -115,13 +116,45 @@ class SecretResolver:
                     value_preview=_preview(value),
                 ),
             )
-        raise ValidationError("Unsupported secret reference scheme. Use env: or keyring:.")
+        if reference.startswith("sqlite:"):
+            if reference == "sqlite:":
+                raise ValidationError("sqlite secret reference must include a name.")
+            value = UserRuntimeDatabase(env=self.env).get_credential(reference)
+            if value is None:
+                return ResolvedSecret(
+                    reference=reference,
+                    resolved=False,
+                    value=None,
+                    public=SecretCheck(
+                        reference=reference,
+                        resolved=False,
+                        display=reference,
+                        error=f"SQLite secret '{reference}' was not found.",
+                    ),
+                )
+            return ResolvedSecret(
+                reference=reference,
+                resolved=True,
+                value=value,
+                public=SecretCheck(
+                    reference=reference,
+                    resolved=True,
+                    display=reference,
+                    value_preview=_preview(value),
+                ),
+            )
+        raise ValidationError("Unsupported secret reference scheme. Use env:, sqlite:, or keyring:.")
 
     def set_secret(self, reference: str, value: str) -> None:
-        if not reference.startswith("keyring:"):
-            raise ValidationError("Only keyring: secret references can be set by OpenBBQ.")
         if not value:
             raise ValidationError("Secret value must be non-empty.")
+        if reference.startswith("sqlite:"):
+            if reference == "sqlite:":
+                raise ValidationError("sqlite secret reference must include a name.")
+            UserRuntimeDatabase(env=self.env).set_credential(reference, value)
+            return
+        if not reference.startswith("keyring:"):
+            raise ValidationError("Only keyring: or sqlite: secret references can be set by OpenBBQ.")
         service, username = _parse_keyring_reference(reference)
         if self.keyring_backend is None:
             raise ValidationError("Python keyring support is not installed or not available.")

@@ -17,10 +17,9 @@ from openbbq.application.workflows import (
 from openbbq.config.loader import load_project_config
 from openbbq.domain.base import OpenBBQModel
 from openbbq.errors import ExecutionError, OpenBBQError, ValidationError
-from openbbq.storage import events as event_storage
 from openbbq.storage.models import RunErrorRecord, RunRecord
 from openbbq.storage.project_store import ProjectStore
-from openbbq.storage.runs import list_active_runs, read_run, write_run
+from openbbq.storage.runs import list_active_runs, list_runs, read_run, write_run
 
 
 class RunCreateRequest(OpenBBQModel):
@@ -72,10 +71,7 @@ def create_run(request: RunCreateRequest, *, execute_inline: bool = False) -> Ru
         project_root=request.project_root.expanduser().resolve(),
         config_path=request.config_path,
         plugin_paths=request.plugin_paths,
-        latest_event_sequence=event_storage.latest_event_sequence(
-            store.state_root,
-            request.workflow_id,
-        ),
+        latest_event_sequence=store.latest_event_sequence(request.workflow_id),
         created_by=request.created_by,
     )
     write_run(store.state_base, run)
@@ -96,6 +92,16 @@ def get_run(*, project_root: Path, run_id: str, config_path: Path | None = None)
     return read_run(store.state_base, run_id)
 
 
+def list_project_runs(*, project_root: Path, config_path: Path | None = None) -> tuple[RunRecord, ...]:
+    config = load_project_config(project_root, config_path=config_path)
+    store = ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )
+    return list_runs(store.state_base)
+
+
 def abort_run(*, project_root: Path, run_id: str, config_path: Path | None = None) -> RunRecord:
     run = get_run(project_root=project_root, run_id=run_id, config_path=config_path)
     abort_workflow_command(
@@ -106,7 +112,7 @@ def abort_run(*, project_root: Path, run_id: str, config_path: Path | None = Non
             workflow_id=run.workflow_id,
         )
     )
-    return get_run(project_root=project_root, run_id=run_id, config_path=config_path)
+    return _sync_run_from_workflow_state(project_root=project_root, run_id=run_id, run=run)
 
 
 def resume_run(*, project_root: Path, run_id: str, config_path: Path | None = None) -> RunRecord:
@@ -147,7 +153,7 @@ def _execute_run(run_id: str, request: RunCreateRequest) -> None:
             )
         )
     except OpenBBQError as exc:
-        latest = event_storage.latest_event_sequence(store.state_root, request.workflow_id)
+        latest = store.latest_event_sequence(request.workflow_id)
         failed = read_run(store.state_base, run_id).model_copy(
             update={
                 "status": "failed",
@@ -158,7 +164,7 @@ def _execute_run(run_id: str, request: RunCreateRequest) -> None:
         )
         write_run(store.state_base, failed)
         return
-    latest = event_storage.latest_event_sequence(store.state_root, request.workflow_id)
+    latest = store.latest_event_sequence(request.workflow_id)
     completed = read_run(store.state_base, run_id).model_copy(
         update={
             "status": result.status,
@@ -170,14 +176,75 @@ def _execute_run(run_id: str, request: RunCreateRequest) -> None:
 
 
 def _execute_resume(run_id: str, request: RunCreateRequest) -> None:
-    resume_workflow_command(
-        WorkflowCommandRequest(
-            project_root=request.project_root,
-            config_path=request.config_path,
-            plugin_paths=request.plugin_paths,
-            workflow_id=request.workflow_id,
-        )
+    config = load_project_config(
+        request.project_root,
+        config_path=request.config_path,
+        extra_plugin_paths=request.plugin_paths,
     )
+    store = ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )
+    run = read_run(store.state_base, run_id)
+    write_run(store.state_base, run.model_copy(update={"status": "running", "started_at": _now()}))
+    try:
+        result = resume_workflow_command(
+            WorkflowCommandRequest(
+                project_root=request.project_root,
+                config_path=request.config_path,
+                plugin_paths=request.plugin_paths,
+                workflow_id=request.workflow_id,
+            )
+        )
+    except OpenBBQError as exc:
+        latest = store.latest_event_sequence(request.workflow_id)
+        failed = read_run(store.state_base, run_id).model_copy(
+            update={
+                "status": "failed",
+                "completed_at": _now(),
+                "latest_event_sequence": latest,
+                "error": RunErrorRecord(code=exc.code, message=exc.message),
+            }
+        )
+        write_run(store.state_base, failed)
+        return
+    latest = store.latest_event_sequence(request.workflow_id)
+    completed = read_run(store.state_base, run_id).model_copy(
+        update={
+            "status": result.status,
+            "completed_at": _now() if result.status in {"completed", "failed", "aborted"} else None,
+            "latest_event_sequence": latest,
+            "error": None,
+        }
+    )
+    write_run(store.state_base, completed)
+
+
+def _sync_run_from_workflow_state(*, project_root: Path, run_id: str, run: RunRecord) -> RunRecord:
+    from openbbq.application.workflows import workflow_status
+
+    state = workflow_status(
+        project_root=project_root,
+        config_path=run.config_path,
+        plugin_paths=run.plugin_paths,
+        workflow_id=run.workflow_id,
+    )
+    config = load_project_config(project_root, config_path=run.config_path)
+    store = ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )
+    latest = store.latest_event_sequence(run.workflow_id)
+    updated = read_run(store.state_base, run_id).model_copy(
+        update={
+            "status": state.status,
+            "completed_at": _now() if state.status in {"completed", "failed", "aborted"} else None,
+            "latest_event_sequence": latest,
+        }
+    )
+    return write_run(store.state_base, updated)
 
 
 def _new_run_id() -> str:

@@ -9,8 +9,6 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from pydantic import ValidationError as PydanticValidationError
-
 from openbbq import __version__
 from openbbq.application.artifacts import (
     ArtifactImportRequest,
@@ -183,6 +181,7 @@ def _build_parser() -> argparse.ArgumentParser:
     api_serve.add_argument("--host", default="127.0.0.1")
     api_serve.add_argument("--port", type=int, default=0)
     api_serve.add_argument("--token")
+    api_serve.add_argument("--allow-dev-cors", action="store_true")
 
     subtitle = subparsers.add_parser("subtitle", parents=[subcommand_global_options])
     subtitle_sub = subtitle.add_subparsers(dest="subtitle_command", required=True)
@@ -341,6 +340,8 @@ def _dispatch(args: argparse.Namespace) -> int:
                 argv.extend(["--plugins", str(plugin_path)])
             if args.token:
                 argv.extend(["--token", args.token])
+            if args.allow_dev_cors:
+                argv.append("--allow-dev-cors")
             return api_server_main(argv)
     if args.command == "subtitle":
         if args.subtitle_command == "local":
@@ -938,18 +939,7 @@ def _project_store(config: ProjectConfig) -> ProjectStore:
 
 
 def _read_events(store: ProjectStore, workflow_id: str) -> list[WorkflowEvent]:
-    events_path = store.state_root / workflow_id / "events.jsonl"
-    if not events_path.exists():
-        return []
-    events: list[WorkflowEvent] = []
-    for line in events_path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            events.append(WorkflowEvent.model_validate(json.loads(line)))
-        except (json.JSONDecodeError, PydanticValidationError):
-            break
-    return events
+    return list(store.read_events(workflow_id))
 
 
 def _format_event(event: WorkflowEvent) -> str:

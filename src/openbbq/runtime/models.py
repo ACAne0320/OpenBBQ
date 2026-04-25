@@ -48,12 +48,14 @@ class ProviderProfile(OpenBBQModel):
             return value
         if value.startswith("env:") and value != "env:":
             return value
+        if value.startswith("sqlite:") and value != "sqlite:":
+            return value
         if value.startswith("keyring:"):
             payload = value.removeprefix("keyring:")
             service, separator, username = payload.partition("/")
             if separator and service and username:
                 return value
-        raise ValueError("must use an env: or keyring: secret reference")
+        raise ValueError("must use an env:, sqlite:, or keyring: secret reference")
 
     def public_dict(self) -> JsonObject:
         return self.model_dump(mode="json")

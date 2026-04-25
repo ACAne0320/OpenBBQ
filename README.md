@@ -62,21 +62,21 @@ uv run openbbq --json status text-demo --project tests/fixtures/projects/text-ba
 
 ## Quickstart: local video to SRT
 
-Configure an OpenAI-compatible provider:
+Configure an OpenAI-compatible provider. For the desktop-style local workflow,
+omit `--api-key-ref` and enter the key at the prompt; OpenBBQ stores it in the
+user SQLite database as a plaintext local credential.
 
 ```bash
-export OPENBBQ_LLM_API_KEY=sk-your-key
 uv run openbbq auth set openai \
   --type openai_compatible \
   --base-url https://api.openai.com/v1 \
-  --api-key-ref env:OPENBBQ_LLM_API_KEY \
   --default-chat-model gpt-4o-mini
 uv run openbbq auth check openai --json
 ```
 
 LLM-backed workflow steps must name a runtime provider such as `openai`. The
-environment variable above is only used because the provider profile explicitly
-stores `api_key = "env:OPENBBQ_LLM_API_KEY"`.
+CLI also supports explicit references such as `--api-key-ref
+env:OPENBBQ_LLM_API_KEY` for users who prefer environment variables.
 
 Generate a translated SRT file from a local video:
 

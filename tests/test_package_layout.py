@@ -45,6 +45,8 @@ def test_obsolete_source_modules_are_removed() -> None:
         "src/openbbq/engine.py",
         "src/openbbq/plugins.py",
         "src/openbbq/storage.py",
+        "src/openbbq/storage/events.py",
+        "src/openbbq/storage/workflows.py",
         "src/openbbq/core",
         "src/openbbq/models",
     ]
@@ -101,6 +103,95 @@ def test_secrets_extra_declares_keyring_dependency() -> None:
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert pyproject["project"]["optional-dependencies"]["secrets"] == ["keyring>=25"]
+
+
+def test_core_storage_declares_sqlalchemy_and_alembic_dependencies() -> None:
+    root = Path(__file__).resolve().parents[1]
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+
+    dependencies = pyproject["project"]["dependencies"]
+
+    assert any(dependency.startswith("SQLAlchemy>=") for dependency in dependencies)
+    assert any(dependency.startswith("alembic>=") for dependency in dependencies)
+
+
+def test_database_model_modules_are_importable() -> None:
+    modules = [
+        "openbbq.storage.artifact_content",
+        "openbbq.storage.artifact_repository",
+        "openbbq.storage.database",
+        "openbbq.storage.event_repository",
+        "openbbq.storage.migration_runner",
+        "openbbq.storage.orm",
+        "openbbq.storage.workflow_repository",
+        "openbbq.runtime.user_db",
+    ]
+
+    for module in modules:
+        importlib.import_module(module)
+
+
+def test_alembic_revision_is_packaged_with_storage_models() -> None:
+    root = Path(__file__).resolve().parents[1]
+    revisions = sorted(
+        path
+        for path in (root / "src/openbbq/storage/migrations/versions").glob("*.py")
+        if path.name != "__init__.py"
+    )
+
+    assert [revision.name for revision in revisions] == [
+        "0001_initial_sqlalchemy_schema.py"
+    ]
+
+
+def test_alembic_initial_revision_applies_to_sqlite_database(tmp_path) -> None:
+    import sqlite3
+
+    from alembic import command
+    from alembic.config import Config
+
+    root = Path(__file__).resolve().parents[1]
+    config = Config(root / "alembic.ini")
+    config.set_main_option(
+        "script_location",
+        str(root / "src/openbbq/storage/migrations"),
+    )
+    config.set_main_option(
+        "sqlalchemy.url",
+        f"sqlite:///{(tmp_path / 'openbbq.db').as_posix()}",
+    )
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(tmp_path / "openbbq.db") as connection:
+        table_names = {
+            row[0]
+            for row in connection.execute(
+                "select name from sqlite_master where type = 'table'"
+            )
+        }
+    assert {
+        "alembic_version",
+        "runs",
+        "workflow_states",
+        "step_runs",
+        "workflow_events",
+        "artifacts",
+        "artifact_versions",
+        "providers",
+        "credentials",
+    } <= table_names
+
+
+def test_source_does_not_use_raw_sqlite3_access() -> None:
+    root = Path(__file__).resolve().parents[1]
+    offenders: list[str] = []
+    for path in sorted((root / "src/openbbq").rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "sqlite3" in text:
+            offenders.append(str(path.relative_to(root)))
+
+    assert offenders == []
 
 
 def test_builtin_plugin_manifests_are_included_in_wheel(tmp_path) -> None:

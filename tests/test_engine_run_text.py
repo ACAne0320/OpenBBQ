@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import pytest
@@ -40,9 +39,8 @@ def test_run_text_workflow_to_completion(tmp_path):
     state = store.read_workflow_state("text-demo")
     assert state.status == "completed"
     assert len(state.step_run_ids) == 2
-    events_path = project / ".openbbq" / "state" / "workflows" / "text-demo" / "events.jsonl"
-    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
-    assert [event["type"] for event in events] == [
+    events = store.read_events("text-demo")
+    assert [event.type for event in events] == [
         "workflow.started",
         "step.started",
         "step.completed",
@@ -80,5 +78,6 @@ def test_run_respects_custom_storage_paths(tmp_path):
     run_workflow(config, discover_plugins(config.plugin_paths), "text-demo")
 
     assert (project / "artifact-store").is_dir()
-    assert (project / "workflow-state" / "workflows" / "text-demo" / "state.json").is_file()
+    assert (project / "runtime-root" / "openbbq.db").is_file()
+    assert not (project / "workflow-state" / "workflows" / "text-demo" / "state.json").exists()
     assert not (project / "runtime-root" / "artifacts").exists()

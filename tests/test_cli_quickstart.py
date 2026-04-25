@@ -112,7 +112,7 @@ def test_auth_set_json_requires_api_key_ref(tmp_path, monkeypatch, capsys):
     assert "api-key-ref" in payload["error"]["message"]
 
 
-def test_auth_set_without_secret_reference_prompts_and_uses_keyring_default(
+def test_auth_set_without_secret_reference_prompts_and_uses_sqlite_default(
     tmp_path, monkeypatch, capsys
 ):
     from openbbq.cli import app
@@ -133,9 +133,9 @@ def test_auth_set_without_secret_reference_prompts_and_uses_keyring_default(
 
     assert code == 0
     assert capsys.readouterr().out.strip() == "Configured provider 'openai'."
-    assert FakeSecretResolver.calls == [("keyring:openbbq/providers/openai/api_key", "sk-prompt")]
+    assert FakeSecretResolver.calls == [("sqlite:openbbq/providers/openai/api_key", "sk-prompt")]
     rendered = user_config.read_text(encoding="utf-8")
-    assert 'api_key = "keyring:openbbq/providers/openai/api_key"' in rendered
+    assert 'api_key = "sqlite:openbbq/providers/openai/api_key"' in rendered
     assert "sk-prompt" not in rendered
 
 

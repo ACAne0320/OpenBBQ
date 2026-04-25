@@ -1,11 +1,120 @@
-import json
+import sqlite3
 from datetime import datetime
 
 import pytest
 
-from openbbq.storage.events import latest_event_sequence, read_events, read_events_after
+from openbbq.runtime.user_db import UserRuntimeDatabase
+from openbbq.storage.artifact_content import ArtifactContentStore
+from openbbq.storage.artifact_repository import ArtifactRepository
+from openbbq.storage.database import ProjectDatabase
+from openbbq.storage.event_repository import EventRepository
 from openbbq.storage.models import ArtifactRecord, OutputBinding, WorkflowState
 from openbbq.storage.project_store import ProjectStore
+from openbbq.storage.workflow_repository import WorkflowRepository
+
+
+def _sqlite_table_names(path) -> set[str]:
+    with sqlite3.connect(path) as connection:
+        return {
+            row[0]
+            for row in connection.execute(
+                "select name from sqlite_master where type = 'table'"
+            )
+        }
+
+
+def test_project_database_initializes_with_alembic_without_user_tables(tmp_path):
+    path = tmp_path / ".openbbq" / "openbbq.db"
+
+    ProjectDatabase(path)
+
+    table_names = _sqlite_table_names(path)
+    assert "alembic_version" in table_names
+    assert {"runs", "workflow_states", "step_runs", "workflow_events"} <= table_names
+    assert {"providers", "credentials"}.isdisjoint(table_names)
+
+
+def test_user_runtime_database_initializes_with_alembic_without_project_tables(tmp_path):
+    path = tmp_path / "openbbq.db"
+
+    UserRuntimeDatabase(path)
+
+    table_names = _sqlite_table_names(path)
+    assert "alembic_version" in table_names
+    assert {"providers", "credentials"} <= table_names
+    assert {"runs", "workflow_states", "step_runs", "workflow_events"}.isdisjoint(table_names)
+
+
+def test_artifact_content_store_round_trips_json_text_bytes_and_files(tmp_path):
+    store = ArtifactContentStore()
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"file-body")
+
+    json_content = store.write_content(tmp_path / "json" / "content", {"hello": "openbbq"})
+    text_content = store.write_content(tmp_path / "text" / "content", "hello")
+    bytes_content = store.write_content(tmp_path / "bytes" / "content", b"bytes")
+    file_content = store.copy_file(tmp_path / "file" / "content", source)
+
+    assert json_content.encoding == "json"
+    assert store.read_content(json_content.path, json_content.encoding, json_content.size) == {
+        "hello": "openbbq"
+    }
+    assert store.read_content(text_content.path, text_content.encoding, text_content.size) == "hello"
+    assert store.read_content(bytes_content.path, bytes_content.encoding, bytes_content.size) == b"bytes"
+    assert store.read_content(file_content.path, file_content.encoding, file_content.size) == {
+        "file_path": file_content.path,
+        "size": 9,
+        "sha256": file_content.sha256,
+    }
+
+
+def test_storage_repositories_round_trip_without_project_store(tmp_path):
+    class FixedIds:
+        def artifact_id(self) -> str:
+            return "art_repo"
+
+        def artifact_version_id(self) -> str:
+            return "av_repo"
+
+        def step_run_id(self) -> str:
+            return "sr_repo"
+
+        def workflow_event_id(self) -> str:
+            return "evt_repo"
+
+    database = ProjectDatabase(tmp_path / ".openbbq" / "openbbq.db")
+    ids = FixedIds()
+
+    def timestamp() -> str:
+        return "2026-04-25T00:00:00+00:00"
+
+    workflow_repo = WorkflowRepository(database, id_generator=ids)
+    event_repo = EventRepository(database, id_generator=ids, timestamp_provider=timestamp)
+    artifact_repo = ArtifactRepository(
+        database,
+        artifacts_root=tmp_path / ".openbbq" / "artifacts",
+        id_generator=ids,
+        timestamp_provider=timestamp,
+    )
+
+    state = workflow_repo.write_workflow_state("demo", {"status": "running"})
+    step_run = workflow_repo.write_step_run("demo", {"status": "running"})
+    event = event_repo.append_event("demo", {"type": "workflow.started"})
+    artifact, version = artifact_repo.write_artifact_version(
+        artifact_type="text",
+        name="seed.text",
+        content="hello",
+        metadata={},
+        created_by_step_id="seed",
+        lineage={"workflow_id": "demo"},
+    )
+
+    assert workflow_repo.read_workflow_state("demo") == state
+    assert workflow_repo.read_step_run("demo", "sr_repo") == step_run
+    assert event_repo.read_events("demo") == (event,)
+    assert event_repo.latest_sequence("demo") == 1
+    assert artifact_repo.read_artifact(artifact.id) == artifact.record
+    assert artifact_repo.read_artifact_version(version.id).content == "hello"
 
 
 def test_write_artifact_version_round_trip(tmp_path):
@@ -28,15 +137,15 @@ def test_event_readers_return_typed_events_after_sequence(tmp_path):
     first = store.append_event("demo", {"type": "workflow.started"})
     second = store.append_event("demo", {"type": "workflow.completed"})
 
-    assert [event.id for event in read_events(store.state_root, "demo")] == [
+    assert [event.id for event in store.read_events("demo")] == [
         first.id,
         second.id,
     ]
-    assert [event.id for event in read_events_after(store.state_root, "demo", 1)] == [second.id]
-    assert latest_event_sequence(store.state_root, "demo") == 2
+    assert [event.id for event in store.read_events("demo", after_sequence=1)] == [second.id]
+    assert store.latest_event_sequence("demo") == 2
 
 
-def test_artifact_version_index_supports_direct_lookup(tmp_path):
+def test_artifact_version_supports_direct_database_lookup_without_json_index(tmp_path):
     store = ProjectStore(tmp_path / ".openbbq")
     artifact, version = store.write_artifact_version(
         artifact_type="text",
@@ -48,11 +157,11 @@ def test_artifact_version_index_supports_direct_lookup(tmp_path):
     )
 
     index_path = tmp_path / ".openbbq" / "artifacts" / "index.json"
-    assert index_path.exists()
+    assert not index_path.exists()
     assert store.read_artifact_version(version.id).record.artifact_id == artifact.id
 
 
-def test_artifact_index_can_be_rebuilt_from_artifact_records(tmp_path):
+def test_artifact_metadata_is_not_written_to_legacy_json_files(tmp_path):
     store = ProjectStore(tmp_path / ".openbbq")
     artifact, version = store.write_artifact_version(
         artifact_type="text",
@@ -62,12 +171,14 @@ def test_artifact_index_can_be_rebuilt_from_artifact_records(tmp_path):
         created_by_step_id="seed",
         lineage={"workflow_id": "text-demo", "step_id": "seed"},
     )
-    index_path = tmp_path / ".openbbq" / "artifacts" / "index.json"
-    index_path.unlink()
 
-    rebuilt = store.rebuild_artifact_index()
+    artifact_dir = tmp_path / ".openbbq" / "artifacts" / artifact.id
+    version_dir = artifact_dir / "versions" / f"1-{version.id}"
 
-    assert rebuilt.version_paths[version.id].endswith(f"1-{version.id}")
+    assert not (tmp_path / ".openbbq" / "artifacts" / "index.json").exists()
+    assert not (artifact_dir / "artifact.json").exists()
+    assert not (version_dir / "version.json").exists()
+    assert (version_dir / "content").is_file()
     assert store.read_artifact(artifact.id).id == artifact.id
 
 
@@ -126,10 +237,7 @@ def test_workflow_state_step_run_and_events_round_trip(tmp_path):
 
     step_run = store.write_step_run("text-demo", {"id": "sr_1", "status": "running"})
     assert step_run.id == "sr_1"
-    step_run_path = (
-        tmp_path / ".openbbq" / "state" / "workflows" / "text-demo" / "step-runs" / "sr_1.json"
-    )
-    assert json.loads(step_run_path.read_text(encoding="utf-8"))["workflow_id"] == "text-demo"
+    assert store.read_step_run("text-demo", "sr_1").workflow_id == "text-demo"
 
     event1 = store.append_event("text-demo", {"type": "workflow.started", "message": "started"})
     event2 = store.append_event(
@@ -143,52 +251,81 @@ def test_workflow_state_step_run_and_events_round_trip(tmp_path):
     assert event1.sequence == 1
     assert event2.sequence == 2
     assert datetime.fromisoformat(event1.created_at).tzinfo is not None
-    assert (
-        json.loads(
-            (tmp_path / ".openbbq" / "state" / "workflows" / "text-demo" / "events.jsonl")
-            .read_text(encoding="utf-8")
-            .splitlines()[1]
-        )["created_at"]
-        == "2026-04-22T01:02:03+00:00"
-    )
+    assert store.read_events("text-demo")[1].created_at == "2026-04-22T01:02:03+00:00"
 
 
-def test_append_event_recovers_trailing_partial_jsonl_line(tmp_path):
+def test_project_sqlite_records_workflow_state_step_run_event_and_artifact(tmp_path):
     store = ProjectStore(tmp_path / ".openbbq")
-    events_path = tmp_path / ".openbbq" / "state" / "workflows" / "text-demo" / "events.jsonl"
-    events_path.parent.mkdir(parents=True, exist_ok=True)
-    events_path.write_text(
-        '{"id":"evt_1","sequence":1,"workflow_id":"text-demo","type":"workflow.started"}\n'
-        '{"id":"evt_partial","sequence":',
-        encoding="utf-8",
+
+    state = store.write_workflow_state("text-demo", {"status": "running"})
+    step_run = store.write_step_run("text-demo", {"id": "sr_sqlite", "status": "running"})
+    event = store.append_event("text-demo", {"type": "workflow.started"})
+    artifact, version = store.write_artifact_version(
+        artifact_type="text",
+        name="seed.text",
+        content="hello",
+        metadata={"lang": "en"},
+        created_by_step_id="seed",
+        lineage={"workflow_id": "text-demo", "step_id": "seed"},
     )
 
-    event = store.append_event("text-demo", {"type": "workflow.completed", "message": "done"})
+    with sqlite3.connect(tmp_path / ".openbbq" / "openbbq.db") as connection:
+        workflow_row = connection.execute(
+            "select id, status from workflow_states where id = ?", (state.id,)
+        ).fetchone()
+        step_run_row = connection.execute(
+            "select id, workflow_id, status from step_runs where id = ?", (step_run.id,)
+        ).fetchone()
+        event_row = connection.execute(
+            "select id, workflow_id, sequence, type from workflow_events where id = ?",
+            (event.id,),
+        ).fetchone()
+        artifact_row = connection.execute(
+            "select id, type, name, current_version_id from artifacts where id = ?",
+            (artifact.id,),
+        ).fetchone()
+        version_row = connection.execute(
+            "select id, artifact_id, content_encoding from artifact_versions where id = ?",
+            (version.id,),
+        ).fetchone()
 
-    lines = events_path.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 2
-    assert json.loads(lines[0])["type"] == "workflow.started"
-    assert json.loads(lines[1])["sequence"] == 2
-    assert json.loads(lines[1])["type"] == "workflow.completed"
-    assert event.sequence == 2
+    assert workflow_row == ("text-demo", "running")
+    assert step_run_row == ("sr_sqlite", "text-demo", "running")
+    assert event_row == (event.id, "text-demo", 1, "workflow.started")
+    assert artifact_row == (artifact.id, "text", "seed.text", version.id)
+    assert version_row == (version.id, artifact.id, "text")
 
 
-def test_append_event_preserves_valid_final_jsonl_line_without_newline(tmp_path):
+def test_project_store_keeps_facts_in_database_not_legacy_json_files(tmp_path):
     store = ProjectStore(tmp_path / ".openbbq")
-    events_path = tmp_path / ".openbbq" / "state" / "workflows" / "text-demo" / "events.jsonl"
-    events_path.parent.mkdir(parents=True, exist_ok=True)
-    events_path.write_text(
-        '{"id":"evt_1","sequence":1,"workflow_id":"text-demo","type":"workflow.started"}',
-        encoding="utf-8",
+
+    store.write_workflow_state("text-demo", {"status": "running"})
+    step_run = store.write_step_run("text-demo", {"id": "sr_sqlite", "status": "running"})
+    event = store.append_event("text-demo", {"type": "workflow.started"})
+    artifact, version = store.write_artifact_version(
+        artifact_type="text",
+        name="seed.text",
+        content="hello",
+        metadata={"source": "sqlite"},
+        created_by_step_id="seed",
+        lineage={"workflow_id": "text-demo"},
     )
 
-    event = store.append_event("text-demo", {"type": "workflow.completed", "message": "done"})
+    workflow_dir = tmp_path / ".openbbq" / "state" / "workflows" / "text-demo"
+    version_dir = (
+        tmp_path / ".openbbq" / "artifacts" / artifact.id / "versions" / f"1-{version.id}"
+    )
 
-    lines = events_path.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 2
-    assert json.loads(lines[0])["type"] == "workflow.started"
-    assert json.loads(lines[1])["sequence"] == 2
-    assert event.sequence == 2
+    assert store.read_workflow_state("text-demo").status == "running"
+    assert store.read_step_run("text-demo", "sr_sqlite").status == "running"
+    assert [loaded.id for loaded in store.read_events("text-demo")] == [event.id]
+    assert store.read_artifact(artifact.id).name == "seed.text"
+    assert store.read_artifact_version(version.id).record.metadata == {"source": "sqlite"}
+    assert not (workflow_dir / "state.json").exists()
+    assert not (workflow_dir / "step-runs" / f"{step_run.id}.json").exists()
+    assert not (workflow_dir / "events.jsonl").exists()
+    assert not (tmp_path / ".openbbq" / "artifacts" / artifact.id / "artifact.json").exists()
+    assert not (version_dir / "version.json").exists()
 
 
 def test_write_workflow_state_overrides_conflicting_id(tmp_path):
@@ -197,12 +334,7 @@ def test_write_workflow_state_overrides_conflicting_id(tmp_path):
     state = store.write_workflow_state("text-demo", {"id": "wrong-workflow", "status": "running"})
 
     assert state.id == "text-demo"
-    persisted = json.loads(
-        (tmp_path / ".openbbq" / "state" / "workflows" / "text-demo" / "state.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert persisted["id"] == "text-demo"
+    assert store.read_workflow_state("text-demo").id == "text-demo"
 
 
 def test_write_step_run_overrides_conflicting_workflow_id(tmp_path):
@@ -214,12 +346,7 @@ def test_write_step_run_overrides_conflicting_workflow_id(tmp_path):
     )
 
     assert step_run.workflow_id == "text-demo"
-    persisted = json.loads(
-        (
-            tmp_path / ".openbbq" / "state" / "workflows" / "text-demo" / "step-runs" / "sr_2.json"
-        ).read_text(encoding="utf-8")
-    )
-    assert persisted["workflow_id"] == "text-demo"
+    assert store.read_step_run("text-demo", "sr_2").workflow_id == "text-demo"
 
 
 def test_id_generator_injection_is_used_for_persisted_ids(tmp_path):

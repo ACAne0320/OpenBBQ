@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 from openbbq.config.loader import load_project_config
@@ -21,12 +20,7 @@ def write_project(tmp_path, fixture_name: str) -> Path:
 
 
 def read_events(store: ProjectStore, workflow_id: str) -> list[dict]:
-    events_path = store.state_root / workflow_id / "events.jsonl"
-    return [
-        json.loads(line)
-        for line in events_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    return [event.model_dump(mode="json") for event in store.read_events(workflow_id)]
 
 
 def test_abort_running_workflow_writes_request_without_state_transition(tmp_path):

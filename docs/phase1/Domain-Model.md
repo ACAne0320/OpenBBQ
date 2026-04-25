@@ -24,29 +24,29 @@ Tests must be able to inject a deterministic ID generator so snapshots and fixtu
 
 ## Local State Layout
 
-Given `storage.root: .openbbq`, Phase 1 persists local state under:
+Given `storage.root: .openbbq`, Phase 1 persists structured local records in
+SQLite and large artifact payloads on disk:
 
 ```text
 .openbbq/
+  openbbq.db
   artifacts/
     <artifact-id>/
-      artifact.json
       versions/
         <version-number>-<artifact-version-id>/
           content
-          version.json
   state/
     workflows/
-      <workflow-id>/
-        state.json
-        events.jsonl
-        step-runs/
-          <step-run-id>.json
       <workflow-id>.lock
       <workflow-id>.abort_requested
 ```
 
-`state.json`, `artifact.json`, `version.json`, and step-run files are JSON objects written atomically by writing a temporary file in the same directory and renaming it into place.
+`openbbq.db` is the source of truth for runs, workflow state, step runs,
+workflow events, artifact records, and artifact version metadata. SQLAlchemy ORM
+models define the tables, and Alembic revisions define schema changes. Artifact
+content files remain on disk; the `artifact_versions` table stores the content
+path, hash, size, encoding, metadata, and lineage. Lock and abort-request files
+remain transient process-control files, not historical facts.
 
 ## Project
 
@@ -66,7 +66,7 @@ Required fields:
 
 A workflow is an ordered set of steps plus persisted execution state.
 
-The static portion (steps, parameters) comes from the project config file. The mutable portion (status, current step, step run records, events) is persisted separately in the workflow state file so the engine can reload it across process restarts without re-reading or re-validating the entire project config.
+The static portion (steps, parameters) comes from the project config file. The mutable portion (status, current step, step run records, events) is persisted separately in the project SQLite database so the engine can reload it across process restarts without re-reading or re-validating the entire project config.
 
 Required fields:
 
@@ -367,6 +367,10 @@ Initial event types:
 
 ## Event Storage
 
-Workflow events are stored in `events.jsonl` under the workflow state directory. Each line is one complete JSON object matching the Workflow Event schema. Appends must write a full line ending in `\n`, flush, and fsync before returning from the state transition that emitted the event.
+Workflow events are stored in the `workflow_events` table in the project SQLite
+database. Each row stores query columns and the canonical JSON representation of
+the event record. Appends assign `sequence` by reading the current maximum
+sequence for the workflow inside the database transaction and adding `1`.
 
-On startup, the event store reads valid complete lines in order. A trailing partial line caused by a process crash is ignored and should be reported as a warning in `--debug` output.
+The backend no longer writes or recovers `events.jsonl`. Historical inspection,
+CLI logs, API event polling, and SSE streaming read from SQLite.

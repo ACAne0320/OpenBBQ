@@ -11,8 +11,6 @@ from openbbq.config.loader import load_project_config
 from openbbq.engine.validation import validate_workflow
 from openbbq.errors import ValidationError
 from openbbq.plugins.registry import discover_plugins
-from openbbq.storage.events import latest_event_sequence
-from openbbq.storage.project_store import ProjectStore
 
 router = APIRouter(tags=["workflows"])
 
@@ -118,17 +116,3 @@ def _settings(request: Request):
     if settings.project_root is None:
         raise ValidationError("API sidecar does not have an active project root.")
     return settings
-
-
-def _latest_sequence(settings, workflow_id: str) -> int:
-    config = load_project_config(
-        settings.project_root,
-        config_path=settings.config_path,
-        extra_plugin_paths=settings.plugin_paths,
-    )
-    store = ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
-    return latest_event_sequence(store.state_root, workflow_id)

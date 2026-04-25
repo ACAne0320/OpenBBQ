@@ -54,6 +54,15 @@ class ProjectInfoData(OpenBBQModel):
     state_storage_path: Path
 
 
+class ProjectInitRequest(OpenBBQModel):
+    project_root: Path
+    config_path: Path | None = None
+
+
+class ProjectInitData(OpenBBQModel):
+    config_path: Path
+
+
 class WorkflowStepSummary(OpenBBQModel):
     id: str
     name: str
@@ -70,8 +79,8 @@ class WorkflowSummary(OpenBBQModel):
 
 
 class RunCreateRequest(OpenBBQModel):
-    project_root: Path
-    workflow_id: str
+    project_root: Path | None = None
+    workflow_id: str | None = None
     config_path: Path | None = None
     plugin_paths: tuple[Path, ...] = ()
     force: bool = False
@@ -105,6 +114,10 @@ class RunRecord(OpenBBQModel):
     created_by: RunCreator = "api"
 
 
+class RunListData(OpenBBQModel):
+    runs: tuple[RunRecord, ...]
+
+
 class ArtifactVersionData(OpenBBQModel):
     record: ArtifactVersionRecord
     content: JsonValue | bytes
@@ -113,6 +126,13 @@ class ArtifactVersionData(OpenBBQModel):
 class ArtifactShowData(OpenBBQModel):
     artifact: ArtifactRecord
     current_version: ArtifactVersionData
+
+
+class ArtifactImportRequest(OpenBBQModel):
+    path: Path
+    artifact_type: str
+    name: str
+    config_path: Path | None = None
 
 
 class PluginListData(OpenBBQModel):
@@ -128,6 +148,24 @@ class RuntimeSettingsData(OpenBBQModel):
 class ProviderData(OpenBBQModel):
     provider: ProviderProfile
     config_path: Path
+
+
+class ProviderAuthSetRequest(OpenBBQModel):
+    type: str = "openai_compatible"
+    base_url: str | None = None
+    api_key_ref: str | None = None
+    secret_value: str | None = None
+    default_chat_model: str | None = None
+    display_name: str | None = None
+
+
+class SecretCheckRequest(OpenBBQModel):
+    reference: str
+
+
+class SecretSetRequest(OpenBBQModel):
+    reference: str
+    value: str
 
 
 class ModelListData(OpenBBQModel):

@@ -24,6 +24,7 @@ def test_parse_args_accepts_sidecar_options():
         host="127.0.0.1",
         port=0,
         token="secret",
+        allow_dev_cors=False,
     )
 
 

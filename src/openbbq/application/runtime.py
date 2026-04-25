@@ -19,6 +19,7 @@ from openbbq.runtime.settings import (
     with_provider_profile,
     write_runtime_settings,
 )
+from openbbq.runtime.user_db import UserRuntimeDatabase
 
 
 class SettingsShowResult(OpenBBQModel):
@@ -91,6 +92,7 @@ def provider_set(request: ProviderSetRequest) -> ProviderSetResult:
         raise ValidationError(format_pydantic_error(f"providers.{request.name}", exc)) from exc
     settings = load_runtime_settings()
     updated = with_provider_profile(settings, provider)
+    UserRuntimeDatabase().upsert_provider(provider)
     write_runtime_settings(updated)
     return ProviderSetResult(provider=provider, config_path=updated.config_path)
 
@@ -98,12 +100,12 @@ def provider_set(request: ProviderSetRequest) -> ProviderSetResult:
 def auth_set(request: AuthSetRequest) -> AuthSetResult:
     api_key_ref = request.api_key_ref
     stored_secret = False
-    if api_key_ref is None:
-        if request.secret_value is None:
-            raise ValidationError("auth set requires --api-key-ref when non-interactive.")
-        api_key_ref = _default_provider_keyring_reference(request.name)
+    if request.secret_value is not None:
+        api_key_ref = api_key_ref or _default_provider_sqlite_reference(request.name)
         SecretResolver().set_secret(api_key_ref, request.secret_value)
         stored_secret = True
+    elif api_key_ref is None:
+        raise ValidationError("auth set requires --api-key-ref when non-interactive.")
     provider = ProviderProfile(
         name=request.name,
         type=request.type,
@@ -114,6 +116,7 @@ def auth_set(request: AuthSetRequest) -> AuthSetResult:
     )
     settings = load_runtime_settings()
     updated = with_provider_profile(settings, provider)
+    UserRuntimeDatabase().upsert_provider(provider)
     write_runtime_settings(updated)
     return AuthSetResult(
         provider=provider,
@@ -153,5 +156,5 @@ def model_list() -> ModelListResult:
     return ModelListResult(models=(faster_whisper_model_status(load_runtime_settings()),))
 
 
-def _default_provider_keyring_reference(name: str) -> str:
-    return f"keyring:openbbq/providers/{name}/api_key"
+def _default_provider_sqlite_reference(name: str) -> str:
+    return f"sqlite:openbbq/providers/{name}/api_key"

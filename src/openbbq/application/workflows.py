@@ -15,7 +15,6 @@ from openbbq.errors import ValidationError
 from openbbq.plugins.registry import discover_plugins
 from openbbq.runtime.context import build_runtime_context
 from openbbq.runtime.settings import load_runtime_settings
-from openbbq.storage.events import read_events_after
 from openbbq.storage.models import WorkflowEvent, WorkflowState
 from openbbq.storage.project_store import ProjectStore
 from openbbq.workflow.state import read_effective_workflow_state
@@ -154,5 +153,5 @@ def workflow_events(
     )
     return WorkflowLogsResult(
         workflow_id=workflow_id,
-        events=read_events_after(store.state_root, workflow_id, after_sequence),
+        events=store.read_events(workflow_id, after_sequence=after_sequence),
     )

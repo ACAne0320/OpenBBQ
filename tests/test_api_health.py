@@ -46,3 +46,21 @@ def test_authorized_route_accepts_bearer_token(tmp_path):
     )
 
     assert response.status_code != 401
+
+
+def test_dev_cors_can_be_enabled_for_local_renderer(tmp_path):
+    app = create_app(
+        ApiAppSettings(project_root=tmp_path, token="secret-token", allow_dev_cors=True)
+    )
+    client = TestClient(app)
+
+    response = client.options(
+        "/health",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"

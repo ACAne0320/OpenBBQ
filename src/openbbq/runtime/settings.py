@@ -19,6 +19,7 @@ from openbbq.runtime.models import (
     ProviderMap,
     RuntimeSettings,
 )
+from openbbq.runtime.user_db import UserRuntimeDatabase
 
 DEFAULT_USER_CONFIG_PATH = Path("~/.openbbq/config.toml")
 DEFAULT_CACHE_ROOT = Path("~/.cache/openbbq")
@@ -53,6 +54,9 @@ def load_runtime_settings(
     cache_root = _cache_root(raw, env, path.parent)
     faster_whisper = _faster_whisper_settings(raw, cache_root, path.parent)
     providers = _provider_profiles(raw)
+    providers.update(
+        {provider.name: provider for provider in UserRuntimeDatabase(env=env).list_providers()}
+    )
     try:
         return RuntimeSettings(
             version=1,
@@ -204,6 +208,10 @@ def _validate_secret_reference(reference: str, field_path: str) -> None:
         if reference == "env:":
             raise ValidationError(f"{field_path} env secret reference must include a name.")
         return
+    if reference.startswith("sqlite:"):
+        if reference == "sqlite:":
+            raise ValidationError(f"{field_path} sqlite secret reference must include a name.")
+        return
     if reference.startswith("keyring:"):
         payload = reference.removeprefix("keyring:")
         service, separator, username = payload.partition("/")
@@ -212,7 +220,7 @@ def _validate_secret_reference(reference: str, field_path: str) -> None:
                 f"{field_path} keyring secret reference must be keyring:<service>/<username>."
             )
         return
-    raise ValidationError(f"{field_path} must use an env: or keyring: secret reference.")
+    raise ValidationError(f"{field_path} must use an env:, sqlite:, or keyring: secret reference.")
 
 
 def _resolve_user_path(value: Any, base_dir: Path, field_path: str) -> Path:

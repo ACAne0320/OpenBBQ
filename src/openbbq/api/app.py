@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from openbbq import __version__
 from openbbq.api.auth import install_auth_middleware
@@ -24,6 +25,20 @@ def create_app(settings: ApiAppSettings | None = None) -> FastAPI:
     app_settings = settings or ApiAppSettings()
     app = FastAPI(title="OpenBBQ API", version=__version__)
     app.state.openbbq_settings = app_settings
+    if app_settings.allow_dev_cors:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[
+                "http://localhost",
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://127.0.0.1",
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:5173",
+            ],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
     install_error_handlers(app)
     install_auth_middleware(app, app_settings)
     app.include_router(health.router)

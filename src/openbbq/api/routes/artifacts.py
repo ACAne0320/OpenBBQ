@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Request
+from fastapi.responses import FileResponse
 
-from openbbq.api.schemas import ApiSuccess
+from openbbq.api.schemas import ApiSuccess, ArtifactImportRequest
 from openbbq.application.artifacts import (
-    ArtifactImportRequest,
+    ArtifactImportRequest as ApplicationArtifactImportRequest,
     diff_artifact_versions,
     import_artifact,
     list_artifacts,
@@ -19,9 +20,20 @@ router = APIRouter(tags=["artifacts"])
 
 
 @router.get("/artifacts", response_model=ApiSuccess[dict[str, Any]])
-def get_artifacts(request: Request) -> ApiSuccess[dict[str, Any]]:
+def get_artifacts(
+    request: Request,
+    workflow_id: str | None = None,
+    step_id: str | None = None,
+    artifact_type: str | None = None,
+) -> ApiSuccess[dict[str, Any]]:
     settings = _settings(request)
-    artifacts = list_artifacts(project_root=settings.project_root, config_path=settings.config_path)
+    artifacts = list_artifacts(
+        project_root=settings.project_root,
+        config_path=settings.config_path,
+        workflow_id=workflow_id,
+        step_id=step_id,
+        artifact_type=artifact_type,
+    )
     return ApiSuccess(
         data={"artifacts": [artifact.model_dump(mode="json") for artifact in artifacts]}
     )
@@ -89,11 +101,12 @@ def post_artifact_import(
 ) -> ApiSuccess[dict[str, Any]]:
     settings = _settings(request)
     result = import_artifact(
-        body.model_copy(
-            update={
-                "project_root": settings.project_root,
-                "config_path": body.config_path or settings.config_path,
-            }
+        ApplicationArtifactImportRequest(
+            project_root=settings.project_root,
+            config_path=body.config_path or settings.config_path,
+            path=body.path,
+            artifact_type=body.artifact_type,
+            name=body.name,
         )
     )
     return ApiSuccess(
@@ -101,6 +114,21 @@ def post_artifact_import(
             "artifact": result.artifact.model_dump(mode="json"),
             "version": result.version.record.model_dump(mode="json"),
         }
+    )
+
+
+@router.get("/artifact-versions/{version_id}/file")
+def get_artifact_version_file(version_id: str, request: Request) -> FileResponse:
+    settings = _settings(request)
+    version = show_artifact_version(
+        project_root=settings.project_root,
+        config_path=settings.config_path,
+        version_id=version_id,
+    )
+    return FileResponse(
+        version.record.content_path,
+        media_type="application/octet-stream",
+        filename=version.record.content_path.name,
     )
 
 

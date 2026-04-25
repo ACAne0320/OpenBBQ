@@ -172,6 +172,27 @@ Print workflow events in chronological order. Phase 1 can implement this as even
 
 Validate workflow config, plugin references, parameters, artifact type compatibility, and output declarations without executing plugin code.
 
+## Runtime And API Commands
+
+### `openbbq auth set <provider>`
+
+Configure a local runtime provider. With `--api-key-ref`, OpenBBQ stores the
+reference as provided, such as `env:OPENBBQ_LLM_API_KEY`. Without
+`--api-key-ref`, the CLI prompts for the key and stores the plaintext credential
+in the user SQLite database using `sqlite:openbbq/providers/<provider>/api_key`.
+
+### `openbbq api serve`
+
+Start the local FastAPI sidecar for desktop integration.
+
+Useful options:
+
+- `--host <host>`: defaults to `127.0.0.1`.
+- `--port <port>`: defaults to `0`, letting the OS choose an available port.
+- `--token <token>`: require bearer authentication for non-health routes.
+- `--allow-dev-cors`: enable localhost CORS for renderer development. Disabled
+  by default.
+
 ## Configuration Precedence
 
 When the same setting appears in multiple places, use this order:

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import json
-
 from jsonschema import Draft7Validator
-from pydantic import ValidationError as PydanticValidationError
 
 from openbbq.domain.base import OpenBBQModel
 from openbbq.domain.models import ProjectConfig, StepConfig, StepOutput, WorkflowConfig
-from openbbq.errors import ValidationError
+from openbbq.errors import ArtifactNotFoundError, ValidationError
 from openbbq.plugins.registry import PluginRegistry, ToolSpec
 from openbbq.storage.models import ArtifactRecord
+from openbbq.storage.project_store import ProjectStore
 from openbbq.workflow.bindings import parse_step_selector
 
 
@@ -135,17 +133,15 @@ def _read_project_artifact(
     input_name: str,
     artifact_id: str,
 ) -> ArtifactRecord:
-    artifact_path = config.storage.artifacts / artifact_id / "artifact.json"
+    store = ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )
     try:
-        raw_artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-        return ArtifactRecord.model_validate(raw_artifact)
-    except FileNotFoundError as exc:
+        return store.read_artifact(artifact_id)
+    except ArtifactNotFoundError as exc:
         raise ValidationError(
             f"Step '{step.id}' input '{input_name}' references missing project artifact "
-            f"'{artifact_id}'.",
-        ) from exc
-    except (OSError, json.JSONDecodeError, PydanticValidationError) as exc:
-        raise ValidationError(
-            f"Step '{step.id}' input '{input_name}' references unreadable project artifact "
             f"'{artifact_id}'.",
         ) from exc

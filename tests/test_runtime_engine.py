@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import pytest
@@ -115,13 +114,8 @@ def test_plugin_events_are_wrapped_and_redacted(tmp_path, monkeypatch):
     result = run_workflow(config, registry, "text-demo", runtime_context=context)
 
     assert result.status == "completed"
-    events = [
-        json.loads(line)
-        for line in (project / ".openbbq/state/workflows/text-demo/events.jsonl")
-        .read_text(encoding="utf-8")
-        .splitlines()
-    ]
-    plugin_events = [event for event in events if event["type"] == "plugin.event"]
-    assert plugin_events[0]["level"] == "warning"
-    assert plugin_events[0]["message"] == "provider returned [REDACTED]"
-    assert plugin_events[0]["data"] == {"provider": "test"}
+    store = ProjectStore(project / ".openbbq")
+    plugin_events = [event for event in store.read_events("text-demo") if event.type == "plugin.event"]
+    assert plugin_events[0].level == "warning"
+    assert plugin_events[0].message == "provider returned [REDACTED]"
+    assert plugin_events[0].data == {"provider": "test"}

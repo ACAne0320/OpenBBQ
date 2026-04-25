@@ -19,6 +19,7 @@ class ServerArgs(OpenBBQModel):
     host: str = "127.0.0.1"
     port: int = 0
     token: str | None = None
+    allow_dev_cors: bool = False
 
 
 def parse_args(argv: list[str] | None = None) -> ServerArgs:
@@ -29,6 +30,7 @@ def parse_args(argv: list[str] | None = None) -> ServerArgs:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--token")
+    parser.add_argument("--allow-dev-cors", action="store_true")
     parsed = parser.parse_args(argv)
     return ServerArgs(
         project=Path(parsed.project).expanduser().resolve() if parsed.project else None,
@@ -37,6 +39,7 @@ def parse_args(argv: list[str] | None = None) -> ServerArgs:
         host=parsed.host,
         port=parsed.port,
         token=parsed.token,
+        allow_dev_cors=parsed.allow_dev_cors,
     )
 
 
@@ -60,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
             config_path=args.config,
             plugin_paths=args.plugins,
             token=args.token,
+            allow_dev_cors=args.allow_dev_cors,
         )
     )
     sock = bind_socket(args.host, args.port)
