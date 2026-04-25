@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from openbbq.api.adapters import api_model
+from openbbq.api.context import active_project_settings
 from openbbq.api.schemas import (
     ApiSuccess,
     WorkflowDetailData,
@@ -27,7 +29,7 @@ router = APIRouter(tags=["workflows"])
 
 @router.get("/workflows", response_model=ApiSuccess[WorkflowListData])
 def list_workflows(request: Request) -> ApiSuccess[WorkflowListData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     context = load_project_context(
         settings.project_root,
         config_path=settings.config_path,
@@ -41,7 +43,7 @@ def list_workflows(request: Request) -> ApiSuccess[WorkflowListData]:
 
 @router.get("/workflows/{workflow_id}", response_model=ApiSuccess[WorkflowDetailData])
 def get_workflow(workflow_id: str, request: Request) -> ApiSuccess[WorkflowDetailData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     context = load_project_context(
         settings.project_root,
         config_path=settings.config_path,
@@ -51,7 +53,7 @@ def get_workflow(workflow_id: str, request: Request) -> ApiSuccess[WorkflowDetai
     if workflow is None:
         raise ValidationError(f"Workflow '{workflow_id}' is not defined.")
     summary = _workflow_summary(context.store, workflow)
-    return ApiSuccess(data=WorkflowDetailData(**summary.model_dump()))
+    return ApiSuccess(data=api_model(WorkflowDetailData, summary))
 
 
 @router.post(
@@ -61,7 +63,7 @@ def get_workflow(workflow_id: str, request: Request) -> ApiSuccess[WorkflowDetai
 def validate_workflow_route(
     workflow_id: str, request: Request
 ) -> ApiSuccess[WorkflowValidationResult]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     config = load_project_config(
         settings.project_root,
         config_path=settings.config_path,
@@ -74,7 +76,7 @@ def validate_workflow_route(
 
 @router.get("/workflows/{workflow_id}/status", response_model=ApiSuccess[WorkflowState])
 def get_workflow_status(workflow_id: str, request: Request) -> ApiSuccess[WorkflowState]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     state = workflow_status(
         project_root=settings.project_root,
         config_path=settings.config_path,
@@ -90,7 +92,7 @@ def get_workflow_events(
     request: Request,
     after_sequence: int = 0,
 ) -> ApiSuccess[WorkflowEventsData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     result = workflow_events(
         project_root=settings.project_root,
         config_path=settings.config_path,
@@ -107,7 +109,7 @@ def stream_workflow_events(
     request: Request,
     after_sequence: int = 0,
 ):
-    settings = _settings(request)
+    settings = active_project_settings(request)
     return streaming_response(
         event_stream(
             request=request,
@@ -118,13 +120,6 @@ def stream_workflow_events(
             plugin_paths=settings.plugin_paths,
         )
     )
-
-
-def _settings(request: Request):
-    settings = request.app.state.openbbq_settings
-    if settings.project_root is None:
-        raise ValidationError("API sidecar does not have an active project root.")
-    return settings
 
 
 def _workflow_summary(store: ProjectStore, workflow: WorkflowConfig) -> WorkflowSummary:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from openbbq.api.adapters import api_model
+from openbbq.api.context import active_project_settings
 from openbbq.api.schemas import (
     ApiSuccess,
     SubtitleJobData,
@@ -14,7 +16,6 @@ from openbbq.application.quickstart import (
     create_local_subtitle_job,
     create_youtube_subtitle_job,
 )
-from openbbq.errors import ValidationError
 
 router = APIRouter(tags=["quickstart"])
 
@@ -24,7 +25,7 @@ def post_local_subtitle_job(
     body: SubtitleLocalJobRequest,
     request: Request,
 ) -> ApiSuccess[SubtitleJobData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     result = create_local_subtitle_job(
         LocalSubtitleJobRequest(
             workspace_root=settings.project_root,
@@ -42,7 +43,7 @@ def post_local_subtitle_job(
             execute_inline=settings.execute_runs_inline,
         )
     )
-    return ApiSuccess(data=SubtitleJobData(**result.model_dump()))
+    return ApiSuccess(data=api_model(SubtitleJobData, result))
 
 
 @router.post("/quickstart/subtitle/youtube", response_model=ApiSuccess[SubtitleJobData])
@@ -50,7 +51,7 @@ def post_youtube_subtitle_job(
     body: SubtitleYouTubeJobRequest,
     request: Request,
 ) -> ApiSuccess[SubtitleJobData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     result = create_youtube_subtitle_job(
         YouTubeSubtitleJobRequest(
             workspace_root=settings.project_root,
@@ -72,11 +73,4 @@ def post_youtube_subtitle_job(
             execute_inline=settings.execute_runs_inline,
         )
     )
-    return ApiSuccess(data=SubtitleJobData(**result.model_dump()))
-
-
-def _settings(request: Request):
-    settings = request.app.state.openbbq_settings
-    if settings.project_root is None:
-        raise ValidationError("API sidecar does not have an active project root.")
-    return settings
+    return ApiSuccess(data=api_model(SubtitleJobData, result))

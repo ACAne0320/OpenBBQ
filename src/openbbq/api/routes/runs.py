@@ -4,6 +4,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 
+from openbbq.api.adapters import api_model, api_models
+from openbbq.api.context import active_project_settings
 from openbbq.api.schemas import ApiSuccess, RunCreateRequest, RunListData, RunRecord
 from openbbq.application.runs import RunCreateRequest as ApplicationRunCreateRequest
 from openbbq.application.runs import abort_run, create_run, get_run, list_project_runs, resume_run
@@ -18,7 +20,7 @@ def create_workflow_run(
     body: RunCreateRequest,
     request: Request,
 ) -> ApiSuccess[RunRecord]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     if body.workflow_id is not None and body.workflow_id != workflow_id:
         raise ValidationError(
             f"Request workflow_id '{body.workflow_id}' does not match route workflow_id '{workflow_id}'."
@@ -39,51 +41,44 @@ def create_workflow_run(
         ),
         execute_inline=settings.execute_runs_inline,
     )
-    return ApiSuccess(data=RunRecord(**run.model_dump()))
+    return ApiSuccess(data=api_model(RunRecord, run))
 
 
 @router.get("/runs", response_model=ApiSuccess[RunListData])
 def list_runs_route(request: Request) -> ApiSuccess[RunListData]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     runs = list_project_runs(project_root=settings.project_root, config_path=settings.config_path)
-    return ApiSuccess(data=RunListData(runs=tuple(RunRecord(**run.model_dump()) for run in runs)))
+    return ApiSuccess(data=RunListData(runs=api_models(RunRecord, runs)))
 
 
 @router.get("/runs/{run_id}", response_model=ApiSuccess[RunRecord])
 def get_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     run = get_run(
         project_root=settings.project_root, config_path=settings.config_path, run_id=run_id
     )
-    return ApiSuccess(data=RunRecord(**run.model_dump()))
+    return ApiSuccess(data=api_model(RunRecord, run))
 
 
 @router.post("/runs/{run_id}/resume", response_model=ApiSuccess[RunRecord])
 def resume_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     run = resume_run(
         project_root=settings.project_root,
         config_path=settings.config_path,
         run_id=run_id,
         execute_inline=settings.execute_runs_inline,
     )
-    return ApiSuccess(data=RunRecord(**run.model_dump()))
+    return ApiSuccess(data=api_model(RunRecord, run))
 
 
 @router.post("/runs/{run_id}/abort", response_model=ApiSuccess[RunRecord])
 def abort_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
-    settings = _settings(request)
+    settings = active_project_settings(request)
     run = abort_run(
         project_root=settings.project_root, config_path=settings.config_path, run_id=run_id
     )
-    return ApiSuccess(data=RunRecord(**run.model_dump()))
-
-
-def _settings(request: Request):
-    settings = request.app.state.openbbq_settings
-    if settings.project_root is None:
-        raise ValidationError("API sidecar does not have an active project root.")
-    return settings
+    return ApiSuccess(data=api_model(RunRecord, run))
 
 
 def _resolve_path(path: Path) -> Path:
