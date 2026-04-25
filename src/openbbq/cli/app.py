@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import json
 import logging
 import os
 from pathlib import Path
-import sys
 from typing import Any
 
 from openbbq import __version__
@@ -52,13 +50,18 @@ from openbbq.application.quickstart import (
     write_local_subtitle_workflow,
     write_youtube_subtitle_workflow,
 )
-from openbbq.config.loader import load_project_config
-from openbbq.domain.base import JsonObject, dump_jsonable
-from openbbq.domain.models import ProjectConfig
+from openbbq.cli.context import (
+    load_config as _load_config,
+    load_config_and_plugins as _load_config_and_plugins,
+    project_store as _project_store,
+)
+from openbbq.cli.output import (
+    emit as _emit,
+    emit_error as _emit_error,
+    jsonable_content as _jsonable_content,
+)
 from openbbq.engine.validation import validate_workflow
 from openbbq.errors import OpenBBQError, ValidationError
-from openbbq.plugins.registry import PluginRegistry, discover_plugins
-from openbbq.runtime.context import build_runtime_context
 from openbbq.runtime.settings import load_runtime_settings
 from openbbq.storage.models import ArtifactRecord, WorkflowEvent
 from openbbq.storage.project_store import ProjectStore
@@ -508,7 +511,7 @@ def _status(args: argparse.Namespace) -> int:
         plugin_paths=tuple(Path(path) for path in args.plugins),
         workflow_id=args.workflow,
     )
-    payload = {"ok": True, **dump_jsonable(state)}
+    payload = {"ok": True, **state.model_dump(mode="json")}
     _emit(payload, args.json_output, f"{args.workflow}: {state.status}")
     return 0
 
@@ -582,14 +585,6 @@ def _artifact_show(args: argparse.Namespace) -> int:
     }
     _emit(payload, args.json_output, _jsonable_content(result.current_version.content))
     return 0
-
-
-def _artifact_workflow_id(store: ProjectStore, artifact: ArtifactRecord) -> str | None:
-    if artifact.current_version_id is None:
-        return None
-    version = store.read_artifact_version(artifact.current_version_id)
-    workflow_id = version.record.lineage.get("workflow_id")
-    return workflow_id if isinstance(workflow_id, str) else None
 
 
 def _latest_workflow_artifact_content(
@@ -786,10 +781,12 @@ def _subtitle_local(args: argparse.Namespace) -> int:
         asr_compute_type=args.asr_compute_type or faster_whisper.default_compute_type,
         run_id=generated.run_id,
     )
-    config = load_project_config(
-        generated.project_root,
-        config_path=generated.config_path,
-        extra_plugin_paths=args.plugins,
+    config = _load_config(
+        argparse.Namespace(
+            project=generated.project_root,
+            config=generated.config_path,
+            plugins=args.plugins,
+        )
     )
     store = _project_store(config)
     state = workflow_status(
@@ -854,10 +851,12 @@ def _subtitle_youtube(args: argparse.Namespace) -> int:
         browser=args.browser,
         browser_profile=args.browser_profile,
     )
-    config = load_project_config(
-        generated.project_root,
-        config_path=generated.config_path,
-        extra_plugin_paths=args.plugins,
+    config = _load_config(
+        argparse.Namespace(
+            project=generated.project_root,
+            config=generated.config_path,
+            plugins=args.plugins,
+        )
     )
     store = _project_store(config)
     state = workflow_status(
@@ -901,10 +900,6 @@ def _subtitle_youtube(args: argparse.Namespace) -> int:
     return 0
 
 
-def _runtime_context():
-    return build_runtime_context(load_runtime_settings())
-
-
 def _secret_payload(secret) -> dict[str, object]:
     return {
         "reference": secret.reference or None,
@@ -915,58 +910,5 @@ def _secret_payload(secret) -> dict[str, object]:
     }
 
 
-def _load_config(args: argparse.Namespace):
-    return load_project_config(
-        Path(args.project),
-        config_path=args.config,
-        extra_plugin_paths=args.plugins,
-    )
-
-
-def _load_registry(args: argparse.Namespace) -> PluginRegistry:
-    config = _load_config(args)
-    return discover_plugins(config.plugin_paths)
-
-
-def _load_config_and_plugins(args: argparse.Namespace):
-    config = _load_config(args)
-    return config, discover_plugins(config.plugin_paths)
-
-
-def _project_store(config: ProjectConfig) -> ProjectStore:
-    return ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
-
-
-def _read_events(store: ProjectStore, workflow_id: str) -> list[WorkflowEvent]:
-    return list(store.read_events(workflow_id))
-
-
 def _format_event(event: WorkflowEvent) -> str:
     return f"{event.sequence} {event.type} {event.message or ''}".strip()
-
-
-def _jsonable_content(content: Any) -> Any:
-    if isinstance(content, bytes):
-        return content.decode("utf-8", errors="replace")
-    return content
-
-
-def _emit(payload: JsonObject, json_output: bool, text: Any) -> None:
-    payload = dump_jsonable(payload)
-    if json_output:
-        print(json.dumps(payload, ensure_ascii=False))
-        return
-    if text is not None:
-        print(text)
-
-
-def _emit_error(error: OpenBBQError, json_output: bool) -> None:
-    payload = {"ok": False, "error": {"code": error.code, "message": error.message}}
-    if json_output:
-        print(json.dumps(payload, ensure_ascii=False))
-    else:
-        print(error.message, file=sys.stderr)
