@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 import json
-from typing import Any
+from typing import Any, TypeVar
+
+T = TypeVar("T")
 
 
 def default_openai_client_factory(*, api_key: str, base_url: str | None):
@@ -26,14 +29,16 @@ def completion_content(completion: Any, *, error_prefix: str) -> str:
 
 
 def segment_chunks(
-    segments: list[dict[str, Any]],
+    segments: Sequence[T],
     chunk_size: int,
     *,
     error_prefix: str,
-) -> list[list[dict[str, Any]]]:
+) -> list[list[T]]:
     if chunk_size <= 0:
         raise ValueError(f"{error_prefix} chunk size must be positive.")
-    return [segments[index : index + chunk_size] for index in range(0, len(segments), chunk_size)]
+    return [
+        list(segments[index : index + chunk_size]) for index in range(0, len(segments), chunk_size)
+    ]
 
 
 def parse_indexed_text_items(
