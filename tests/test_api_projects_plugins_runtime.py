@@ -1,34 +1,14 @@
-from pathlib import Path
 import sqlite3
 
 from fastapi.testclient import TestClient
 
 from openbbq.api.app import ApiAppSettings, create_app
 from openbbq.application.quickstart import SubtitleJobResult
-
-
-def write_project(tmp_path, fixture_name: str) -> Path:
-    project = tmp_path / "project"
-    project.mkdir()
-    source = Path(f"tests/fixtures/projects/{fixture_name}/openbbq.yaml").read_text(
-        encoding="utf-8"
-    )
-    (project / "openbbq.yaml").write_text(
-        source.replace("../../plugins", str(Path.cwd() / "tests/fixtures/plugins")),
-        encoding="utf-8",
-    )
-    return project
-
-
-def authed_client(project):
-    client = TestClient(
-        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
-    )
-    return client, {"Authorization": "Bearer token"}
+from tests.helpers import authed_client, write_project_fixture
 
 
 def test_project_and_plugin_routes(tmp_path):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     client, headers = authed_client(project)
 
     project_response = client.get("/projects/current", headers=headers)
@@ -58,7 +38,7 @@ def test_project_init_route_creates_project_config(tmp_path):
 
 
 def test_runtime_routes(tmp_path, monkeypatch):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
     client, headers = authed_client(project)
 
@@ -73,7 +53,7 @@ def test_runtime_routes(tmp_path, monkeypatch):
 
 
 def test_runtime_auth_and_secret_routes(tmp_path, monkeypatch):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
     monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-test")
     client, headers = authed_client(project)
@@ -101,7 +81,7 @@ def test_runtime_auth_and_secret_routes(tmp_path, monkeypatch):
 
 
 def test_runtime_auth_route_stores_user_secret_in_sqlite(tmp_path, monkeypatch):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
     client, headers = authed_client(project)
 
@@ -128,7 +108,7 @@ def test_runtime_auth_route_stores_user_secret_in_sqlite(tmp_path, monkeypatch):
 
 
 def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monkeypatch):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     client, headers = authed_client(project)
 
     def fake_local_job(request):

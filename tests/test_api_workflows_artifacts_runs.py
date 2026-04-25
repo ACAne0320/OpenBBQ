@@ -1,29 +1,9 @@
-from pathlib import Path
-
-from fastapi.testclient import TestClient
-
-from openbbq.api.app import ApiAppSettings, create_app
-
-
-def write_project(tmp_path, fixture_name: str) -> Path:
-    project = tmp_path / "project"
-    project.mkdir()
-    source = Path(f"tests/fixtures/projects/{fixture_name}/openbbq.yaml").read_text(
-        encoding="utf-8"
-    )
-    (project / "openbbq.yaml").write_text(
-        source.replace("../../plugins", str(Path.cwd() / "tests/fixtures/plugins")),
-        encoding="utf-8",
-    )
-    return project
+from tests.helpers import authed_client, write_project_fixture
 
 
 def test_workflow_run_and_artifact_routes(tmp_path):
-    project = write_project(tmp_path, "text-basic")
-    client = TestClient(
-        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
-    )
-    headers = {"Authorization": "Bearer token"}
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project)
 
     workflows = client.get("/workflows", headers=headers)
     validate = client.post("/workflows/text-demo/validate", headers=headers)
@@ -47,11 +27,8 @@ def test_workflow_run_and_artifact_routes(tmp_path):
 
 
 def test_run_route_uses_sidecar_project_and_lists_runs(tmp_path):
-    project = write_project(tmp_path, "text-basic")
-    client = TestClient(
-        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
-    )
-    headers = {"Authorization": "Bearer token"}
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project)
 
     run = client.post("/workflows/text-demo/runs", headers=headers, json={})
     runs = client.get("/runs", headers=headers)
@@ -62,13 +39,10 @@ def test_run_route_uses_sidecar_project_and_lists_runs(tmp_path):
 
 
 def test_run_route_rejects_project_root_outside_sidecar_project(tmp_path):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     other_project = tmp_path / "other-project"
     other_project.mkdir()
-    client = TestClient(
-        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
-    )
-    headers = {"Authorization": "Bearer token"}
+    client, headers = authed_client(project)
 
     response = client.post(
         "/workflows/text-demo/runs",
@@ -81,12 +55,8 @@ def test_run_route_rejects_project_root_outside_sidecar_project(tmp_path):
 
 
 def test_missing_run_uses_api_not_found_envelope(tmp_path):
-    project = write_project(tmp_path, "text-basic")
-    client = TestClient(
-        create_app(ApiAppSettings(project_root=project, token="token")),
-        raise_server_exceptions=False,
-    )
-    headers = {"Authorization": "Bearer token"}
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project, raise_server_exceptions=False)
 
     response = client.get("/runs/missing", headers=headers)
 
@@ -102,11 +72,8 @@ def test_missing_run_uses_api_not_found_envelope(tmp_path):
 
 
 def test_request_validation_errors_use_api_error_envelope(tmp_path):
-    project = write_project(tmp_path, "text-basic")
-    client = TestClient(
-        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
-    )
-    headers = {"Authorization": "Bearer token"}
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project)
 
     response = client.post(
         "/workflows/text-demo/runs",
@@ -121,11 +88,8 @@ def test_request_validation_errors_use_api_error_envelope(tmp_path):
 
 
 def test_artifact_route_filters_and_serves_file_backed_versions(tmp_path):
-    project = write_project(tmp_path, "text-basic")
-    client = TestClient(
-        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
-    )
-    headers = {"Authorization": "Bearer token"}
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project)
     video = tmp_path / "source.mp4"
     video.write_bytes(b"fake-video")
 
@@ -158,11 +122,8 @@ def test_artifact_route_filters_and_serves_file_backed_versions(tmp_path):
 
 
 def test_artifact_version_preview_and_export_routes(tmp_path):
-    project = write_project(tmp_path, "text-basic")
-    client = TestClient(
-        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
-    )
-    headers = {"Authorization": "Bearer token"}
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project)
 
     client.post("/workflows/text-demo/runs", headers=headers, json={})
     artifacts = client.get(
