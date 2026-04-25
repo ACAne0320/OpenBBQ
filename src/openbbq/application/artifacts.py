@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from openbbq.config.loader import load_project_config
+from openbbq.application.project_context import load_project_context
 from openbbq.domain.base import JsonValue, OpenBBQModel
-from openbbq.domain.models import ARTIFACT_TYPES, ProjectConfig
+from openbbq.domain.models import ARTIFACT_TYPES
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.storage.models import ArtifactRecord, ArtifactVersionRecord, StoredArtifactVersion
 from openbbq.storage.project_store import ProjectStore
@@ -65,8 +65,8 @@ def import_artifact(request: ArtifactImportRequest) -> ArtifactImportResult:
         raise ValidationError(
             f"Artifact import supports file-backed artifact types only: {allowed}."
         )
-    config = load_project_config(request.project_root, config_path=request.config_path)
-    artifact, version = _store(config).write_artifact_version(
+    context = load_project_context(request.project_root, config_path=request.config_path)
+    artifact, version = context.store.write_artifact_version(
         artifact_type=request.artifact_type,
         name=request.name,
         content=None,
@@ -86,8 +86,8 @@ def list_artifacts(
     step_id: str | None = None,
     artifact_type: str | None = None,
 ) -> list[ArtifactRecord]:
-    config = load_project_config(project_root, config_path=config_path)
-    store = _store(config)
+    context = load_project_context(project_root, config_path=config_path)
+    store = context.store
     artifacts = store.list_artifacts()
     if workflow_id:
         artifacts = [
@@ -112,8 +112,8 @@ def show_artifact(
     artifact_id: str,
     config_path: Path | None = None,
 ) -> ArtifactShowResult:
-    config = load_project_config(project_root, config_path=config_path)
-    store = _store(config)
+    context = load_project_context(project_root, config_path=config_path)
+    store = context.store
     artifact = store.read_artifact(artifact_id)
     if artifact.current_version_id is None:
         raise OpenBBQError(
@@ -133,8 +133,8 @@ def show_artifact_version(
     version_id: str,
     config_path: Path | None = None,
 ) -> StoredArtifactVersion:
-    config = load_project_config(project_root, config_path=config_path)
-    return _store(config).read_artifact_version(version_id)
+    context = load_project_context(project_root, config_path=config_path)
+    return context.store.read_artifact_version(version_id)
 
 
 def preview_artifact_version(
@@ -203,8 +203,8 @@ def diff_artifact_versions(
     to_version: str,
     config_path: Path | None = None,
 ) -> dict[str, Any]:
-    config = load_project_config(project_root, config_path=config_path)
-    return diff_versions(_store(config), from_version, to_version)
+    context = load_project_context(project_root, config_path=config_path)
+    return diff_versions(context.store, from_version, to_version)
 
 
 def _artifact_workflow_id(store: ProjectStore, artifact: ArtifactRecord) -> str | None:
@@ -213,14 +213,6 @@ def _artifact_workflow_id(store: ProjectStore, artifact: ArtifactRecord) -> str 
     version = store.read_artifact_version(artifact.current_version_id)
     workflow_id = version.record.lineage.get("workflow_id")
     return workflow_id if isinstance(workflow_id, str) else None
-
-
-def _store(config: ProjectConfig) -> ProjectStore:
-    return ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
 
 
 def _content_text(content: Any) -> str:
