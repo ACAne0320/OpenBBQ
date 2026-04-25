@@ -6,7 +6,7 @@ from typing import TypeAlias
 
 from pydantic import Field, field_validator
 
-from openbbq.domain.base import JsonObject, OpenBBQModel
+from openbbq.domain.base import JsonObject, OpenBBQModel, model_payload
 
 SUPPORTED_PROVIDER_TYPES: frozenset[str] = frozenset({"openai_compatible"})
 PROVIDER_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -58,7 +58,7 @@ class ProviderProfile(OpenBBQModel):
         raise ValueError("must use an env:, sqlite:, or keyring: secret reference")
 
     def public_dict(self) -> JsonObject:
-        return self.model_dump(mode="json")
+        return model_payload(self)
 
 
 class FasterWhisperSettings(OpenBBQModel):
@@ -87,7 +87,7 @@ class RuntimeSettings(OpenBBQModel):
         return value
 
     def public_dict(self) -> JsonObject:
-        return self.model_dump(mode="json")
+        return model_payload(self)
 
 
 class SecretCheck(OpenBBQModel):
@@ -106,7 +106,7 @@ class ResolvedProvider(OpenBBQModel):
     default_chat_model: str | None = None
 
     def request_payload(self) -> JsonObject:
-        return self.model_dump(mode="json")
+        return model_payload(self)
 
 
 class RuntimeContext(OpenBBQModel):
@@ -139,7 +139,7 @@ class ModelAssetStatus(OpenBBQModel):
     error: str | None = None
 
     def public_dict(self) -> JsonObject:
-        return self.model_dump(mode="json")
+        return model_payload(self)
 
 
 class DoctorCheck(OpenBBQModel):
@@ -148,5 +148,5 @@ class DoctorCheck(OpenBBQModel):
     severity: str
     message: str
 
-    def public_dict(self) -> dict[str, str]:
-        return self.model_dump(mode="json")
+    def public_dict(self) -> JsonObject:
+        return model_payload(self)

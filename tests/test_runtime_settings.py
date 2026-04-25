@@ -1,8 +1,18 @@
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
 from openbbq.errors import ValidationError
-from openbbq.runtime.models import CacheSettings, ProviderProfile, RuntimeSettings
+from openbbq.runtime import models as runtime_models
+from openbbq.runtime.models import (
+    CacheSettings,
+    DoctorCheck,
+    ModelAssetStatus,
+    ProviderProfile,
+    ResolvedProvider,
+    RuntimeSettings,
+)
 from openbbq.runtime.settings import (
     DEFAULT_CACHE_ROOT,
     load_runtime_settings,
@@ -259,6 +269,50 @@ def test_provider_profile_rejects_literal_api_key():
         )
 
     assert "api_key" in str(exc.value)
+
+
+def test_runtime_model_payload_methods_delegate_to_model_payload(tmp_path, monkeypatch):
+    calls: list[str] = []
+
+    def fake_model_payload(value):
+        calls.append(type(value).__name__)
+        return {"kind": type(value).__name__}
+
+    monkeypatch.setattr(runtime_models, "model_payload", fake_model_payload, raising=False)
+
+    assert ProviderProfile(name="openai", type="openai_compatible").public_dict() == {
+        "kind": "ProviderProfile"
+    }
+    assert RuntimeSettings(
+        version=1,
+        config_path=tmp_path / "config.toml",
+        cache=CacheSettings(root=tmp_path / "cache"),
+    ).public_dict() == {"kind": "RuntimeSettings"}
+    assert ResolvedProvider(
+        name="openai",
+        type="openai_compatible",
+        api_key=None,
+        base_url=None,
+    ).request_payload() == {"kind": "ResolvedProvider"}
+    assert ModelAssetStatus(
+        provider="faster_whisper",
+        model="base",
+        cache_dir=Path("models"),
+        present=False,
+    ).public_dict() == {"kind": "ModelAssetStatus"}
+    assert DoctorCheck(
+        id="runtime.settings",
+        status="passed",
+        severity="info",
+        message="Runtime settings are valid.",
+    ).public_dict() == {"kind": "DoctorCheck"}
+    assert calls == [
+        "ProviderProfile",
+        "RuntimeSettings",
+        "ResolvedProvider",
+        "ModelAssetStatus",
+        "DoctorCheck",
+    ]
 
 
 def test_runtime_settings_model_copy_preserves_provider_models(tmp_path):
