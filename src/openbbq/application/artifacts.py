@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from openbbq.application.project_context import load_project_context
 from openbbq.domain.base import JsonValue, OpenBBQModel
 from openbbq.domain.models import ARTIFACT_TYPES
 from openbbq.errors import OpenBBQError, ValidationError
 from openbbq.storage.models import ArtifactRecord, ArtifactVersionRecord, StoredArtifactVersion
-from openbbq.storage.project_store import ProjectStore
 from openbbq.workflow.diff import diff_artifact_versions as diff_versions
+
+if TYPE_CHECKING:
+    from openbbq.storage.project_store import ProjectStore
 
 FILE_BACKED_IMPORT_TYPES = frozenset({"audio", "image", "video"})
 
@@ -207,7 +209,7 @@ def diff_artifact_versions(
     return diff_versions(context.store, from_version, to_version)
 
 
-def _artifact_workflow_id(store: ProjectStore, artifact: ArtifactRecord) -> str | None:
+def _artifact_workflow_id(store: "ProjectStore", artifact: ArtifactRecord) -> str | None:
     if artifact.current_version_id is None:
         return None
     version = store.read_artifact_version(artifact.current_version_id)
