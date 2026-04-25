@@ -101,23 +101,21 @@ These audit items are complete enough to mark as closed:
     making LLM chunking generic, and refactoring transcript/translation plugins
     to use typed segments after request-boundary validation while preserving
     JSON request/response and artifact boundaries.
+- **P3: File-not-found and missing-state errors are not uniformly
+  domain-specific**
+  - Completed by adding a `NotFoundError` domain base plus run, workflow-state,
+    and step-run not-found subclasses; updating storage repositories to raise
+    domain errors; updating workflow recovery paths to catch domain errors; and
+    mapping API 404 responses from domain not-found errors instead of generic
+    `FileNotFoundError`.
 
 ### Remaining
 
-This item still needs focused cleanup:
-
-- **P3: File-not-found and missing-state errors are not uniformly
-  domain-specific**
+No audit items remain.
 
 ## Execution strategy
 
-The remaining cleanup should happen as this focused slice:
-
-1. **Missing-state domain errors**
-   - First add characterization tests for current `FileNotFoundError` and
-     missing-state behavior.
-   - Then introduce domain-specific errors at application/service boundaries
-     where it improves CLI/API consistency.
+All audit cleanup slices are complete.
 
 ## Per-slice rules
 
@@ -161,7 +159,5 @@ The audit register is considered fully closed when:
 
 ## Next slice
 
-The next implementation slice should be **Missing-state domain errors**. It
-should first add characterization tests for current file-not-found and
-missing-state behavior, then introduce domain-specific errors at
-application/service boundaries where that improves CLI/API consistency.
+No code-quality audit cleanup slices remain. The backend is ready for the final
+pre-desktop verification gate.
