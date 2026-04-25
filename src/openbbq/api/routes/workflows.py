@@ -11,9 +11,10 @@ from openbbq.api.schemas import (
     WorkflowSummary,
 )
 from openbbq.api.routes.events import event_stream, streaming_response
+from openbbq.application.project_context import load_project_context
 from openbbq.application.workflows import workflow_events, workflow_status
 from openbbq.config.loader import load_project_config
-from openbbq.domain.models import ProjectConfig, WorkflowConfig
+from openbbq.domain.models import WorkflowConfig
 from openbbq.engine.validation import WorkflowValidationResult, validate_workflow
 from openbbq.errors import ValidationError
 from openbbq.plugins.registry import discover_plugins
@@ -27,28 +28,29 @@ router = APIRouter(tags=["workflows"])
 @router.get("/workflows", response_model=ApiSuccess[WorkflowListData])
 def list_workflows(request: Request) -> ApiSuccess[WorkflowListData]:
     settings = _settings(request)
-    config = load_project_config(
+    context = load_project_context(
         settings.project_root,
         config_path=settings.config_path,
-        extra_plugin_paths=settings.plugin_paths,
+        plugin_paths=settings.plugin_paths,
     )
-    store = _store(config)
-    workflows = tuple(_workflow_summary(store, workflow) for workflow in config.workflows.values())
+    workflows = tuple(
+        _workflow_summary(context.store, workflow) for workflow in context.config.workflows.values()
+    )
     return ApiSuccess(data=WorkflowListData(workflows=workflows))
 
 
 @router.get("/workflows/{workflow_id}", response_model=ApiSuccess[WorkflowDetailData])
 def get_workflow(workflow_id: str, request: Request) -> ApiSuccess[WorkflowDetailData]:
     settings = _settings(request)
-    config = load_project_config(
+    context = load_project_context(
         settings.project_root,
         config_path=settings.config_path,
-        extra_plugin_paths=settings.plugin_paths,
+        plugin_paths=settings.plugin_paths,
     )
-    workflow = config.workflows.get(workflow_id)
+    workflow = context.config.workflows.get(workflow_id)
     if workflow is None:
         raise ValidationError(f"Workflow '{workflow_id}' is not defined.")
-    summary = _workflow_summary(_store(config), workflow)
+    summary = _workflow_summary(context.store, workflow)
     return ApiSuccess(data=WorkflowDetailData(**summary.model_dump()))
 
 
@@ -141,12 +143,4 @@ def _workflow_summary(store: ProjectStore, workflow: WorkflowConfig) -> Workflow
         ),
         state=state,
         latest_event_sequence=store.latest_event_sequence(workflow.id),
-    )
-
-
-def _store(config: ProjectConfig) -> ProjectStore:
-    return ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
     )

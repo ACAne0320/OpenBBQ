@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from openbbq.application.project_context import load_project_context
 from openbbq.config.loader import load_project_config
 from openbbq.domain.base import OpenBBQModel
 from openbbq.engine.service import (
@@ -16,7 +17,6 @@ from openbbq.plugins.registry import discover_plugins
 from openbbq.runtime.context import build_runtime_context
 from openbbq.runtime.settings import load_runtime_settings
 from openbbq.storage.models import WorkflowEvent, WorkflowState
-from openbbq.storage.project_store import ProjectStore
 from openbbq.workflow.state import read_effective_workflow_state
 
 
@@ -98,20 +98,15 @@ def workflow_status(
     config_path: Path | None = None,
     plugin_paths: tuple[Path, ...] = (),
 ) -> WorkflowState:
-    config = load_project_config(
+    context = load_project_context(
         project_root,
         config_path=config_path,
-        extra_plugin_paths=plugin_paths,
+        plugin_paths=plugin_paths,
     )
-    workflow = config.workflows.get(workflow_id)
+    workflow = context.config.workflows.get(workflow_id)
     if workflow is None:
         raise ValidationError(f"Workflow '{workflow_id}' is not defined.")
-    store = ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
-    return read_effective_workflow_state(store, workflow)
+    return read_effective_workflow_state(context.store, workflow)
 
 
 def workflow_logs(
@@ -138,20 +133,15 @@ def workflow_events(
     config_path: Path | None = None,
     plugin_paths: tuple[Path, ...] = (),
 ) -> WorkflowLogsResult:
-    config = load_project_config(
+    context = load_project_context(
         project_root,
         config_path=config_path,
-        extra_plugin_paths=plugin_paths,
+        plugin_paths=plugin_paths,
     )
-    workflow = config.workflows.get(workflow_id)
+    workflow = context.config.workflows.get(workflow_id)
     if workflow is None:
         raise ValidationError(f"Workflow '{workflow_id}' is not defined.")
-    store = ProjectStore(
-        config.storage.root,
-        artifacts_root=config.storage.artifacts,
-        state_root=config.storage.state,
-    )
     return WorkflowLogsResult(
         workflow_id=workflow_id,
-        events=store.read_events(workflow_id, after_sequence=after_sequence),
+        events=context.store.read_events(workflow_id, after_sequence=after_sequence),
     )
