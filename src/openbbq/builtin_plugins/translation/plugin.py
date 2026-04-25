@@ -11,6 +11,11 @@ from openbbq.builtin_plugins.llm import (
     parse_indexed_text_items,
     segment_chunks,
 )
+from openbbq.builtin_plugins.segments import (
+    TimedSegment,
+    timed_segments_from_any_input,
+    timed_segments_from_request,
+)
 from openbbq.runtime.provider import llm_provider_from_request
 
 
@@ -135,9 +140,9 @@ def run_qa(request: dict) -> dict:
     segments_with_issues: set[int] = set()
 
     for index, segment in enumerate(segments):
-        source_text = str(segment.get("source_text", ""))
-        translated_text = str(segment.get("text", ""))
-        duration_seconds = max(float(segment["end"]) - float(segment["start"]), 0.001)
+        source_text = segment.source_text or ""
+        translated_text = segment.text
+        duration_seconds = max(segment.end - segment.start, 0.001)
         lines = translated_text.splitlines() or [translated_text]
         longest_line_length = max((len(line) for line in lines), default=0)
         chars_per_second = len(WHITESPACE_RE.sub("", translated_text)) / duration_seconds
@@ -255,7 +260,7 @@ _default_client_factory = default_openai_client_factory
 def _translate_chunk(
     *,
     client: Any,
-    chunk: list[dict[str, Any]],
+    chunk: list[TimedSegment],
     model: str,
     temperature: float,
     system_prompt: str,
@@ -306,7 +311,7 @@ def _translate_chunk(
 def _translate_chunk_once(
     *,
     client: Any,
-    chunk: list[dict[str, Any]],
+    chunk: list[TimedSegment],
     model: str,
     temperature: float,
     system_prompt: str,
@@ -318,9 +323,9 @@ def _translate_chunk_once(
     request_segments = [
         {
             "index": index,
-            "start": float(segment["start"]),
-            "end": float(segment["end"]),
-            "text": str(segment.get("text", "")),
+            "start": segment.start,
+            "end": segment.end,
+            "text": segment.text,
         }
         for index, segment in enumerate(chunk)
     ]
@@ -347,9 +352,9 @@ def _translate_chunk_once(
     )
     return [
         {
-            "start": float(segment["start"]),
-            "end": float(segment["end"]),
-            "source_text": str(segment.get("text", "")),
+            "start": segment.start,
+            "end": segment.end,
+            "source_text": segment.text,
             "text": translated_item["text"],
         }
         for segment, translated_item in zip(chunk, translated_items, strict=True)
@@ -377,27 +382,16 @@ def _positive_float(value: Any, name: str) -> float:
     return parsed
 
 
-def _timed_segments(request: dict, *, input_name: str, error_prefix: str) -> list[dict[str, Any]]:
-    artifact = request.get("inputs", {}).get(input_name, {})
-    if not isinstance(artifact, dict) or "content" not in artifact:
-        raise ValueError(f"{error_prefix} requires {input_name} content.")
-    content = artifact["content"]
-    if not isinstance(content, list) or any(not isinstance(segment, dict) for segment in content):
-        raise ValueError(f"{error_prefix} {input_name} content must be a list of objects.")
-    for segment in content:
-        if "start" not in segment or "end" not in segment:
-            raise ValueError(f"{error_prefix} {input_name} segments must include start and end.")
-    return content
+def _timed_segments(request: dict, *, input_name: str, error_prefix: str) -> list[TimedSegment]:
+    return timed_segments_from_request(request, input_name=input_name, error_prefix=error_prefix)
 
 
 def _timed_segments_any(
     request: dict, *, input_names: tuple[str, ...], error_prefix: str
-) -> list[dict[str, Any]]:
-    for input_name in input_names:
-        artifact = request.get("inputs", {}).get(input_name)
-        if isinstance(artifact, dict) and "content" in artifact:
-            return _timed_segments(request, input_name=input_name, error_prefix=error_prefix)
-    return _timed_segments(request, input_name=input_names[0], error_prefix=error_prefix)
+) -> list[TimedSegment]:
+    return timed_segments_from_any_input(
+        request, input_names=input_names, error_prefix=error_prefix
+    )
 
 
 def _user_message(

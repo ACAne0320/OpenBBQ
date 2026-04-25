@@ -117,6 +117,34 @@ def test_translation_translate_uses_runtime_provider_profile():
     assert response["outputs"]["translation"]["metadata"]["model"] == "gpt-4o-mini"
 
 
+def test_translation_translate_falls_back_to_transcript_input():
+    factory = RecordingOpenAIClientFactory('[{"index":0,"text":"Transcript zh"}]')
+
+    response = translation_plugin.run(
+        {
+            "tool_name": "translate",
+            "parameters": {
+                "provider": "openai",
+                "source_lang": "en",
+                "target_lang": "zh-Hans",
+                "model": "gpt-4o-mini",
+            },
+            "runtime": runtime_provider_payload(),
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": [{"start": 0.0, "end": 1.0, "text": "Transcript"}],
+                }
+            },
+        },
+        client_factory=factory,
+    )
+
+    assert response["outputs"]["translation"]["content"] == [
+        {"start": 0.0, "end": 1.0, "source_text": "Transcript", "text": "Transcript zh"}
+    ]
+
+
 def test_translation_translate_rejects_unconfigured_provider():
     with pytest.raises(ValueError, match="provider 'deepl' is not configured"):
         translation_plugin.run(
