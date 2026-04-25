@@ -39,108 +39,16 @@ def build_workflows(raw_config: JsonObject) -> dict[str, WorkflowConfig]:
         input_refs: list[tuple[str, int, PluginInputs]] = []
         seen_step_ids: set[str] = set()
         for index, step_raw in enumerate(steps_raw):
-            step_mapping = require_mapping(step_raw, f"workflows.{workflow_id}.steps[{index}]")
-            step_id = require_nonempty_string(
-                step_mapping.get("id"), f"workflows.{workflow_id}.steps[{index}].id"
+            step, inputs = _build_step(
+                workflow_id=workflow_id,
+                index=index,
+                step_raw=step_raw,
+                seen_step_ids=seen_step_ids,
             )
-            _validate_identifier(step_id, "step id")
-            if step_id in seen_step_ids:
-                raise ValidationError(
-                    f"Duplicate step id '{step_id}' in workflow '{workflow_id}'.",
-                )
-            seen_step_ids.add(step_id)
-            step_name = require_nonempty_string(
-                step_mapping.get("name"), f"workflows.{workflow_id}.steps[{index}].name"
-            )
-            tool_ref = require_nonempty_string(
-                step_mapping.get("tool_ref"),
-                f"workflows.{workflow_id}.steps[{index}].tool_ref",
-            )
-            inputs = optional_mapping(
-                step_mapping.get("inputs"), f"workflows.{workflow_id}.steps[{index}].inputs"
-            )
-            input_refs.append((step_id, index, inputs))
-            parameters = optional_mapping(
-                step_mapping.get("parameters"),
-                f"workflows.{workflow_id}.steps[{index}].parameters",
-            )
-            outputs_raw = step_mapping.get("outputs")
-            if not isinstance(outputs_raw, list) or not outputs_raw:
-                raise ValidationError(
-                    f"Step '{step_id}' in workflow '{workflow_id}' must define at least one output.",
-                )
-            outputs: list[StepOutput] = []
-            seen_output_names: set[str] = set()
-            for output_index, output_raw in enumerate(outputs_raw):
-                output_mapping = require_mapping(
-                    output_raw,
-                    f"workflows.{workflow_id}.steps[{index}].outputs[{output_index}]",
-                )
-                output_name = require_nonempty_string(
-                    output_mapping.get("name"),
-                    f"workflows.{workflow_id}.steps[{index}].outputs[{output_index}].name",
-                )
-                if output_name in seen_output_names:
-                    raise ValidationError(
-                        f"Duplicate output name '{output_name}' in step '{step_id}' of workflow '{workflow_id}'.",
-                    )
-                seen_output_names.add(output_name)
-                output_type = require_nonempty_string(
-                    output_mapping.get("type"),
-                    f"workflows.{workflow_id}.steps[{index}].outputs[{output_index}].type",
-                )
-                if output_type not in ARTIFACT_TYPES:
-                    raise ValidationError(
-                        f"Output type '{output_type}' in step '{step_id}' of workflow '{workflow_id}' is not registered.",
-                    )
-                outputs.append(
-                    build_model(
-                        StepOutput,
-                        f"workflows.{workflow_id}.steps[{index}].outputs[{output_index}]",
-                        name=output_name,
-                        type=output_type,
-                    )
-                )
-
-            on_error = step_mapping.get("on_error", "abort")
-            if not isinstance(on_error, str) or on_error not in VALID_ON_ERROR:
-                raise ValidationError(
-                    f"Step '{step_id}' in workflow '{workflow_id}' has invalid on_error '{on_error}'.",
-                )
-
-            max_retries = step_mapping.get("max_retries", 0)
-            if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
-                raise ValidationError(
-                    f"Step '{step_id}' in workflow '{workflow_id}' has invalid max_retries '{max_retries}'.",
-                )
-
-            pause_before = require_bool(
-                step_mapping.get("pause_before", False),
-                f"workflows.{workflow_id}.steps[{index}].pause_before",
-            )
-            pause_after = require_bool(
-                step_mapping.get("pause_after", False),
-                f"workflows.{workflow_id}.steps[{index}].pause_after",
-            )
-
-            steps.append(
-                build_model(
-                    StepConfig,
-                    f"workflows.{workflow_id}.steps[{index}]",
-                    id=step_id,
-                    name=step_name,
-                    tool_ref=tool_ref,
-                    inputs=dict(inputs),
-                    outputs=tuple(outputs),
-                    parameters=dict(parameters),
-                    on_error=on_error,
-                    max_retries=max_retries,
-                    pause_before=pause_before,
-                    pause_after=pause_after,
-                )
-            )
-            step_ids.append(step_id)
-            step_outputs[step_id] = {output.name for output in outputs}
+            steps.append(step)
+            input_refs.append((step.id, index, inputs))
+            step_ids.append(step.id)
+            step_outputs[step.id] = {output.name for output in step.outputs}
 
         step_positions = {step_id: position for position, step_id in enumerate(step_ids)}
         for step_id, step_index, inputs in input_refs:
@@ -157,6 +65,122 @@ def build_workflows(raw_config: JsonObject) -> dict[str, WorkflowConfig]:
         )
 
     return workflows
+
+
+def _build_step(
+    workflow_id: str,
+    index: int,
+    step_raw: object,
+    seen_step_ids: set[str],
+) -> tuple[StepConfig, PluginInputs]:
+    step_mapping = require_mapping(step_raw, f"workflows.{workflow_id}.steps[{index}]")
+    step_id = require_nonempty_string(
+        step_mapping.get("id"), f"workflows.{workflow_id}.steps[{index}].id"
+    )
+    _validate_identifier(step_id, "step id")
+    if step_id in seen_step_ids:
+        raise ValidationError(
+            f"Duplicate step id '{step_id}' in workflow '{workflow_id}'.",
+        )
+    seen_step_ids.add(step_id)
+    step_name = require_nonempty_string(
+        step_mapping.get("name"), f"workflows.{workflow_id}.steps[{index}].name"
+    )
+    tool_ref = require_nonempty_string(
+        step_mapping.get("tool_ref"),
+        f"workflows.{workflow_id}.steps[{index}].tool_ref",
+    )
+    inputs = optional_mapping(
+        step_mapping.get("inputs"), f"workflows.{workflow_id}.steps[{index}].inputs"
+    )
+    parameters = optional_mapping(
+        step_mapping.get("parameters"),
+        f"workflows.{workflow_id}.steps[{index}].parameters",
+    )
+    outputs = _build_outputs(step_mapping, workflow_id, step_id, index)
+
+    on_error = step_mapping.get("on_error", "abort")
+    if not isinstance(on_error, str) or on_error not in VALID_ON_ERROR:
+        raise ValidationError(
+            f"Step '{step_id}' in workflow '{workflow_id}' has invalid on_error '{on_error}'.",
+        )
+
+    max_retries = step_mapping.get("max_retries", 0)
+    if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
+        raise ValidationError(
+            f"Step '{step_id}' in workflow '{workflow_id}' has invalid max_retries '{max_retries}'.",
+        )
+
+    pause_before = require_bool(
+        step_mapping.get("pause_before", False),
+        f"workflows.{workflow_id}.steps[{index}].pause_before",
+    )
+    pause_after = require_bool(
+        step_mapping.get("pause_after", False),
+        f"workflows.{workflow_id}.steps[{index}].pause_after",
+    )
+
+    step = build_model(
+        StepConfig,
+        f"workflows.{workflow_id}.steps[{index}]",
+        id=step_id,
+        name=step_name,
+        tool_ref=tool_ref,
+        inputs=dict(inputs),
+        outputs=tuple(outputs),
+        parameters=dict(parameters),
+        on_error=on_error,
+        max_retries=max_retries,
+        pause_before=pause_before,
+        pause_after=pause_after,
+    )
+    return step, inputs
+
+
+def _build_outputs(
+    step_mapping: JsonObject,
+    workflow_id: str,
+    step_id: str,
+    index: int,
+) -> list[StepOutput]:
+    outputs_raw = step_mapping.get("outputs")
+    if not isinstance(outputs_raw, list) or not outputs_raw:
+        raise ValidationError(
+            f"Step '{step_id}' in workflow '{workflow_id}' must define at least one output.",
+        )
+    outputs: list[StepOutput] = []
+    seen_output_names: set[str] = set()
+    for output_index, output_raw in enumerate(outputs_raw):
+        output_mapping = require_mapping(
+            output_raw,
+            f"workflows.{workflow_id}.steps[{index}].outputs[{output_index}]",
+        )
+        output_name = require_nonempty_string(
+            output_mapping.get("name"),
+            f"workflows.{workflow_id}.steps[{index}].outputs[{output_index}].name",
+        )
+        if output_name in seen_output_names:
+            raise ValidationError(
+                f"Duplicate output name '{output_name}' in step '{step_id}' of workflow '{workflow_id}'.",
+            )
+        seen_output_names.add(output_name)
+        output_type = require_nonempty_string(
+            output_mapping.get("type"),
+            f"workflows.{workflow_id}.steps[{index}].outputs[{output_index}].type",
+        )
+        if output_type not in ARTIFACT_TYPES:
+            raise ValidationError(
+                f"Output type '{output_type}' in step '{step_id}' of workflow '{workflow_id}' is not registered.",
+            )
+        outputs.append(
+            build_model(
+                StepOutput,
+                f"workflows.{workflow_id}.steps[{index}].outputs[{output_index}]",
+                name=output_name,
+                type=output_type,
+            )
+        )
+    return outputs
 
 
 def _validate_identifier(value: str, label: str) -> None:
