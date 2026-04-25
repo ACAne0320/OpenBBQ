@@ -55,9 +55,10 @@ def test_load_yaml_mapping_requires_mapping(tmp_path):
 
 def test_resolve_config_path_defaults_and_resolves_relative_path(tmp_path):
     assert resolve_config_path(tmp_path, None) == (tmp_path / "openbbq.yaml").resolve()
-    assert resolve_config_path(tmp_path, "configs/demo.yaml") == (
-        tmp_path / "configs/demo.yaml"
-    ).resolve()
+    assert (
+        resolve_config_path(tmp_path, "configs/demo.yaml")
+        == (tmp_path / "configs/demo.yaml").resolve()
+    )
 
 
 def test_resolve_project_path_rejects_non_path_value(tmp_path):
