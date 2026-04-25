@@ -38,5 +38,7 @@ def test_load_project_context_applies_extra_plugin_paths(tmp_path):
     context = load_project_context(project, plugin_paths=(extra_plugins,))
 
     assert context.config.root_path == project
-    assert context.config.plugin_paths[-1] == extra_plugins
+    assert context.config.plugin_paths[0] == extra_plugins
     assert context.store.root == project / ".openbbq"
+    assert context.store.artifacts_root == project / ".openbbq" / "artifacts"
+    assert context.store.state_base == project / ".openbbq" / "state"
