@@ -87,12 +87,18 @@ These audit items are complete enough to mark as closed:
     serialization, row upsert, and record-json reconstruction into
     `src/openbbq/storage/database_records.py`, while keeping
     `ProjectDatabase` record-specific queries and column assignments explicit.
+- **P2: Large test modules reduce failure locality**
+  - Completed by splitting `tests/test_builtin_plugins.py` into focused
+    built-in plugin family modules with shared non-collected fakes in
+    `tests/builtin_plugin_fakes.py`, and splitting `tests/test_storage.py`
+    into focused database record, artifact content, repository, and storage
+    model modules. Remaining ~300-line files are cohesive command or subsystem
+    surfaces and should be revisited only when touched for related work.
 
 ### Remaining
 
 These items still need focused cleanup:
 
-- **P2: Large test modules reduce failure locality**
 - **P3: Dynamic payload typing is necessary at boundaries but sometimes leaks
   inward**
 - **P3: File-not-found and missing-state errors are not uniformly
@@ -102,17 +108,12 @@ These items still need focused cleanup:
 
 The remaining cleanup should happen as separate slices, in this order:
 
-1. **Large test module split**
-   - Split only files touched by the previous cleanup slices or files where
-     failure locality clearly improves.
-   - Prefer grouping by plugin family, CLI command group, or storage record
-     family.
-2. **Typed internal payloads**
+1. **Typed internal payloads**
    - Add typed internal models only where payloads are transformed repeatedly,
      especially transcript and translation segments.
    - Keep `dict[str, Any]` and JSON-like data at plugin, artifact, and config
      boundaries.
-3. **Missing-state domain errors**
+2. **Missing-state domain errors**
    - First add characterization tests for current `FileNotFoundError` and
      missing-state behavior.
    - Then introduce domain-specific errors at application/service boundaries
@@ -160,6 +161,7 @@ The audit register is considered fully closed when:
 
 ## Next slice
 
-The next implementation slice should be **Large test module split**. It should
-split only files where failure locality clearly improves, starting with storage
-tests that now cover both repository behavior and extracted database helpers.
+The next implementation slice should be **Typed internal payloads**. It should
+add typed internal models only where transcript or translation payloads are
+transformed repeatedly, while keeping JSON-like data at plugin, artifact, and
+config boundaries.
