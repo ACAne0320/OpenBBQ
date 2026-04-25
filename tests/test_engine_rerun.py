@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from openbbq.config.loader import load_project_config
@@ -7,23 +5,11 @@ from openbbq.engine.service import run_workflow
 from openbbq.errors import ExecutionError
 from openbbq.plugins.registry import discover_plugins
 from openbbq.storage.project_store import ProjectStore
-
-
-def write_project(tmp_path, fixture_name: str) -> Path:
-    project = tmp_path / "project"
-    project.mkdir()
-    source = Path(f"tests/fixtures/projects/{fixture_name}/openbbq.yaml").read_text(
-        encoding="utf-8"
-    )
-    (project / "openbbq.yaml").write_text(
-        source.replace("../../plugins", str(Path.cwd() / "tests/fixtures/plugins")),
-        encoding="utf-8",
-    )
-    return project
+from tests.helpers import write_project_fixture
 
 
 def test_force_rerun_completed_workflow_reuses_artifact_ids_and_appends_versions(tmp_path):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
     run_workflow(config, registry, "text-demo")
@@ -46,7 +32,7 @@ def test_force_rerun_completed_workflow_reuses_artifact_ids_and_appends_versions
 
 
 def test_force_rerun_crash_recovered_running_marks_dangling_step_run_failed(tmp_path):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
     store = ProjectStore(project / ".openbbq")
@@ -82,7 +68,7 @@ def test_force_rerun_crash_recovered_running_marks_dangling_step_run_failed(tmp_
 
 
 def test_step_rerun_completed_workflow_updates_only_target_step_outputs(tmp_path):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
     run_workflow(config, registry, "text-demo")
@@ -111,7 +97,7 @@ def test_step_rerun_completed_workflow_updates_only_target_step_outputs(tmp_path
 
 
 def test_step_rerun_rejects_paused_workflow(tmp_path):
-    project = write_project(tmp_path, "text-pause")
+    project = write_project_fixture(tmp_path, "text-pause")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
     run_workflow(config, registry, "text-demo")

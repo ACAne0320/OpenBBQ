@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from openbbq.config.loader import load_project_config
@@ -8,23 +6,11 @@ from openbbq.engine.service import abort_workflow, resume_workflow, run_workflow
 from openbbq.errors import ExecutionError, ValidationError
 from openbbq.plugins.registry import discover_plugins
 from openbbq.storage.project_store import ProjectStore
-
-
-def write_project(tmp_path, fixture_name: str) -> Path:
-    project = tmp_path / "project"
-    project.mkdir()
-    source = Path(f"tests/fixtures/projects/{fixture_name}/openbbq.yaml").read_text(
-        encoding="utf-8"
-    )
-    (project / "openbbq.yaml").write_text(
-        source.replace("../../plugins", str(Path.cwd() / "tests/fixtures/plugins")),
-        encoding="utf-8",
-    )
-    return project
+from tests.helpers import write_project_fixture
 
 
 def test_run_pauses_before_step_and_resume_completes(tmp_path):
-    project = write_project(tmp_path, "text-pause")
+    project = write_project_fixture(tmp_path, "text-pause")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
 
@@ -49,7 +35,7 @@ def test_run_pauses_before_step_and_resume_completes(tmp_path):
 
 
 def test_resume_rejects_non_paused_workflow(tmp_path):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
     run_workflow(config, registry, "text-demo")
@@ -59,7 +45,7 @@ def test_resume_rejects_non_paused_workflow(tmp_path):
 
 
 def test_resume_rejects_config_drift(tmp_path):
-    project = write_project(tmp_path, "text-pause")
+    project = write_project_fixture(tmp_path, "text-pause")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
     run_workflow(config, registry, "text-demo")
@@ -76,7 +62,7 @@ def test_resume_rejects_config_drift(tmp_path):
 
 
 def test_run_rejects_paused_workflow_without_force(tmp_path):
-    project = write_project(tmp_path, "text-pause")
+    project = write_project_fixture(tmp_path, "text-pause")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
     run_workflow(config, registry, "text-demo")
@@ -88,7 +74,7 @@ def test_run_rejects_paused_workflow_without_force(tmp_path):
 
 
 def test_run_rejects_existing_lock(tmp_path):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
     store = ProjectStore(project / ".openbbq")
@@ -99,7 +85,7 @@ def test_run_rejects_existing_lock(tmp_path):
 
 
 def test_lock_released_when_workflow_pauses_and_completes(tmp_path):
-    project = write_project(tmp_path, "text-pause")
+    project = write_project_fixture(tmp_path, "text-pause")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
     store = ProjectStore(project / ".openbbq")
@@ -112,7 +98,7 @@ def test_lock_released_when_workflow_pauses_and_completes(tmp_path):
 
 
 def test_run_pauses_after_step_and_resume_completes(tmp_path):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     config_path = project / "openbbq.yaml"
     config_path.write_text(
         config_path.read_text(encoding="utf-8").replace(
@@ -140,7 +126,7 @@ def test_run_pauses_after_step_and_resume_completes(tmp_path):
 
 
 def test_abort_paused_workflow_persists_aborted_and_preserves_artifacts(tmp_path):
-    project = write_project(tmp_path, "text-pause")
+    project = write_project_fixture(tmp_path, "text-pause")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
     run_workflow(config, registry, "text-demo")
@@ -156,7 +142,7 @@ def test_abort_paused_workflow_persists_aborted_and_preserves_artifacts(tmp_path
 
 
 def test_resume_rejects_aborted_workflow(tmp_path):
-    project = write_project(tmp_path, "text-pause")
+    project = write_project_fixture(tmp_path, "text-pause")
     config = load_project_config(project)
     registry = discover_plugins(config.plugin_paths)
     run_workflow(config, registry, "text-demo")
