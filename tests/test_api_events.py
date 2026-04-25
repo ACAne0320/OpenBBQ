@@ -1,23 +1,6 @@
-from pathlib import Path
-
-from fastapi.testclient import TestClient
-
-from openbbq.api.app import ApiAppSettings, create_app
 from openbbq.api.routes.events import format_sse
 from openbbq.storage.models import WorkflowEvent
-
-
-def write_project(tmp_path, fixture_name: str) -> Path:
-    project = tmp_path / "project"
-    project.mkdir()
-    source = Path(f"tests/fixtures/projects/{fixture_name}/openbbq.yaml").read_text(
-        encoding="utf-8"
-    )
-    (project / "openbbq.yaml").write_text(
-        source.replace("../../plugins", str(Path.cwd() / "tests/fixtures/plugins")),
-        encoding="utf-8",
-    )
-    return project
+from tests.helpers import authed_client, write_project_fixture
 
 
 def test_format_sse_serializes_pydantic_event():
@@ -37,11 +20,8 @@ def test_format_sse_serializes_pydantic_event():
 
 
 def test_events_history_route_replays_after_sequence(tmp_path):
-    project = write_project(tmp_path, "text-basic")
-    client = TestClient(
-        create_app(ApiAppSettings(project_root=project, token="token", execute_runs_inline=True))
-    )
-    headers = {"Authorization": "Bearer token"}
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project)
     client.post(
         "/workflows/text-demo/runs",
         headers=headers,

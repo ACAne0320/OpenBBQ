@@ -1,26 +1,12 @@
 import json
-from pathlib import Path
-
 from openbbq.cli.app import main
 from openbbq.workflow.locks import workflow_lock_path
 from openbbq.storage.project_store import ProjectStore
-
-
-def write_project(tmp_path, fixture_name: str) -> Path:
-    project = tmp_path / "project"
-    project.mkdir()
-    source = Path(f"tests/fixtures/projects/{fixture_name}/openbbq.yaml").read_text(
-        encoding="utf-8"
-    )
-    (project / "openbbq.yaml").write_text(
-        source.replace("../../plugins", str(Path.cwd() / "tests/fixtures/plugins")),
-        encoding="utf-8",
-    )
-    return project
+from tests.helpers import write_project_fixture
 
 
 def test_cli_run_status_resume_control_flow(tmp_path, capsys):
-    project = write_project(tmp_path, "text-pause")
+    project = write_project_fixture(tmp_path, "text-pause")
 
     assert main(["--project", str(project), "--json", "run", "text-demo"]) == 0
     run_payload = json.loads(capsys.readouterr().out)
@@ -37,7 +23,7 @@ def test_cli_run_status_resume_control_flow(tmp_path, capsys):
 
 
 def test_cli_abort_paused_workflow_and_reject_resume(tmp_path, capsys):
-    project = write_project(tmp_path, "text-pause")
+    project = write_project_fixture(tmp_path, "text-pause")
 
     assert main(["--project", str(project), "--json", "run", "text-demo"]) == 0
     capsys.readouterr()
@@ -52,7 +38,7 @@ def test_cli_abort_paused_workflow_and_reject_resume(tmp_path, capsys):
 
 
 def test_cli_unlock_stale_lock_with_yes(tmp_path, capsys):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     store = ProjectStore(project / ".openbbq")
     lock_path = workflow_lock_path(store, "text-demo")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -75,7 +61,7 @@ def test_cli_unlock_stale_lock_with_yes(tmp_path, capsys):
 def test_cli_abort_running_workflow_writes_request(tmp_path, capsys):
     from openbbq.workflow.aborts import abort_request_path
 
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
     store = ProjectStore(project / ".openbbq")
     store.write_workflow_state(
         "text-demo",
@@ -101,7 +87,7 @@ def test_cli_abort_running_workflow_writes_request(tmp_path, capsys):
 
 
 def test_cli_run_force_reruns_completed_workflow(tmp_path, capsys):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
 
     assert main(["--project", str(project), "--json", "run", "text-demo"]) == 0
     capsys.readouterr()
@@ -117,7 +103,7 @@ def test_cli_run_force_reruns_completed_workflow(tmp_path, capsys):
 
 
 def test_cli_run_step_reruns_one_step(tmp_path, capsys):
-    project = write_project(tmp_path, "text-basic")
+    project = write_project_fixture(tmp_path, "text-basic")
 
     assert main(["--project", str(project), "--json", "run", "text-demo"]) == 0
     capsys.readouterr()
