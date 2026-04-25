@@ -85,7 +85,7 @@ def test_parser_accepts_representative_command_groups():
         assert (args.command, _subcommand(args)) == expected
 
 
-def test_dispatch_delegates_project_plugin_api_workflow_and_artifact_modules(monkeypatch):
+def test_dispatch_delegates_project_plugin_api_workflow_artifact_and_runtime_modules(monkeypatch):
     app = importlib.import_module("openbbq.cli.app")
     calls = []
 
@@ -109,11 +109,16 @@ def test_dispatch_delegates_project_plugin_api_workflow_and_artifact_modules(mon
         calls.append(("artifacts", args.command))
         return 11 if args.command == "artifact" else None
 
+    def runtime_dispatch(args):
+        calls.append(("runtime", args.command))
+        return 12 if args.command == "settings" else None
+
     monkeypatch.setattr(app.projects, "dispatch", project_dispatch)
     monkeypatch.setattr(app.plugins, "dispatch", plugin_dispatch)
     monkeypatch.setattr(app.api, "dispatch", api_dispatch)
     monkeypatch.setattr(app.workflows, "dispatch", workflow_dispatch)
     monkeypatch.setattr(app.artifacts, "dispatch", artifact_dispatch)
+    monkeypatch.setattr(app.runtime, "dispatch", runtime_dispatch)
 
     common = {
         "json_output": False,
@@ -151,8 +156,19 @@ def test_dispatch_delegates_project_plugin_api_workflow_and_artifact_modules(mon
         ("artifacts", "artifact"),
     ]
 
+    calls.clear()
+    assert app._dispatch(Namespace(command="settings", settings_command="show", **common)) == 12
+    assert calls == [
+        ("projects", "settings"),
+        ("plugins", "settings"),
+        ("api", "settings"),
+        ("workflows", "settings"),
+        ("artifacts", "settings"),
+        ("runtime", "settings"),
+    ]
 
-def test_app_no_longer_defines_project_or_plugin_handlers():
+
+def test_app_no_longer_defines_split_command_handlers():
     app = importlib.import_module("openbbq.cli.app")
 
     for handler_name in (
@@ -173,6 +189,15 @@ def test_app_no_longer_defines_project_or_plugin_handlers():
         "_artifact_diff",
         "_artifact_import",
         "_artifact_show",
+        "_settings_show",
+        "_settings_set_provider",
+        "_auth_set",
+        "_auth_check",
+        "_secret_check",
+        "_secret_set",
+        "_models_list",
+        "_doctor",
+        "_secret_payload",
     ):
         assert not hasattr(app, handler_name)
 

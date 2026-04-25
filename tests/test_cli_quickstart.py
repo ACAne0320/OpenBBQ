@@ -115,7 +115,7 @@ def test_auth_set_json_requires_api_key_ref(tmp_path, monkeypatch, capsys):
 def test_auth_set_without_secret_reference_prompts_and_uses_sqlite_default(
     tmp_path, monkeypatch, capsys
 ):
-    from openbbq.cli import app
+    from openbbq.cli import runtime as runtime_cli
     from openbbq.application import runtime as runtime_app
 
     class FakeSecretResolver:
@@ -126,7 +126,7 @@ def test_auth_set_without_secret_reference_prompts_and_uses_sqlite_default(
 
     user_config = tmp_path / "config.toml"
     monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(user_config))
-    monkeypatch.setattr(app.getpass, "getpass", lambda prompt: "sk-prompt")
+    monkeypatch.setattr(runtime_cli.getpass, "getpass", lambda prompt: "sk-prompt")
     monkeypatch.setattr(runtime_app, "SecretResolver", FakeSecretResolver)
 
     code = main(["auth", "set", "openai", "--default-chat-model", "gpt-4o-mini"])
