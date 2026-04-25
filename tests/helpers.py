@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fastapi.testclient import TestClient
-
-from openbbq.api.app import ApiAppSettings, create_app
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures"
 PROJECT_FIXTURE_ROOT = FIXTURE_ROOT / "projects"
@@ -40,7 +39,11 @@ def authed_client(
     execute_runs_inline: bool = True,
     raise_server_exceptions: bool = True,
     **settings_overrides: Any,
-) -> tuple[TestClient, dict[str, str]]:
+) -> tuple["TestClient", dict[str, str]]:
+    from fastapi.testclient import TestClient
+
+    from openbbq.api.app import ApiAppSettings, create_app
+
     settings = ApiAppSettings(
         project_root=project,
         token=token,
