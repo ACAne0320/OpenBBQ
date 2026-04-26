@@ -4,7 +4,14 @@
 
 Launch the smallest useful headless OpenBBQ backend: a local project can define a workflow, discover local plugins, execute steps in order, persist versioned artifacts, and inspect results through a CLI.
 
-Phase 1 is not the full platform. It is the backend foundation needed to validate the core workflow model before adding agent APIs or a desktop UI.
+Phase 1 is not the full platform. It is the backend foundation that validated
+the core workflow model before the later media plugins and API sidecar were
+added.
+
+This page describes the original Phase 1 launch scope. Current repository state
+has completed that scope and now includes Phase 2 media workflow support,
+runtime settings, SQLite-backed storage, and a local FastAPI sidecar for desktop
+readiness.
 
 ## MVP Acceptance Scenarios
 
@@ -74,17 +81,20 @@ The production target is the [YouTube → Subtitle pipeline](../Target-Workflows
 ## Out Of Scope
 
 - Desktop UI.
-- HTTP or gRPC API.
-- Authentication and authorization.
+- HTTP or gRPC API in the original Phase 1 launch. A local FastAPI sidecar now
+  exists under `openbbq.api`; remote API exposure is still out of scope.
+- Authentication and authorization for remote or multi-user use. The local
+  sidecar now supports bearer-token auth for desktop loopback integration.
 - Multi-user collaboration.
 - Remote plugin registries.
 - Plugin marketplace.
 - Distributed execution.
 - Long-running worker queues.
-- Real transcription, translation, or subtitle rendering integrations.
+- Real transcription, translation, or subtitle rendering integrations in the
+  original Phase 1 launch. Current Phase 2 code includes built-in local media,
+  ASR, translation, QA, and subtitle export plugins.
 - Cloud storage backends.
 - Downstream artifact invalidation on single-step rerun (`run --step`). Users are responsible for understanding which downstream artifacts are stale after a partial rerun.
-- Named input declarations in tool manifests (e.g., "requires one video input"). Phase 1 validates only that input artifact types are in the tool's allowlist.
 
 ## Definition Of Done
 
@@ -120,11 +130,15 @@ openbbq/
   .github/
     workflows/
   src/openbbq/
+    api/
+    application/
+    builtin_plugins/
     cli/
     config/
     domain/
     engine/
     workflow/
+    workflow_templates/
     plugins/
     storage/
   tests/

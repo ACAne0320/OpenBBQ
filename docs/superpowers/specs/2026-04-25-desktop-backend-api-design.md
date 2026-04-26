@@ -1,5 +1,10 @@
 # Desktop Backend API Design
 
+> Status: this design has been implemented and partially superseded by the
+> desktop backend readiness work. Current code uses the `openbbq.api` FastAPI
+> sidecar, `openbbq.application` services, SQLite-backed project storage, run
+> records, typed envelopes, and SSE routes described below.
+
 ## Goal
 
 Prepare OpenBBQ for the Phase 3 desktop by adding a stable, typed backend API
@@ -16,7 +21,7 @@ The API should make workflow execution, event streaming, artifact inspection,
 runtime settings, diagnostics, and plugin metadata available to the desktop
 through Pydantic-validated contracts.
 
-## Current Baseline
+## Current Baseline And Closed Gaps
 
 The repository already has the right backend foundation:
 
@@ -28,23 +33,27 @@ The repository already has the right backend foundation:
   depending on CLI parsing.
 - `src/openbbq/workflow/*` persists state transitions, step runs, events, locks,
   abort requests, retries, skips, pauses, resumes, and reruns.
-- `src/openbbq/storage/*` keeps workflow state, events, step run records,
-  artifacts, versions, and artifact indexes under `.openbbq/`.
+- `src/openbbq/storage/*` keeps workflow state, events, step run records, run
+  records, artifacts, and artifact-version metadata in SQLite under
+  `.openbbq/`, with artifact payloads stored on disk.
 - `src/openbbq/runtime/*` owns provider profiles, settings, secrets, redaction,
   model cache settings, and doctor checks.
-- `src/openbbq/cli/app.py` is mostly an adapter, but it still owns several
-  application-level operations that the desktop will also need.
+- `src/openbbq/cli/app.py` is an adapter over command modules that call
+  application services.
 
-The main desktop gaps are:
+The original desktop API gaps were:
 
 - no long-lived backend process;
-- no HTTP or streaming API;
+- no HTTP or streaming API at that point;
 - no API-level authentication boundary for local desktop use;
 - no run handle for background execution;
 - no live event subscription contract;
 - no shared API response envelope;
 - several CLI-only paths for project, plugin, runtime, auth, doctor, and
   generated subtitle workflows.
+
+Current code closes those backend gaps. Remaining desktop work is Electron
+process management, preload IPC, renderer UI, packaging, and product UX.
 
 ## Options Considered
 
@@ -104,7 +113,7 @@ Responsibilities:
 - `api/*` owns HTTP routing, local auth, request parsing, response models,
   OpenAPI metadata, and SSE serialization.
 - `application/*` owns user-facing backend operations shared by CLI, API, and
-  future automation adapters.
+  automation adapters.
 - `engine/*`, `workflow/*`, `storage/*`, `plugins/*`, and `runtime/*` remain
   headless core layers.
 - `cli/*` parses terminal arguments and formats terminal output. It should not
@@ -214,7 +223,7 @@ Security defaults:
 
 ## API Surface
 
-The first API slice should be intentionally small but shaped for the desktop.
+The current API surface is intentionally local and shaped for the desktop.
 
 ### Health
 
@@ -267,6 +276,7 @@ dashboard:
 
 ```text
 POST /workflows/{workflow_id}/runs
+GET  /runs
 GET  /runs/{run_id}
 POST /runs/{run_id}/resume
 POST /runs/{run_id}/abort
@@ -322,6 +332,9 @@ render workflow configuration forms:
 GET /runtime/settings
 PUT /runtime/providers/{name}
 GET /runtime/providers/{name}/check
+PUT /runtime/providers/{name}/auth
+POST /runtime/secrets/check
+PUT /runtime/secrets
 GET /runtime/models
 GET /doctor
 GET /doctor?workflow_id={workflow_id}
@@ -329,6 +342,16 @@ GET /doctor?workflow_id={workflow_id}
 
 These routes wrap runtime settings, auth checks, model cache status, settings
 doctor checks, and workflow-specific doctor checks.
+
+### Quickstart
+
+```text
+POST /quickstart/subtitle/local
+POST /quickstart/subtitle/youtube
+```
+
+These routes start generated local or remote subtitle workflows and return run
+handles plus generated project context.
 
 ## Run Model
 
@@ -343,18 +366,21 @@ Project
       WorkflowEvent[]
 ```
 
-The first implementation can preserve existing workflow-scoped state and event
-storage while adding a minimal run index:
+The current implementation preserves workflow-scoped engine state and stores
+run records in the project SQLite database:
 
 ```text
-.openbbq/state/
-  runs/
-    <run_id>.json
-  workflows/
-    <workflow_id>/
-      state.json
-      events.jsonl
-      step-runs/
+.openbbq/
+  openbbq.db
+  artifacts/
+    <artifact-id>/
+      versions/
+        <version-number>-<artifact-version-id>/
+          content
+  state/
+    workflows/
+      <workflow-id>.lock
+      <workflow-id>.abort_requested
 ```
 
 `RunRecord` should include:
@@ -378,17 +404,17 @@ First-stage constraints:
 - `RunRecord` is an API/job handle, not a complete replacement for
   `WorkflowState`;
 - workflow events can remain workflow-scoped;
-- artifact lineage should include run ID for new writes once the run manager is
-  present.
+- artifact lineage remains workflow and step scoped; run records provide the
+  desktop handle for background work.
 
 This gives the desktop a stable handle for user-triggered work without forcing
 an immediate storage migration for historical runs.
 
 ## Event Streaming
 
-The current event model already has append-only JSONL records with `sequence`,
-`type`, `level`, `message`, `data`, and timestamps. The desktop API should build
-on that instead of inventing a separate progress channel.
+The current event model has append-only SQLite records with `sequence`, `type`,
+`level`, `message`, `data`, and timestamps. The desktop API builds on that
+instead of inventing a separate progress channel.
 
 Add event read helpers:
 
@@ -406,7 +432,7 @@ Behavior:
 
 - replay existing events after the requested sequence;
 - keep the connection open while the workflow is active;
-- poll `events.jsonl` with a short interval in the first implementation;
+- poll SQLite-backed event helpers with a short interval;
 - emit heartbeat comments or heartbeat events so clients can detect connection
   health;
 - stop streaming when the client disconnects;
@@ -446,8 +472,11 @@ New or expanded services:
 - generated local and YouTube subtitle workflows;
 - run creation, run status, resume, and abort.
 
-The CLI should call these services. The API should call these services. Tests
-should cover the service layer directly and the adapter layers separately.
+CLI commands and API routes should call shared services where the behavior is
+the same. Current API quickstart routes use `openbbq.application.quickstart`;
+current CLI quickstart commands keep synchronous output-file orchestration over
+shared lower-level helpers. Tests should cover the service layer directly and
+the adapter layers separately.
 
 ## Dependency And Packaging
 
@@ -525,56 +554,61 @@ extra exists:
 
 ```bash
 uv sync --extra api
-uv run pytest tests/test_api_health.py tests/test_api_workflows.py
+uv run pytest tests/test_api_*.py tests/test_application_runs.py \
+  tests/test_application_artifacts.py tests/test_application_quickstart.py
 ```
 
 ## Implementation Slices
 
 ### Slice 1: API and Pydantic contract foundation
 
-Add the `api` optional dependency, `openbbq.api.schemas`, FastAPI app factory,
-auth middleware, error conversion, and `GET /health`.
+The completed first slice added the `api` optional dependency,
+`openbbq.api.schemas`, FastAPI app factory, auth middleware, error conversion,
+and `GET /health`.
 
 Expected result: a sidecar app can be instantiated in tests, validates responses
 with Pydantic, and rejects unauthorized requests where auth is required.
 
 ### Slice 2: Application service completion
 
-Move CLI-only project, plugin, runtime, auth, doctor, and quickstart operations
-into `application/*`. Keep CLI behavior working by changing CLI commands to
-call those services.
+The service slice moved project, plugin, runtime, auth, doctor, run, artifact,
+and API quickstart operations into `application/*` where they are shared by
+adapters.
 
 Expected result: API work can build on application services without importing
 CLI internals.
 
 ### Slice 3: Run manager
 
-Add `RunRecord`, run storage, a small in-process task manager, run creation,
-run status, resume, and abort. Enforce one active run per workflow.
+The run-manager slice added `RunRecord`, SQLite run storage, a small in-process
+task manager, run creation, run status, resume, and abort. It enforces one
+active run per workflow.
 
 Expected result: `POST /workflows/{workflow_id}/runs` can return immediately
 with a run ID while workflow execution continues in the backend.
 
 ### Slice 4: Workflow and artifact API routes
 
-Expose workflow list, detail, validate, status, event history, artifact list,
-artifact show, artifact version, artifact import, artifact diff, plugin list,
-plugin info, runtime settings, provider mutation, and doctor checks.
+The route slice exposes workflow list, detail, validate, status, event history,
+artifact list, artifact show, artifact version, artifact import, artifact diff,
+plugin list, plugin info, runtime settings, provider mutation, and doctor
+checks.
 
 Expected result: the desktop has enough API coverage for an initial project
 dashboard, run monitor, settings panel, plugin browser, and artifact inspector.
 
 ### Slice 5: Event streaming
 
-Add event store read helpers and SSE streaming based on workflow event sequence.
+The event slice added SQLite event read helpers and SSE streaming based on
+workflow event sequence.
 
 Expected result: the desktop can replay historical workflow events and keep a
 live connection open for progress updates.
 
 ### Slice 6: Sidecar launcher
 
-Add `openbbq-api` or `openbbq api serve` with `--host`, `--port`, `--token`,
-and machine-readable startup output.
+The launcher slice added `openbbq-api` and `openbbq api serve` with `--host`,
+`--port`, `--token`, `--no-token-dev`, and machine-readable startup output.
 
 Expected result: Electron main can launch the backend, discover the selected
 port, authenticate requests, and terminate the sidecar cleanly.
@@ -585,8 +619,6 @@ These items are intentionally outside the first desktop backend slice:
 
 - multi-project sidecar sessions;
 - external network API exposure;
-- database-backed storage;
-- complete run-scoped artifact and event history migration;
 - WebSocket command channels;
 - in-memory event pub/sub;
 - plugin sandboxing;

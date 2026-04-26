@@ -1,7 +1,8 @@
 # Phase 2 Exit Checklist
 
-Phase 2 is complete when the CLI can run real local and remote media language
-workflows through the same backend contracts that the future desktop will use.
+Phase 2 is complete when the CLI and local API sidecar can run or start real
+local and remote media language workflows through the backend contracts that the
+future desktop will use.
 
 ## Implemented capabilities
 
@@ -14,9 +15,9 @@ workflows through the same backend contracts that the future desktop will use.
 - Built-in `translation.translate` plugin for OpenAI-compatible LLM translation.
 - Built-in `translation.qa` plugin for deterministic translation risk checks.
 - Built-in `subtitle.export` plugin for SRT output.
-- Runtime provider profiles, explicit `env:` and `keyring:` secret references,
-  redaction, model cache settings, settings-level `doctor` checks, and
-  workflow-specific `doctor` checks.
+- Runtime provider profiles, explicit `env:`, `sqlite:`, and `keyring:` secret
+  references, redaction, model cache settings, settings-level `doctor` checks,
+  and workflow-specific `doctor` checks.
 - One-step generated workflows:
   - `openbbq subtitle local` for local video files.
   - `openbbq subtitle youtube` for remote video URLs supported by `yt-dlp`.
@@ -24,8 +25,13 @@ workflows through the same backend contracts that the future desktop will use.
   - Pydantic contract models.
   - Manifest v2 with named inputs and outputs.
   - Typed workflow events with `level` and structured `data`.
-  - Artifact indexes.
-  - Workflow and artifact application services.
+  - SQLite-backed workflow, run, event, artifact, and artifact-version records.
+  - Workflow, run, artifact, runtime, quickstart, and diagnostic application
+    services.
+  - Local FastAPI sidecar with typed success/error envelopes, bearer-token
+    enforcement by default, run records, non-blocking API workflow execution,
+    event polling and SSE streaming, artifact preview/export/import, runtime
+    setup, plugin metadata, project info, and generated subtitle job routes.
   - Removal of the legacy `llm.translate` tool and implicit LLM environment
     fallback.
 
@@ -45,7 +51,8 @@ Verify the desktop API sidecar slice:
 
 ```bash
 uv sync --extra api
-uv run pytest tests/test_api_health.py tests/test_api_workflows_artifacts_runs.py
+uv run pytest tests/test_api_*.py tests/test_application_runs.py \
+  tests/test_application_artifacts.py tests/test_application_quickstart.py
 ```
 
 Validate the generated and canonical remote workflows:
@@ -130,13 +137,17 @@ artifact metadata.
 ## Phase 3 handoff boundary
 
 Phase 3 should treat the CLI as one adapter over the backend, not as the desktop
-integration point. New desktop or API work should call application services or
-thin API wrappers around them.
+integration point. Desktop work should call the local FastAPI sidecar, which in
+turn calls application services.
 
 The first Phase 3 slice should reuse:
 
 - workflow run, resume, abort, status, logs, and artifact services;
+- run records, run-scoped event queries, run event streams, and run artifact
+  queries;
 - runtime settings, provider profile, secret, model cache, and doctor contracts;
-- generated local and YouTube subtitle workflow entry points;
-- existing artifact versions and event logs for project dashboards, run timelines,
-  artifact inspection, and subtitle preview.
+- generated local and YouTube subtitle workflow entry points through both CLI
+  and API routes;
+- existing artifact versions, bounded artifact previews, export/file routes, and
+  SQLite-backed event logs for project dashboards, run timelines, artifact
+  inspection, and subtitle preview.

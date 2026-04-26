@@ -4,7 +4,9 @@
 
 The workflow engine loads a validated workflow, resolves plugin tools, executes steps in order, persists state transitions, and records artifact lineage.
 
-The Phase 1 engine is local and synchronous. It should be designed so an async worker or API layer can wrap it later without changing domain contracts.
+The Phase 1 engine is local and synchronous. The current API sidecar wraps it
+through application services and a run executor without changing domain
+contracts.
 
 ## Workflow Status
 
@@ -147,7 +149,6 @@ Plugin exceptions must be normalized into engine errors with:
 - tool name.
 - retry count.
 - short message.
-- structured details when available.
 
 ## Deterministic Replay
 
@@ -164,7 +165,8 @@ Replay metadata must include:
 
 ## Event Persistence
 
-Events are append-only. They should be useful for CLI status, logs, debugging, and future API streaming.
+Events are append-only. They are used for CLI status, logs, debugging, API event
+queries, and SSE streaming.
 
 Event records should not depend on process memory. A workflow run that crashes should still leave inspectable events up to the failure point.
 

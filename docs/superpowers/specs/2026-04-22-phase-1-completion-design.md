@@ -6,7 +6,7 @@ Complete the remaining Phase 1 backend and CLI contracts after Slice 2 MVP.
 
 Phase 1 completion should make the local headless backend launch-ready: workflows can be initialized, validated, executed, paused, resumed, aborted, recovered after stale locks, rerun from supported boundaries, inspected through artifacts and logs, and verified through the documented CLI.
 
-## Current Baseline
+## Original Baseline
 
 The repository already implements:
 

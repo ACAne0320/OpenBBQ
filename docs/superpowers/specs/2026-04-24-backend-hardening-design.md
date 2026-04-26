@@ -1,14 +1,21 @@
 # Backend Hardening Design
 
+> Status: historical design. The hardening work has since been implemented and
+> followed by SQLite-backed storage plus the FastAPI sidecar. Treat the
+> "original baseline" sections below as the code state at the time this design
+> was written, not as the current repository facts.
+
 ## Goal
 
 Harden the current OpenBBQ backend before desktop development by turning the working CLI-first implementation into a stricter headless application core. The work should treat the current behavior, tests, fixtures, and Phase 2 workflow as the factual baseline, but it should not preserve compatibility mechanisms that would make the desktop architecture weaker.
 
-The target outcome is a backend that a future Electron desktop, HTTP API, worker process, or automation client can call through stable typed services instead of CLI internals.
+The target outcome is a backend that an Electron desktop, the current HTTP API
+sidecar, worker process, or automation client can call through stable typed
+services instead of CLI internals.
 
-## Current Baseline
+## Original Baseline Before Hardening
 
-Current code facts:
+Code facts at the time this design was written:
 
 - `src/openbbq/domain/models.py` defines Pydantic project, workflow, step, and output config models, but several mapping fields remain mutable dictionaries.
 - `src/openbbq/storage/models.py` defines typed persisted records, but the record models still expose dict-like `__getitem__` and `get` methods.
@@ -20,7 +27,7 @@ Current code facts:
 - `src/openbbq/cli/app.py` is the only user-facing adapter, but it also contains application-level behavior for runtime settings, generated subtitle workflows, artifact lookup, and command dispatch.
 - Built-in media and LLM plugins are functional, but `translation/plugin.py` and `transcript/plugin.py` are large modules with raw dictionary payloads and duplicated client, chunking, and model-response parsing patterns.
 
-Current verification baseline on April 24, 2026:
+Verification baseline on April 24, 2026:
 
 - `uv run ruff check .` passes.
 - `uv run pytest` passes with 229 passed and 1 skipped.
@@ -48,14 +55,14 @@ This hardening includes:
 - removing legacy compatibility paths that obscure the future contract;
 - splitting the execution loop into smaller components with explicit state transition and step execution boundaries;
 - splitting the filesystem store into workflow state, event, artifact metadata, artifact content, and artifact index responsibilities;
-- introducing an application service layer that CLI and future desktop/API adapters can share;
+- introducing an application service layer that CLI and desktop/API adapters can share;
 - modularizing built-in plugins where large files mix parameter parsing, provider resolution, model calls, response parsing, and domain logic;
 - expanding tests around the new contracts and migration decisions.
 
 This hardening excludes:
 
 - building the Electron desktop UI;
-- adding FastAPI routes or an HTTP server;
+- adding FastAPI routes or an HTTP server in this hardening milestone;
 - adding a background worker runtime;
 - implementing real-time websocket streaming;
 - changing the product-level target workflow beyond making its backend contracts stricter;
@@ -79,7 +86,10 @@ This is higher effort, but it gives the desktop a clean backend surface and remo
 
 Replace the local synchronous engine with an API-first worker and database-backed implementation now.
 
-This would overreach. The current filesystem-backed engine is well-tested and useful for local desktop workflows. The better path is to harden it and leave API and worker process choices for a future phase.
+This would have overreached for that slice. At the time, the filesystem-backed
+engine was well-tested and useful for local desktop workflows. The chosen path
+was to harden it first, then add SQLite storage and the API sidecar in later
+work.
 
 ## Recommended Approach
 
@@ -88,7 +98,7 @@ Use Option 2. Implement the hardening as a series of behavior-preserving but com
 1. Contract hardening.
 2. Plugin contract v2.
 3. Execution boundary refactor.
-4. Storage boundary refactor and artifact indexes.
+4. Storage boundary refactor and artifact lookup records.
 5. Application service layer.
 6. Built-in plugin modularization.
 7. Compatibility removal and documentation alignment.
@@ -97,7 +107,9 @@ Each slice should keep the full test suite green before the next slice begins. T
 
 ## Contract Hardening
 
-Models that cross module, storage, or future API boundaries should stop pretending to be dictionaries. Remove `__getitem__`, `get`, and dict equality helpers from record and payload models once direct attribute access is migrated.
+Models that cross module, storage, or API boundaries should stop pretending to
+be dictionaries. Remove `__getitem__`, `get`, and dict equality helpers from
+record and payload models once direct attribute access is migrated.
 
 Use explicit types for common state:
 
@@ -180,7 +192,14 @@ State changes should be named operations, not repeated dictionaries. Examples: `
 
 ## Storage Boundary
 
-Keep local filesystem storage for now, but split `ProjectStore` into smaller collaborators:
+This storage recommendation was superseded by the current SQLite-backed
+`ProjectStore` and `ProjectDatabase` implementation. Current code stores
+workflow state, runs, step runs, events, artifact records, and artifact-version
+metadata in `.openbbq/openbbq.db`; artifact payloads remain file-backed under
+`.openbbq/artifacts/`.
+
+The original recommendation was to keep local filesystem storage for that slice
+and split `ProjectStore` into smaller collaborators:
 
 - `JsonFileStore`: atomic JSON reads and writes, JSONL append, fsync behavior.
 - `WorkflowStateStore`: workflow state, step runs, lock files, abort request files.
@@ -195,7 +214,7 @@ Artifact writes should have a recovery story when a process crashes after conten
 
 ## Application Service Layer
 
-Introduce a backend application layer that CLI and future desktop/API adapters share.
+Introduce a backend application layer that CLI and desktop/API adapters share.
 
 Candidate package:
 

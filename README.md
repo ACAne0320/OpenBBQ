@@ -7,10 +7,11 @@ The project takes its name from Chinese fan-sub and creator communities, where
 translating and subtitling a video is sometimes called "BBQ." Raw media is "raw
 meat"; translated and subtitled output is "cooked."
 
-OpenBBQ runs media workflows from a local CLI today. The CLI is an adapter over
-backend application services that read an `openbbq.yaml` workflow, discover local
-plugins, write state and artifacts under `.openbbq/`, and let you inspect, rerun,
-resume, or export the results.
+OpenBBQ currently exposes the backend through a local CLI and an optional
+FastAPI sidecar for desktop/API integration. Both adapters use backend
+application services that read an `openbbq.yaml` workflow, discover local
+plugins, write state and artifacts under `.openbbq/`, and let you inspect,
+rerun, resume, stream, preview, or export the results.
 
 ## Install
 
@@ -25,6 +26,12 @@ dependency groups you need:
 
 ```bash
 uv sync --extra download --extra media --extra llm --extra secrets
+```
+
+For the local API sidecar, include the `api` extra:
+
+```bash
+uv sync --extra api
 ```
 
 Real media workflows also need `ffmpeg` available on `PATH`:
@@ -181,3 +188,26 @@ Run preflight checks:
 uv run openbbq doctor --json
 uv run openbbq doctor --workflow <workflow-id> --project <project-dir> --json
 ```
+
+## Local API Sidecar
+
+Start the FastAPI sidecar for desktop or automation clients:
+
+```bash
+uv run openbbq api serve \
+  --project tests/fixtures/projects/text-basic \
+  --token dev-token
+```
+
+The server binds to `127.0.0.1` by default and prints one startup JSON line with
+the selected port and process ID. Non-health routes require bearer
+authentication unless development mode is enabled explicitly:
+
+```bash
+uv run openbbq api serve \
+  --project tests/fixtures/projects/text-basic \
+  --no-token-dev \
+  --allow-dev-cors
+```
+
+The direct script entry point is also available as `uv run openbbq-api`.

@@ -1,6 +1,9 @@
 # Architecture
 
-OpenBBQ is a headless, artifact-driven media workflow backend. The current CLI is an adapter over typed application services; future desktop, API, and automation surfaces should use those services or API wrappers rather than CLI parser internals.
+OpenBBQ is a headless, artifact-driven media workflow backend. The current CLI
+and local FastAPI sidecar are adapters over typed application services; the
+desktop and automation surfaces should use those services or the API sidecar
+rather than CLI parser internals.
 
 ## Design Principles
 
@@ -18,12 +21,13 @@ OpenBBQ is a headless, artifact-driven media workflow backend. The current CLI i
 3. Workflow engine: validates named bindings, executes steps, persists transitions, emits typed events with `level` and `data`, and supports pause, resume, abort, retry, skip, and rerun.
 4. Storage: keeps workflow state, event logs, artifacts, artifact versions, and run records in SQLite, with file-backed artifact payloads under `.openbbq/`.
 5. Application services: expose workflow and artifact operations independent of the CLI.
-6. Adapters: CLI today; desktop, HTTP API, and worker adapters later.
+6. Adapters: CLI and HTTP API sidecar today; Electron desktop and worker adapters next.
 
-The desktop backend adapter is a local FastAPI sidecar managed by Electron main.
-It exposes Pydantic-validated REST responses for commands and queries, and SSE
-for workflow event streaming. The API layer calls `openbbq.application` services
-and does not import CLI parser internals.
+The desktop backend adapter is a local FastAPI sidecar, intended to be managed
+by Electron main in desktop mode. It exposes Pydantic-validated REST responses
+for commands and queries, and SSE for workflow and run event streaming. The API
+layer calls `openbbq.application` services and does not import CLI parser
+internals.
 
 ## Local Data Stores
 

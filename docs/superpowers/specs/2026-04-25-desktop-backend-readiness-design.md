@@ -1,5 +1,8 @@
 # Desktop backend readiness design
 
+> Status: implemented. Current code exposes the readiness surfaces described
+> here through `openbbq.application` services and `openbbq.api` routes.
+
 ## Goal
 
 Prepare the Python backend for the first desktop UI integration by making the
@@ -30,11 +33,13 @@ The repository already has a working headless backend:
   background thread.
 - `openbbq.api` exposes FastAPI routes for health, projects, plugins, runtime,
   workflows, runs, artifacts, and SSE events.
-- `openbbq.application.quickstart` writes generated local and YouTube subtitle
-  workflow configs.
-- `openbbq.cli.app` still owns the full one-step subtitle orchestration: generate
-  workflow, import source media when needed, execute workflow, find the subtitle
-  artifact, and write the output file.
+- `openbbq.application.quickstart` writes and starts generated local and YouTube
+  subtitle jobs, including generated project context needed by run, event,
+  artifact, preview, export, and file routes.
+- `openbbq.cli.app` is an adapter. The API quickstart routes call
+  `openbbq.application.quickstart`; the CLI quickstart commands keep
+  synchronous output-file orchestration while sharing the lower-level workflow
+  template, artifact import, and workflow run services.
 
 The current automated baseline passes with `uv run pytest`.
 
@@ -61,8 +66,8 @@ The first desktop UI can then rely on these backend surfaces:
 ## API contract design
 
 All desktop-facing JSON routes return `ApiSuccess[T]` or `ApiErrorResponse`.
-Routes that currently use `ApiSuccess[dict[str, Any]]` get concrete response
-models in `openbbq.api.schemas`.
+Routes that previously used `ApiSuccess[dict[str, Any]]` now have concrete
+response models in `openbbq.api.schemas`.
 
 Workflow routes return:
 
@@ -118,9 +123,9 @@ long workflow continuation.
 
 ## Generated subtitle API design
 
-Move one-step subtitle orchestration from CLI-only code into
-`openbbq.application.quickstart` or a focused sibling service that both CLI and
-API can call.
+Non-blocking API subtitle orchestration lives in
+`openbbq.application.quickstart`. CLI quickstart commands still run the generated
+workflow synchronously and write the requested output file after completion.
 
 The backend exposes:
 
@@ -202,7 +207,7 @@ uv run ruff format --check .
 
 ## Acceptance criteria
 
-- Desktop-facing API routes no longer use `ApiSuccess[dict[str, Any]]` for
+- Desktop-facing API routes do not use `ApiSuccess[dict[str, Any]]` for
   workflow, run, event, artifact, quickstart, plugin, runtime, or project
   responses.
 - Missing run IDs return a JSON 404 error envelope, not raw 500.

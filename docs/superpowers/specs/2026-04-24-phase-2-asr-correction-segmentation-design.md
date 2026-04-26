@@ -39,9 +39,9 @@ This is enough to prove an end-to-end flow, but it has structural limits:
 
 The result is a pipeline where translation is asked to compensate for ASR mistakes, terminology normalization, and subtitle segmentation at the same time.
 
-## Current Baseline
+## Original Baseline
 
-Current code facts:
+Code facts at the time this design was written:
 
 - [`src/openbbq/builtin_plugins/faster_whisper/plugin.py`](../../../src/openbbq/builtin_plugins/faster_whisper/plugin.py) returns an `asr_transcript` artifact whose segment items contain:
   - `start`

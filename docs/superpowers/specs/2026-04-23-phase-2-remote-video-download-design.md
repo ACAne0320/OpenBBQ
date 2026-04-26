@@ -39,7 +39,7 @@ This design excludes:
 - non-mp4 output formats;
 - API, SDK, webhooks, queue workers, desktop UI, and agent-specific surfaces.
 
-## Current Baseline
+## Original Baseline
 
 Phase 2 Slice 1 already provides local file import, built-in ffmpeg audio extraction, built-in faster-whisper transcription, and subtitle export.
 

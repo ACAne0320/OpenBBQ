@@ -10,7 +10,7 @@ The schema below is the Phase 1 source of truth for config loading, validation, 
 version: 1
 
 project:
-  id: demo-project              # optional; generated and persisted on init if omitted
+  id: demo-project              # optional; omitted by openbbq init unless provided later
   name: Demo Project            # required
 
 storage:

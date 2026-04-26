@@ -37,7 +37,7 @@ This design excludes:
 - authentication, authorization, scoped tokens, and multi-user access;
 - queue workers, distributed execution, and rate limiting.
 
-## Current Baseline
+## Original Baseline
 
 Phase 1 provides the stable backend contracts this slice builds on:
 

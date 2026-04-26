@@ -1,5 +1,10 @@
 # Runtime Settings and Assets Design
 
+> Status: historical design. The runtime settings layer is now implemented and
+> later gained local SQLite-backed provider profiles and `sqlite:` secret
+> references for desktop-style credential entry. Sections labeled "current
+> baseline" describe the code state at the time this design was written.
+
 ## Goal
 
 Add a runtime settings layer that lets OpenBBQ run real media workflows with user-editable provider profiles, credential references, and model cache settings. The layer must work from the CLI first and remain reusable by the future Desktop UI.
@@ -16,11 +21,15 @@ Phase 2 can validate and run real media workflows, but real users still need to 
 - ffmpeg, yt-dlp, optional Python dependencies, browser cookies, and model downloads can fail only after a workflow has started.
 - The future Desktop UI needs settings it can read, validate, and edit without writing secrets into project workflow files.
 
-The current implementation reads `OPENBBQ_LLM_API_KEY` and `OPENBBQ_LLM_BASE_URL` inside the LLM-backed plugins. That works for early CLI smoke tests, but it does not give users a durable settings surface or a clear place to manage model assets.
+Before this layer, the implementation read `OPENBBQ_LLM_API_KEY` and
+`OPENBBQ_LLM_BASE_URL` inside the LLM-backed plugins. That worked for early CLI
+smoke tests, but it did not give users a durable settings surface or a clear
+place to manage model assets. Current code uses named runtime provider profiles
+and explicit secret references instead.
 
-## Current Baseline
+## Original Baseline
 
-Current code facts:
+Code facts at the time this design was written:
 
 - [`src/openbbq/config/loader.py`](../../../src/openbbq/config/loader.py) loads project-scoped `openbbq.yaml`. It supports project metadata, storage roots, plugin paths, and workflow definitions.
 - [`src/openbbq/domain/models.py`](../../../src/openbbq/domain/models.py) has `StorageConfig` for project artifacts and state, but no runtime settings, provider, secret, or cache model.
@@ -38,7 +47,8 @@ This design includes:
 - a user-level runtime settings file;
 - provider profiles for OpenAI-compatible LLM use;
 - secret references that keep API keys out of project configs, workflow state, artifact metadata, event logs, and lineage;
-- a secret resolver with environment-variable and keyring-backed references;
+- a secret resolver with environment-variable, local SQLite, and keyring-backed
+  references;
 - an OpenBBQ cache root and faster-whisper model cache settings;
 - a runtime context object passed to built-in plugins;
 - CLI commands that the future Desktop UI can mirror or call through the backend;
@@ -48,7 +58,7 @@ This design includes:
 This design excludes:
 
 - Desktop UI implementation;
-- HTTP API routes;
+- HTTP API routes in this runtime-settings slice;
 - multi-user accounts, cloud sync, and team credential sharing;
 - encrypted project-local vault files;
 - provider-specific SDK abstractions beyond the existing OpenAI-compatible chat completions path;
@@ -159,12 +169,15 @@ Secrets should be represented as references, not values:
 
 ```text
 env:OPENBBQ_LLM_API_KEY
+sqlite:openbbq/providers/openai/api_key
 keyring:openbbq/providers/openai/api_key
 ```
 
 Supported reference schemes:
 
 - `env:<NAME>` reads the current process environment.
+- `sqlite:<NAME>` reads a plaintext local credential from the user runtime
+  SQLite database.
 - `keyring:<SERVICE>/<USERNAME>` reads from the OS keychain through Python `keyring`.
 
 The `keyring` dependency should be optional:
@@ -174,7 +187,10 @@ The `keyring` dependency should be optional:
 secrets = ["keyring>=25"]
 ```
 
-When `keyring` is missing or unsupported on the host, OpenBBQ should report a clear preflight error and continue to support `env:` references. It should not silently write secret values to disk as a fallback.
+When `keyring` is missing or unsupported on the host, OpenBBQ should report a
+clear preflight error and continue to support `env:` and `sqlite:` references.
+The current CLI can intentionally store user-entered local credentials in the
+user SQLite database using `sqlite:openbbq/providers/<name>/api_key`.
 
 The secret resolver returns a redacted descriptor for display:
 
@@ -491,7 +507,7 @@ The design is ready to implement when OpenBBQ provides:
 
 - a versioned user runtime settings loader;
 - provider profile models for OpenAI-compatible LLM use;
-- secret reference resolution for `env:` and `keyring:`;
+- secret reference resolution for `env:`, `sqlite:`, and `keyring:`;
 - redacted settings display suitable for CLI and Desktop UI;
 - a runtime context path from workflow execution to built-in plugins;
 - model cache settings for faster-whisper;

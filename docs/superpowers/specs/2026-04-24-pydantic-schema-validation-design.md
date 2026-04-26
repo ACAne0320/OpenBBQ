@@ -1,14 +1,18 @@
 # Pydantic Schema Validation Design
 
+> Status: historical design. The Pydantic migration has been implemented; the
+> baseline below describes the code state at the time this design was written,
+> before the current SQLite storage and API sidecar work.
+
 ## Goal
 
 Migrate OpenBBQ's core contract objects from frozen dataclasses and loose dictionary-heavy type hints to Pydantic v2 `BaseModel` schemas. The migration should make project configuration, runtime settings, plugin manifests, workflow state, artifact records, and plugin request and response payloads declarative, validated, and easier to read in type hints.
 
 The user-facing goal is not only stronger validation. The code should expose explicit model names instead of repeating `dict[str, Any]` across the backend.
 
-## Current Baseline
+## Original Baseline
 
-Current code facts:
+Code facts at the time this design was written:
 
 - [`src/openbbq/domain/models.py`](../../../src/openbbq/domain/models.py) defines project, storage, workflow, step, and output contracts as frozen dataclasses.
 - [`src/openbbq/config/loader.py`](../../../src/openbbq/config/loader.py) performs project YAML validation manually while constructing those dataclasses.

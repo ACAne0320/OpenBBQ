@@ -17,9 +17,11 @@ src/openbbq/
 
 The package layout should make each backend responsibility easier to find and maintain while preserving the existing CLI behavior and Phase 1 runtime semantics.
 
-## Current Baseline
+## Original Baseline
 
-The current implementation is functionally complete for Phase 1, but the source tree still mixes stable package boundaries with earlier Slice 1 paths:
+At the time this design was written, the implementation was functionally
+complete for Phase 1, but the source tree still mixed stable package boundaries
+with earlier Slice 1 paths:
 
 - `openbbq.cli`, `openbbq.config`, `openbbq.domain`, `openbbq.engine`, `openbbq.plugins`, and `openbbq.storage` are flat modules.
 - Workflow internals live under `openbbq.core.workflow`.
@@ -198,4 +200,3 @@ Import cycles are the main technical risk. Keep `domain.models` independent, kee
 Entrypoint regressions are the main user-facing risk. Verify the installed console script with `uv run openbbq ...`, not only direct function imports.
 
 Documentation drift is likely because prior phase documents mention the old paths. Use `rg "openbbq\\.(core|models|engine|cli|config|plugins|storage)" docs README.md AGENTS.md tests src` after implementation and update stale references intentionally.
-

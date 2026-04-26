@@ -2,7 +2,10 @@
 
 This document describes concrete end-to-end workflow pipelines that OpenBBQ is designed to support. These workflows define the artifact types, plugin contracts, and parameter shapes the system must handle in production.
 
-Phase 1 proves the workflow engine contracts using mock plugins. Phase 2 introduces real remote video download, local media processing, transcript correction, subtitle segmentation, translation, and subtitle plugins for CLI-driven workflows.
+Phase 1 proved the workflow engine contracts using mock plugins. Phase 2
+introduced real remote video download, local media processing, transcript
+correction, subtitle segmentation, translation, subtitle plugins, and local API
+sidecar entry points for CLI- and desktop-driven workflows.
 
 ---
 
@@ -169,7 +172,12 @@ Runtime provider profiles:
 - `provider` must name a provider from `~/.openbbq/config.toml`, such as `openai`.
 - Provider names must use only letters, digits, `_`, or `-`.
 - Provider profiles store `type`, `base_url`, optional default model, and an API key reference.
-- API keys must use `env:` or `keyring:` secret references and must not be written into `openbbq.yaml`. For example, `api_key = "env:OPENBBQ_LLM_API_KEY"` makes that environment variable available only through the named runtime provider.
+- API keys must use `env:`, `sqlite:`, or `keyring:` secret references and must
+  not be written into `openbbq.yaml`. For example,
+  `api_key = "env:OPENBBQ_LLM_API_KEY"` makes that environment variable
+  available only through the named runtime provider. Interactive CLI setup can
+  store local plaintext credentials in the user SQLite database as
+  `sqlite:openbbq/providers/<name>/api_key`.
 
 The output `translation` artifact preserves the segment structure and timing from the input subtitle-ready segments while replacing text with translated content.
 
@@ -252,12 +260,17 @@ url, format, quality
 
 | Step | Plugin | Phase |
 |---|---|---|
-| Download remote video | `remote_video.download` | Phase 2 Slice 3 |
-| Convert to audio | `ffmpeg.extract_audio` | Phase 2 Slice 1 |
-| ASR recognition | `faster_whisper.transcribe` | Phase 2 Slice 1 |
-| Transcript correction | `transcript.correct` | Phase 2 correction and segmentation slice |
-| Subtitle segmentation | `transcript.segment` | Phase 2 correction and segmentation slice |
-| Translation | `translation.translate` | Phase 2 translation v1 |
-| Export subtitle | `subtitle.export` | Phase 2 Slice 1 |
+| Download remote video | `remote_video.download` | Implemented in Phase 2 |
+| Convert to audio | `ffmpeg.extract_audio` | Implemented in Phase 2 |
+| ASR recognition | `faster_whisper.transcribe` | Implemented in Phase 2 |
+| Transcript correction | `transcript.correct` | Implemented in Phase 2 |
+| Subtitle segmentation | `transcript.segment` | Implemented in Phase 2 |
+| Translation | `translation.translate` | Implemented in Phase 2 |
+| Translation QA | `translation.qa` | Implemented in Phase 2 |
+| Export subtitle | `subtitle.export` | Implemented in Phase 2 |
 
-Phase 1 can validate the full workflow config and run it end-to-end using mock plugins that accept and emit the correct artifact types without performing real media operations.
+Phase 1 can validate the full workflow config and run it end-to-end using mock
+plugins that accept and emit the correct artifact types without performing real
+media operations. Current Phase 2 code can also run generated local and remote
+subtitle workflows through CLI commands and API quickstart routes when optional
+runtime dependencies and credentials are available.

@@ -12,10 +12,12 @@
 
 Phase 1 IDs are stable strings with a type prefix and a random UUID4 hex suffix for generated entities:
 
-- Project: `proj_<uuid4hex>` when not supplied in config.
+- Project: config-declared `project.id` when supplied; otherwise the current
+  `ProjectMetadata.id` is `null`.
 - Workflow: config-declared workflow map key.
 - Step: config-declared step `id`.
 - StepRun: `sr_<uuid4hex>`.
+- RunRecord: `run_<uuid4hex>`.
 - Artifact: `art_<uuid4hex>`.
 - ArtifactVersion: `av_<uuid4hex>`.
 - WorkflowEvent: `evt_<uuid4hex>`.
@@ -52,15 +54,19 @@ remain transient process-control files, not historical facts.
 
 A project is the local workspace boundary.
 
-Required fields:
+Resolved project fields:
 
-- `id`: stable project ID.
+- `id`: optional stable project ID.
 - `name`: human-readable project name.
 - `root_path`: absolute project root.
 - `config_path`: path to the active project config.
-- `workflows`: workflow IDs declared by the project.
-- `created_at`: creation timestamp.
-- `updated_at`: last metadata update timestamp.
+- `storage`: local project storage paths.
+- `plugins`: configured plugin search paths.
+- `workflows`: workflow configs declared by the project.
+
+The current backend does not persist a separate project metadata record with
+`created_at` or `updated_at`. Runtime project views derive those paths and counts
+from `ProjectConfig` and the project SQLite database.
 
 ## Workflow
 
@@ -68,7 +74,7 @@ A workflow is an ordered set of steps plus persisted execution state.
 
 The static portion (steps, parameters) comes from the project config file. The mutable portion (status, current step, step run records, events) is persisted separately in the project SQLite database so the engine can reload it across process restarts without re-reading or re-validating the entire project config.
 
-Required fields:
+Fields:
 
 - `id`: stable workflow ID.
 - `name`: human-readable workflow name.
@@ -77,7 +83,10 @@ Required fields:
 - `current_step_id`: active or next step when applicable.
 - `config_hash`: SHA-256 hash of the normalized workflow config used by the current persisted workflow state.
 - `step_run_ids`: ordered list of `StepRun` IDs in execution order. Used to resolve `<step_id>.<output_name>` selectors on resume — the engine reads the most-recent completed `StepRun` for each step to build the output binding map.
-- `events`: append-only workflow event IDs.
+
+Workflow events are stored in the project SQLite database and are queried by
+workflow ID and sequence. They are not embedded as an `events` field on
+`WorkflowState`.
 
 ## Step
 
@@ -112,7 +121,8 @@ Required fields:
 - `status`: one of `running`, `completed`, `failed`, `skipped`.
 - `input_artifact_version_ids`: map of input selector string to the `ArtifactVersion` ID that was resolved and passed to the plugin at execution time. Recorded for deterministic replay.
 - `output_bindings`: map of output name (as declared in `Step.outputs`) to an object containing both `artifact_id` (the stable logical artifact, used by forced reruns to create new versions under the same entity) and `artifact_version_id` (the immutable snapshot produced by this attempt, used for selector resolution and deterministic replay). Used to resolve `<step_id>.<output_name>` selectors after a process restart.
-- `error`: optional error details (code, message, structured details). Present when `status` is `failed`.
+- `error`: optional failure record with code, message, step ID, plugin name and
+  version, tool name, and attempt. Present when `status` is `failed`.
 - `started_at`: timestamp when the plugin call was initiated.
 - `completed_at`: timestamp when the step run reached a terminal status.
 
@@ -154,6 +164,7 @@ Required fields:
 - `current_version_id`: latest selected version.
 - `created_by_step_id`: step that first produced the artifact, if any.
 - `created_at`: creation timestamp.
+- `updated_at`: last version update timestamp.
 
 ## Artifact Type Registry
 
@@ -266,9 +277,12 @@ Metadata:
 
 ### `translation`
 
-A translated version of an `asr_transcript`, preserving segment structure and timing.
+A translated version of `subtitle_segments`, preserving segment structure and
+timing.
 
-Content format: JSON array of segment objects with the same shape as `asr_transcript` segments, where `text` contains the translated content. Original source text may be included as `source_text` per segment for reference.
+Content format: JSON array of segment objects with the same timing shape as
+`subtitle_segments`, where `text` contains the translated content. Original
+source text may be included as `source_text` per segment for reference.
 
 Metadata:
 
@@ -306,11 +320,13 @@ Metadata:
 
 A formatted subtitle file ready for distribution.
 
-Content: the raw subtitle file content (SRT, ASS, or VTT text).
+Content: the raw subtitle file content. The current built-in exporter writes
+SRT; the artifact type remains general enough for ASS or VTT in a future
+exporter.
 
 Metadata:
 
-- `format`: subtitle format (`srt`, `ass`, `vtt`).
+- `format`: subtitle format. Current built-in output is `srt`.
 - `segment_count`: number of subtitle blocks.
 - `duration_seconds`: total subtitle duration as a float.
 
@@ -325,9 +341,33 @@ Required fields:
 - `version_number`: monotonically increasing integer.
 - `content_path`: local path to stored content.
 - `content_hash`: hash of the stored content.
+- `content_encoding`: one of `text`, `json`, `bytes`, or `file`.
+- `content_size`: stored content size in bytes.
 - `metadata`: artifact-type-specific metadata.
 - `lineage`: producer plugin, tool, step, and input artifact versions.
 - `created_at`: creation timestamp.
+
+## Run Record
+
+`RunRecord` is the API and desktop handle for a workflow execution request. The
+workflow engine still owns workflow-scoped state; run records make background
+work observable and addressable by clients.
+
+Fields:
+
+- `id`: stable run ID.
+- `workflow_id`: target workflow.
+- `mode`: one of `start`, `resume`, `step_rerun`, or `force_rerun`.
+- `status`: one of `queued`, `running`, `paused`, `completed`, `failed`, or
+  `aborted`.
+- `project_root`: project root used for the run.
+- `config_path`: optional explicit config path.
+- `plugin_paths`: extra plugin paths used for the run.
+- `started_at`: timestamp when execution started.
+- `completed_at`: timestamp when the run reached a terminal status.
+- `latest_event_sequence`: latest observed workflow event sequence.
+- `error`: optional code and message when the run failed.
+- `created_by`: one of `api`, `cli`, or `desktop`.
 
 ## Workflow Event
 

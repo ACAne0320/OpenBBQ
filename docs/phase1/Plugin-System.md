@@ -91,14 +91,18 @@ Request fields:
 - `project_root`
 - `workflow_id`
 - `step_id`
+- `attempt`
 - `tool_name`
 - `parameters`
 - `inputs`
+- `runtime`
 - `work_dir`
 
 Input object rules:
 
-- Artifact selector inputs are passed as objects containing `artifact_id`, `artifact_version_id`, `type`, `content`, and `metadata`.
+- Artifact selector inputs are passed as objects containing `artifact_id`,
+  `artifact_version_id`, `type`, `content`, `metadata`, and optional
+  `file_path`.
 - Literal inputs are passed as objects containing `literal`.
 - A single input value must not contain both `literal` and artifact fields.
 - Plugin requests must be JSON serializable except that `content` may be bytes for file-like artifacts; the engine is responsible for adapting bytes to storage.
@@ -107,13 +111,17 @@ Response fields:
 
 - `outputs`: produced artifact payloads keyed by the output name declared in the step's `outputs` list. Each value is an object with:
   - `type`: the artifact type string (must match a type allowed by the tool manifest declaration).
-  - `content`: the artifact content — a string, bytes, or a JSON-serializable object, depending on the artifact type.
+  - exactly one of `content` or `file_path`. `content` may be a string, bytes,
+    or a JSON-serializable object, depending on the artifact type. `file_path`
+    stores file-backed artifacts without loading the file body into JSON.
   - `metadata`: artifact-type-specific metadata object (see the Artifact Type Registry in [Domain Model](./Domain-Model.md)). May be an empty object if the type requires no metadata.
 - `metadata`: optional structured metadata about the execution as a whole (e.g., processing duration, model version used).
 - `events`: optional list of plugin-level event objects for inclusion in the workflow event log.
 - `pause_requested`: optional boolean. When `true`, the engine pauses after writing this step's outputs, equivalent to `pause_after: true` on the step config. Defaults to `false`. Useful for plugins that detect human review is needed (e.g., low ASR confidence).
 
-The engine owns artifact ID assignment, artifact version creation, lineage metadata, and persistence. Plugins return content; they do not directly mutate the OpenBBQ artifact index.
+The engine owns artifact ID assignment, artifact version creation, lineage
+metadata, and persistence. Plugins return content or file paths; they do not
+directly mutate OpenBBQ storage records.
 
 ### Request Example
 
@@ -122,6 +130,7 @@ The engine owns artifact ID assignment, artifact version creation, lineage metad
   "project_root": "/tmp/openbbq-project",
   "workflow_id": "text-demo",
   "step_id": "uppercase",
+  "attempt": 1,
   "tool_name": "uppercase",
   "parameters": {},
   "inputs": {
@@ -133,6 +142,7 @@ The engine owns artifact ID assignment, artifact version creation, lineage metad
       "metadata": {}
     }
   },
+  "runtime": {},
   "work_dir": "/tmp/openbbq-project/.openbbq/work/text-demo/uppercase"
 }
 ```
@@ -187,9 +197,11 @@ If the plugin raises an exception, the engine records a `step.failed` event and 
 {
   "code": "plugin.execution_failed",
   "message": "Mock plugin failed",
-  "details": {
-    "exception_type": "RuntimeError"
-  }
+  "step_id": "uppercase",
+  "plugin_name": "mock_text",
+  "plugin_version": "0.1.0",
+  "tool_name": "always_fail",
+  "attempt": 1
 }
 ```
 

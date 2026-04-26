@@ -2,7 +2,9 @@
 
 ## Goals
 
-The CLI is the primary Phase 1 interface. It must support local development, workflow debugging, artifact inspection, and future automation.
+The CLI is the primary terminal adapter. It supports local development,
+workflow debugging, artifact inspection, runtime setup, quickstart subtitle
+jobs, and launching the local API sidecar for desktop or automation clients.
 
 The command name is `openbbq`.
 
@@ -23,7 +25,8 @@ The command name is `openbbq`.
 - `3`: validation failure.
 - `4`: plugin discovery or manifest failure.
 - `5`: workflow execution failure.
-- `6`: artifact lookup failure.
+- `6`: requested resource was not found, such as a run, workflow state,
+  artifact, artifact version, or step run.
 
 ## Output Rules
 
@@ -47,7 +50,6 @@ Creates:
 - project config file.
 - artifact storage directory.
 - workflow state directory.
-- optional plugin directory.
 
 ### `openbbq project list`
 
@@ -172,7 +174,26 @@ Print workflow events in chronological order. Phase 1 can implement this as even
 
 Validate workflow config, plugin references, parameters, artifact type compatibility, and output declarations without executing plugin code.
 
-## Runtime And API Commands
+## Runtime, Quickstart, And API Commands
+
+### `openbbq settings show`
+
+Show the active user runtime settings path and public settings values.
+
+### `openbbq settings set-provider <provider>`
+
+Configure or update a runtime provider profile.
+
+Useful options:
+
+- `--type <type>`: currently `openai_compatible`.
+- `--base-url <url>`: provider base URL.
+- `--api-key <reference>`: secret reference such as `env:OPENBBQ_LLM_API_KEY`,
+  `sqlite:openbbq/providers/openai/api_key`, or
+  `keyring:openbbq/providers/openai/api_key`.
+- `--default-chat-model <model>`: default chat model used when a workflow omits
+  a model.
+- `--display-name <name>`: human-readable label.
 
 ### `openbbq auth set <provider>`
 
@@ -180,6 +201,73 @@ Configure a local runtime provider. With `--api-key-ref`, OpenBBQ stores the
 reference as provided, such as `env:OPENBBQ_LLM_API_KEY`. Without
 `--api-key-ref`, the CLI prompts for the key and stores the plaintext credential
 in the user SQLite database using `sqlite:openbbq/providers/<provider>/api_key`.
+
+### `openbbq auth check <provider>`
+
+Resolve and validate the provider's configured secret reference without printing
+the secret value.
+
+### `openbbq secret check <reference>`
+
+Resolve an `env:`, `sqlite:`, or `keyring:` secret reference and print a redacted
+preview when available.
+
+### `openbbq secret set <reference>`
+
+Prompt for a local secret value and store it for `sqlite:` or `keyring:`
+references. This command is interactive and rejects JSON mode.
+
+### `openbbq models list`
+
+Show local model asset status, currently including the configured
+faster-whisper model cache.
+
+### `openbbq doctor [--workflow <workflow>]`
+
+Run settings-level and, when a workflow is provided, workflow-specific preflight
+checks.
+
+### `openbbq subtitle local`
+
+Generate and run an isolated local-video-to-SRT workflow.
+
+Required options:
+
+- `--input <path>`
+- `--source <lang>`
+- `--target <lang>`
+- `--output <path>`
+
+Useful options:
+
+- `--provider <name>`: defaults to `openai`.
+- `--model <model>`: chat model override.
+- `--asr-model <model>`, `--asr-device <device>`, and
+  `--asr-compute-type <type>`: faster-whisper overrides.
+- `--force`: rerun the generated workflow when applicable.
+
+### `openbbq subtitle youtube`
+
+Generate and run an isolated YouTube/remote-video-to-SRT workflow.
+
+Required options:
+
+- `--url <url>`
+- `--source <lang>`
+- `--target <lang>`
+- `--output <path>`
+
+Useful options:
+
+- `--provider <name>`: defaults to `openai`.
+- `--model <model>`: chat model override.
+- `--asr-model <model>`, `--asr-device <device>`, and
+  `--asr-compute-type <type>`: faster-whisper overrides.
+- `--quality <yt-dlp-selector>`: defaults to the built-in 720p-compatible
+  selector.
+- `--auth auto|anonymous|browser_cookies`
+- `--browser <name>` and `--browser-profile <profile>`
+- `--force`: rerun the generated workflow when applicable.
 
 ### `openbbq api serve`
 
@@ -192,6 +280,20 @@ Useful options:
 - `--token <token>`: require bearer authentication for non-health routes.
 - `--allow-dev-cors`: enable localhost CORS for renderer development. Disabled
   by default.
+- `--no-token-dev`: explicitly allow a no-token development server. Without
+  this flag, `--token` is required.
+
+The sidecar also has a direct script entry point:
+
+```bash
+openbbq-api --project <project-dir> --token <token>
+```
+
+On startup it prints one JSON line:
+
+```json
+{"ok": true, "host": "127.0.0.1", "port": 49152, "pid": 12345}
+```
 
 ## Configuration Precedence
 

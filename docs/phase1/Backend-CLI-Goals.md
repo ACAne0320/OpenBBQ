@@ -1,6 +1,9 @@
-# Backend & CLI — Short-Term Goals
+# Backend & CLI - Short-Term Goals
 
-Detailed objectives for Phase 1 of the [Roadmap](../Roadmap.md).
+Detailed objectives for Phase 1 of the [Roadmap](../Roadmap.md). This document
+is historical and describes the launch contract that is now implemented. Current
+repository state also includes Phase 2 media plugins, runtime settings, and the
+local FastAPI sidecar.
 
 For launch scope and implementation contracts, see the [Phase 1 Documentation Index](./README.md).
 
@@ -14,8 +17,12 @@ For launch scope and implementation contracts, see the [Phase 1 Documentation In
 | Package / dependency management | uv |
 | Testing | pytest |
 | Lint / format | Ruff |
+| Local API adapter | FastAPI + uvicorn |
+| Structured storage | SQLite + SQLAlchemy + Alembic |
 
-> **Note:** FastAPI is still the planned web framework for a future API adapter. Phase 1 is headless — no HTTP routes are implemented.
+> **Current status:** the FastAPI sidecar now lives under `openbbq.api` and can
+> be started with `openbbq api serve` or `openbbq-api`. The CLI remains a
+> separate adapter over shared application services.
 
 ### Desktop (Phase 3 reference)
 
@@ -108,3 +115,16 @@ For launch scope and implementation contracts, see the [Phase 1 Documentation In
 - [ ] `openbbq version` — print installed OpenBBQ version
 - [ ] `--json` flag — machine-readable JSON output for all inspection and status commands
 - [ ] `--verbose` / `--debug` output modes
+
+### Runtime, Quickstart, And API Additions
+
+These commands were added after the initial Phase 1 CLI contract:
+
+- `openbbq settings show`
+- `openbbq settings set-provider <name>`
+- `openbbq auth set <provider>` and `openbbq auth check <provider>`
+- `openbbq secret set <reference>` and `openbbq secret check <reference>`
+- `openbbq models list`
+- `openbbq doctor [--workflow <workflow>]`
+- `openbbq subtitle local` and `openbbq subtitle youtube`
+- `openbbq api serve`

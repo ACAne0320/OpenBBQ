@@ -38,7 +38,7 @@ This design excludes:
 - chunked long-video translation;
 - queue workers, distributed execution, and rate limiting.
 
-## Current Baseline
+## Original Baseline
 
 Slice 1 already provides the real local media spine:
 

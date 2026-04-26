@@ -26,7 +26,7 @@ See [Phase 1 Documentation](./phase1/README.md) and [Backend & CLI Goals](./phas
 - Plugin manifest v2 with named inputs, named outputs, parameter schema, and execution contract
 - Workflow engine / orchestrator (step sequencing, pause/resume, error recovery)
 - Typed workflow events with severity `level` and structured `data`
-- Artifact persistence, versioning, and artifact indexes
+- Artifact persistence, versioning, and SQLite-backed artifact records
 - Adapter-independent application services for workflow and artifact operations
 - CLI for project management, workflow execution, and artifact inspection
 - Configuration and plugin discovery
@@ -35,7 +35,8 @@ See [Phase 1 Documentation](./phase1/README.md) and [Backend & CLI Goals](./phas
 
 ## Phase 2 — Real Local Media and Translation Plugins
 
-**Goal:** Make the CLI run real local media language workflows before adding an API or desktop surface.
+**Goal:** Make real local media language workflows usable from the CLI and
+prepare the backend contracts that the desktop uses.
 
 - Local file import and file-backed media artifacts
 - Built-in yt-dlp remote video download
@@ -47,12 +48,17 @@ See [Phase 1 Documentation](./phase1/README.md) and [Backend & CLI Goals](./phas
 - Built-in subtitle export
 - Deterministic tests with optional local real-media and real-LLM smoke runs
 - Generated one-step `subtitle local` and `subtitle youtube` CLI workflows
+- Local FastAPI sidecar with typed API envelopes, run records, background
+  workflow execution, SSE event streaming, artifact preview/export/import,
+  runtime/provider/secret/model/doctor routes, and API-accessible subtitle
+  quickstart jobs
 
 `llm.translate` and implicit LLM environment-variable fallback have been removed. LLM-backed tools require a named runtime provider profile, and environment variables are only read through explicit secret references such as `api_key = "env:OPENBBQ_LLM_API_KEY"`.
 
 See [Phase 2 Exit Checklist](./phase2/Phase-2-Exit.md) for completion criteria and smoke checks.
 
-> Desktop, API, and automation adapters should call application services or future API wrappers, not CLI parser internals.
+> Desktop and automation adapters should call application services or the local
+> API sidecar, not CLI parser internals.
 
 ## Phase 3 — Desktop Application
 
@@ -66,7 +72,7 @@ uses preload IPC rather than owning backend credentials directly.
 - Workflow Configuration Dashboard — visual workflow builder, step ordering, parameter editing
 - Artifact Edit Panel — inline editing of transcriptions, translations, subtitles with diff view
 - Preview Panel — real-time preview of subtitle renders, audio playback with transcript overlay
-- Ruler Asset Pane — browse and manage reusable assets (glossaries, style guides, templates)
+- Reusable Asset Pane — browse and manage reusable assets (glossaries, style guides, templates)
 - Human-in-the-loop UI — review queues, approval gates, inline annotation
 - Plugin marketplace / manager — install, configure, and update plugins from the desktop
 - Multi-user collaboration — shared projects, conflict resolution, activity feeds
