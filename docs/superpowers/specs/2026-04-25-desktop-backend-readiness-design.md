@@ -145,7 +145,11 @@ typed job response containing:
 - source artifact ID for local imports when available.
 
 The API should not wait for the full media workflow to finish before returning.
-The desktop follows run status and workflow events to drive progress.
+The desktop follows run status and run-scoped workflow events to drive progress.
+Because generated subtitle jobs live in isolated generated projects, the sidecar
+keeps enough run-to-project context for `/runs/{run_id}`, run events, run event
+streams, run artifacts, and artifact-version preview/export/file routes to work
+without restarting the sidecar against the generated project.
 
 ## Artifact preview and export design
 
@@ -162,7 +166,9 @@ Add application services and API routes for:
 
 Preview responses include content encoding, content size, truncation status, and
 content for text/JSON values. Binary and file-backed content returns metadata
-only unless the caller uses the file route.
+only unless the caller uses the file route. Text and JSON previews must read at
+most the requested preview byte budget plus one sentinel byte before returning,
+so a preview request does not load a large artifact version into memory.
 
 ## Sidecar security design
 

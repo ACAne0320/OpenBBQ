@@ -64,3 +64,25 @@ def test_dev_cors_can_be_enabled_for_local_renderer(tmp_path):
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_unexpected_api_errors_use_error_envelope(tmp_path):
+    app = create_app(ApiAppSettings(project_root=tmp_path, token="secret-token"))
+
+    @app.get("/explode")
+    def explode():
+        raise RuntimeError("boom")
+
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.get("/explode", headers={"Authorization": "Bearer secret-token"})
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "ok": False,
+        "error": {
+            "code": "internal_error",
+            "message": "Internal server error.",
+            "details": {},
+        },
+    }

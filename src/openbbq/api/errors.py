@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -7,6 +9,8 @@ from fastapi.responses import JSONResponse
 
 from openbbq.api.schemas import ApiError, ApiErrorResponse
 from openbbq.errors import NotFoundError, OpenBBQError
+
+LOGGER = logging.getLogger(__name__)
 
 
 def install_error_handlers(app: FastAPI) -> None:
@@ -30,6 +34,17 @@ def install_error_handlers(app: FastAPI) -> None:
             )
         )
         return JSONResponse(status_code=422, content=payload.model_dump(mode="json"))
+
+    @app.exception_handler(Exception)
+    async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        LOGGER.exception("Unexpected API error")
+        payload = ApiErrorResponse(
+            error=ApiError(
+                code="internal_error",
+                message="Internal server error.",
+            )
+        )
+        return JSONResponse(status_code=500, content=payload.model_dump(mode="json"))
 
 
 def _status_code(error: OpenBBQError) -> int:

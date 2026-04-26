@@ -148,30 +148,26 @@ def preview_artifact_version(
 ) -> ArtifactPreviewResult:
     if max_bytes < 1:
         raise ValidationError("Artifact preview max_bytes must be at least 1.")
-    version = show_artifact_version(
-        project_root=project_root,
-        config_path=config_path,
-        version_id=version_id,
-    )
-    if version.record.content_encoding in {"bytes", "file"} or isinstance(version.content, bytes):
+    context = load_project_context(project_root, config_path=config_path)
+    version = context.store.read_artifact_version_record(version_id)
+    if version.content_encoding in {"bytes", "file"}:
         return ArtifactPreviewResult(
-            version=version.record,
+            version=version,
             content=None,
             truncated=False,
-            content_encoding=version.record.content_encoding,
-            content_size=version.record.content_size,
+            content_encoding=version.content_encoding,
+            content_size=version.content_size,
         )
-    text = _content_text(version.content)
-    encoded = text.encode("utf-8")
-    truncated = len(encoded) > max_bytes
-    if truncated:
-        text = encoded[:max_bytes].decode("utf-8", errors="ignore")
+    text, truncated = _read_bounded_text(version.content_path, max_bytes)
+    content: JsonValue = text
+    if version.content_encoding == "json" and not truncated:
+        content = json.loads(text)
     return ArtifactPreviewResult(
-        version=version.record,
-        content=text,
+        version=version,
+        content=content,
         truncated=truncated,
-        content_encoding=version.record.content_encoding,
-        content_size=version.record.content_size,
+        content_encoding=version.content_encoding,
+        content_size=version.content_size,
     )
 
 
@@ -221,3 +217,12 @@ def _content_text(content: Any) -> str:
     if isinstance(content, (dict, list)):
         return json.dumps(content, ensure_ascii=False, indent=2, sort_keys=True)
     return str(content)
+
+
+def _read_bounded_text(path: Path, max_bytes: int) -> tuple[str, bool]:
+    with path.open("rb") as handle:
+        payload = handle.read(max_bytes + 1)
+    truncated = len(payload) > max_bytes
+    if truncated:
+        payload = payload[:max_bytes]
+    return payload.decode("utf-8", errors="ignore"), truncated

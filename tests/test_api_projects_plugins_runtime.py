@@ -4,6 +4,10 @@ from fastapi.testclient import TestClient
 
 from openbbq.api.app import ApiAppSettings, create_app
 from openbbq.application.quickstart import SubtitleJobResult
+from openbbq.config.loader import load_project_config
+from openbbq.storage.models import RunRecord
+from openbbq.storage.project_store import ProjectStore
+from openbbq.storage.runs import write_run
 from tests.helpers import authed_client, write_project_fixture
 
 
@@ -35,6 +39,11 @@ def test_project_init_route_creates_project_config(tmp_path):
     assert response.status_code == 200
     assert response.json()["data"]["config_path"] == str(project / "openbbq.yaml")
     assert (project / "openbbq.yaml").is_file()
+
+    current = client.get("/projects/current", headers=headers)
+
+    assert current.status_code == 200
+    assert current.json()["data"]["root_path"] == str(project)
 
 
 def test_runtime_routes(tmp_path, monkeypatch):
@@ -164,3 +173,80 @@ def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monk
     assert local.json()["data"]["source_artifact_id"] == "art_source"
     assert youtube.status_code == 200
     assert youtube.json()["data"]["workflow_id"] == "youtube-to-srt"
+
+
+def test_quickstart_job_run_events_and_artifacts_are_trackable(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    generated_project = write_project_fixture(
+        tmp_path,
+        "text-basic",
+        project_dir_name="generated-project",
+    )
+    generated_config = load_project_config(generated_project)
+    generated_store = ProjectStore(
+        generated_config.storage.root,
+        artifacts_root=generated_config.storage.artifacts,
+        state_root=generated_config.storage.state,
+    )
+    write_run(
+        generated_config.storage.state,
+        RunRecord(
+            id="run_generated",
+            workflow_id="text-demo",
+            mode="start",
+            status="completed",
+            project_root=generated_project,
+            config_path=generated_config.config_path,
+            latest_event_sequence=1,
+            created_by="api",
+        ),
+    )
+    generated_store.append_event(
+        "text-demo",
+        {"type": "workflow.completed", "message": "Generated workflow completed."},
+    )
+    artifact, version = generated_store.write_artifact_version(
+        artifact_type="text",
+        name="generated.text",
+        content="generated artifact",
+        metadata={},
+        created_by_step_id=None,
+        lineage={"workflow_id": "text-demo"},
+    )
+
+    def fake_local_job(request):
+        return SubtitleJobResult(
+            generated_project_root=generated_project,
+            generated_config_path=generated_config.config_path,
+            workflow_id="text-demo",
+            run_id="run_generated",
+            output_path=request.output_path,
+            source_artifact_id="art_source",
+        )
+
+    monkeypatch.setattr("openbbq.api.routes.quickstart.create_local_subtitle_job", fake_local_job)
+    client, headers = authed_client(project)
+
+    job = client.post(
+        "/quickstart/subtitle/local",
+        headers=headers,
+        json={
+            "input_path": str(tmp_path / "source.mp4"),
+            "source_lang": "en",
+            "target_lang": "zh",
+        },
+    )
+    run = client.get("/runs/run_generated", headers=headers)
+    events = client.get("/runs/run_generated/events", headers=headers)
+    artifacts = client.get("/runs/run_generated/artifacts", headers=headers)
+    preview = client.get(f"/artifact-versions/{version.id}/preview", headers=headers)
+
+    assert job.status_code == 200
+    assert run.status_code == 200
+    assert run.json()["data"]["project_root"] == str(generated_project)
+    assert events.status_code == 200
+    assert events.json()["data"]["events"][0]["type"] == "workflow.completed"
+    assert artifacts.status_code == 200
+    assert artifacts.json()["data"]["artifacts"][0]["id"] == artifact.id
+    assert preview.status_code == 200
+    assert preview.json()["data"]["content"] == "generated artifact"

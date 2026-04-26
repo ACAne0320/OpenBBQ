@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 
 from openbbq.api.adapters import api_model
 from openbbq.api.context import active_project_settings
+from openbbq.api.project_refs import known_project_references
 from openbbq.api.schemas import (
     ApiSuccess,
     ArtifactDiffData,
@@ -28,6 +29,7 @@ from openbbq.application.artifacts import (
     show_artifact,
     show_artifact_version,
 )
+from openbbq.errors import ArtifactNotFoundError
 
 router = APIRouter(tags=["artifacts"])
 
@@ -52,12 +54,7 @@ def get_artifacts(
 
 @router.get("/artifacts/{artifact_id}", response_model=ApiSuccess[ArtifactShowData])
 def get_artifact(artifact_id: str, request: Request) -> ApiSuccess[ArtifactShowData]:
-    settings = active_project_settings(request)
-    result = show_artifact(
-        project_root=settings.project_root,
-        config_path=settings.config_path,
-        artifact_id=artifact_id,
-    )
+    result, _reference = _show_artifact_from_known_projects(request, artifact_id)
     return ApiSuccess(
         data=ArtifactShowData(
             artifact=result.artifact,
@@ -78,16 +75,14 @@ def get_artifact_diff(
     to_version_id: str,
     request: Request,
 ) -> ApiSuccess[ArtifactDiffData]:
-    settings = active_project_settings(request)
     return ApiSuccess(
         data=ArtifactDiffData.model_validate(
-            diff_artifact_versions(
-                project_root=settings.project_root,
-                config_path=settings.config_path,
-                from_version=from_version_id,
-                to_version=to_version_id,
+            _diff_artifact_versions_from_known_projects(
+                request,
+                from_version_id=from_version_id,
+                to_version_id=to_version_id,
             )
-        )
+        ),
     )
 
 
@@ -96,12 +91,7 @@ def get_artifact_diff(
     response_model=ApiSuccess[ArtifactVersionData],
 )
 def get_artifact_version(version_id: str, request: Request) -> ApiSuccess[ArtifactVersionData]:
-    settings = active_project_settings(request)
-    version = show_artifact_version(
-        project_root=settings.project_root,
-        config_path=settings.config_path,
-        version_id=version_id,
-    )
+    version, _reference = _show_artifact_version_from_known_projects(request, version_id)
     return ApiSuccess(
         data=ArtifactVersionData(record=version.record, content=_jsonable_content(version.content))
     )
@@ -116,11 +106,9 @@ def get_artifact_version_preview(
     request: Request,
     max_bytes: int = 65536,
 ) -> ApiSuccess[ArtifactPreviewData]:
-    settings = active_project_settings(request)
-    preview = preview_artifact_version(
-        project_root=settings.project_root,
-        config_path=settings.config_path,
-        version_id=version_id,
+    preview, _reference = _preview_artifact_version_from_known_projects(
+        request,
+        version_id,
         max_bytes=max_bytes,
     )
     return ApiSuccess(data=api_model(ArtifactPreviewData, preview))
@@ -135,11 +123,11 @@ def post_artifact_version_export(
     body: ArtifactExportRequest,
     request: Request,
 ) -> ApiSuccess[ArtifactExportData]:
-    settings = active_project_settings(request)
+    _version, reference = _show_artifact_version_from_known_projects(request, version_id)
     result = export_artifact_version(
         ApplicationArtifactExportRequest(
-            project_root=settings.project_root,
-            config_path=body.config_path or settings.config_path,
+            project_root=reference.project_root,
+            config_path=body.config_path or reference.config_path,
             version_id=version_id,
             path=body.path,
         )
@@ -169,12 +157,7 @@ def post_artifact_import(
 
 @router.get("/artifact-versions/{version_id}/file")
 def get_artifact_version_file(version_id: str, request: Request) -> FileResponse:
-    settings = active_project_settings(request)
-    version = show_artifact_version(
-        project_root=settings.project_root,
-        config_path=settings.config_path,
-        version_id=version_id,
-    )
+    version, _reference = _show_artifact_version_from_known_projects(request, version_id)
     return FileResponse(
         version.record.content_path,
         media_type="application/octet-stream",
@@ -186,3 +169,76 @@ def _jsonable_content(content):
     if isinstance(content, bytes):
         return content.decode("utf-8", errors="replace")
     return content
+
+
+def _show_artifact_from_known_projects(request: Request, artifact_id: str):
+    for reference in known_project_references(request):
+        try:
+            return (
+                show_artifact(
+                    project_root=reference.project_root,
+                    config_path=reference.config_path,
+                    artifact_id=artifact_id,
+                ),
+                reference,
+            )
+        except ArtifactNotFoundError:
+            continue
+    raise ArtifactNotFoundError(f"artifact not found: {artifact_id}")
+
+
+def _show_artifact_version_from_known_projects(request: Request, version_id: str):
+    for reference in known_project_references(request):
+        try:
+            return (
+                show_artifact_version(
+                    project_root=reference.project_root,
+                    config_path=reference.config_path,
+                    version_id=version_id,
+                ),
+                reference,
+            )
+        except ArtifactNotFoundError:
+            continue
+    raise ArtifactNotFoundError(f"artifact version not found: {version_id}")
+
+
+def _preview_artifact_version_from_known_projects(
+    request: Request,
+    version_id: str,
+    *,
+    max_bytes: int,
+):
+    for reference in known_project_references(request):
+        try:
+            return (
+                preview_artifact_version(
+                    project_root=reference.project_root,
+                    config_path=reference.config_path,
+                    version_id=version_id,
+                    max_bytes=max_bytes,
+                ),
+                reference,
+            )
+        except ArtifactNotFoundError:
+            continue
+    raise ArtifactNotFoundError(f"artifact version not found: {version_id}")
+
+
+def _diff_artifact_versions_from_known_projects(
+    request: Request,
+    *,
+    from_version_id: str,
+    to_version_id: str,
+):
+    for reference in known_project_references(request):
+        try:
+            return diff_artifact_versions(
+                project_root=reference.project_root,
+                config_path=reference.config_path,
+                from_version=from_version_id,
+                to_version=to_version_id,
+            )
+        except ArtifactNotFoundError:
+            continue
+    raise ArtifactNotFoundError(f"artifact version not found: {from_version_id}")

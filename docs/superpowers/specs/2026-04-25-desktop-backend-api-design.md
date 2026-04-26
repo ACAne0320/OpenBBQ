@@ -237,7 +237,9 @@ count, plugin paths, and storage paths for the active project.
 
 `/projects/init` wraps project initialization. The first desktop version can
 support one active project per sidecar process. Multi-project management can be
-added later without changing the lower backend layers.
+added later without changing the lower backend layers. When initialization is
+performed through the sidecar, the created project becomes the active project
+for subsequent routes in the same process.
 
 ### Workflows
 
@@ -268,11 +270,15 @@ POST /workflows/{workflow_id}/runs
 GET  /runs/{run_id}
 POST /runs/{run_id}/resume
 POST /runs/{run_id}/abort
+GET  /runs/{run_id}/events?after_sequence=0
+GET  /runs/{run_id}/events/stream?after_sequence=0
+GET  /runs/{run_id}/artifacts
 ```
 
 The desktop should receive a stable run handle immediately after starting work.
 The API should not make the renderer wait for a full workflow to finish before
-receiving a response.
+receiving a response. Run-scoped event and artifact routes let the desktop
+follow generated quickstart jobs without switching the sidecar's active project.
 
 ### Artifacts
 
@@ -282,6 +288,9 @@ GET  /artifacts/{artifact_id}
 GET  /artifact-versions/{version_id}
 POST /artifacts/import
 GET  /artifact-versions/{from_version_id}/diff/{to_version_id}
+GET  /artifact-versions/{version_id}/preview
+POST /artifact-versions/{version_id}/export
+GET  /artifact-versions/{version_id}/file
 ```
 
 Artifact responses should separate metadata from potentially large content.

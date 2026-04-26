@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 
 from openbbq.api.adapters import api_model
 from openbbq.api.context import active_project_settings
+from openbbq.api.project_refs import register_run_project
 from openbbq.api.schemas import (
     ApiSuccess,
     SubtitleJobData,
@@ -43,6 +44,13 @@ def post_local_subtitle_job(
             execute_inline=settings.execute_runs_inline,
         )
     )
+    register_run_project(
+        request,
+        run_id=result.run_id,
+        project_root=result.generated_project_root,
+        config_path=result.generated_config_path,
+        plugin_paths=settings.plugin_paths,
+    )
     return ApiSuccess(data=api_model(SubtitleJobData, result))
 
 
@@ -72,5 +80,12 @@ def post_youtube_subtitle_job(
             created_by="api",
             execute_inline=settings.execute_runs_inline,
         )
+    )
+    register_run_project(
+        request,
+        run_id=result.run_id,
+        project_root=result.generated_project_root,
+        config_path=result.generated_config_path,
+        plugin_paths=settings.plugin_paths,
     )
     return ApiSuccess(data=api_model(SubtitleJobData, result))

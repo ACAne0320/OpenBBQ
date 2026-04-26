@@ -44,10 +44,15 @@ class ArtifactRepository:
         return artifact
 
     def read_artifact_version(self, version_id: str) -> StoredArtifactVersion:
+        return self._stored_artifact_version_from_record(
+            self.read_artifact_version_record(version_id)
+        )
+
+    def read_artifact_version_record(self, version_id: str) -> ArtifactVersionRecord:
         record = self.database.read_artifact_version(version_id)
         if record is None:
             raise ArtifactNotFoundError(f"artifact version not found: {version_id}")
-        return self._stored_artifact_version_from_record(record)
+        return record
 
     def write_artifact_version(
         self,

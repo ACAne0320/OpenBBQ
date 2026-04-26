@@ -49,6 +49,27 @@ def test_preview_artifact_version_returns_bounded_text_content(tmp_path):
     assert preview.content_encoding == "text"
 
 
+def test_preview_artifact_version_does_not_load_full_text_content(tmp_path, monkeypatch):
+    project, version_id = write_text_artifact(tmp_path, "hello world")
+
+    def fail_full_content_read(*args, **kwargs):
+        raise AssertionError("preview should not load full artifact content")
+
+    monkeypatch.setattr(
+        "openbbq.storage.artifact_content.ArtifactContentStore.read_content",
+        fail_full_content_read,
+    )
+
+    preview = preview_artifact_version(
+        project_root=project,
+        version_id=version_id,
+        max_bytes=5,
+    )
+
+    assert preview.content == "hello"
+    assert preview.truncated is True
+
+
 def test_export_artifact_version_writes_text_content(tmp_path):
     project, version_id = write_text_artifact(tmp_path, "subtitle text")
     output = tmp_path / "exports" / "out.srt"

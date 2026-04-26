@@ -12,6 +12,7 @@ from openbbq.storage.id_generation import IdGenerator
 from openbbq.storage.json_files import write_json_atomic
 from openbbq.storage.models import (
     ArtifactRecord,
+    ArtifactVersionRecord,
     StoredArtifact,
     StoredArtifactVersion,
     StepRunRecord,
@@ -92,6 +93,9 @@ class ProjectStore:
 
     def read_artifact_version(self, version_id: str) -> StoredArtifactVersion:
         return self.artifact_repository.read_artifact_version(version_id)
+
+    def read_artifact_version_record(self, version_id: str) -> ArtifactVersionRecord:
+        return self.artifact_repository.read_artifact_version_record(version_id)
 
     def write_artifact_version(
         self,
