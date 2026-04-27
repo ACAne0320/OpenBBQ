@@ -214,7 +214,8 @@ The direct script entry point is also available as `uv run openbbq-api`.
 
 ## Desktop renderer development
 
-The desktop renderer lives under `desktop/`.
+The desktop renderer lives under `desktop/`. The renderer can still run in
+browser-only mock mode for design work:
 
 ```bash
 cd desktop
@@ -226,11 +227,30 @@ pnpm e2e:install
 pnpm e2e
 ```
 
+Run the Electron shell with a real local API sidecar:
+
+```bash
+cd desktop
+pnpm dev:electron
+```
+
+Electron main starts `uv run openbbq api serve` with a random bearer token and a
+workspace under the app user data directory. During development, override these
+paths when needed:
+
+```powershell
+$env:OPENBBQ_REPO_ROOT = "H:\github-repo\OpenBBQ"
+$env:OPENBBQ_DESKTOP_WORKSPACE = "H:\openbbq-workspace"
+pnpm dev:electron
+```
+
+The first real desktop integration starts local-file and remote-URL subtitle
+quickstart runs and maps run events into the task monitor. Result editing,
+edited-subtitle export, dedicated checkpoint retry, packaging, and a persisted
+workspace registry are separate follow-up milestones.
+
 Run `pnpm e2e:install` once per Playwright browser version before running the
 desktop visual smoke tests.
 If browser download is blocked in a local environment, set
 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to a local Chrome or Chromium executable
 before running `pnpm e2e`.
-
-The first renderer slice uses mock data behind a typed client boundary while
-the Electron shell and missing backend contracts are implemented separately.
