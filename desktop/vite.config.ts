@@ -1,15 +1,7 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig, type UserConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
-type VitestConfig = UserConfig & {
-  test: {
-    environment: "jsdom";
-    globals: boolean;
-    setupFiles: string[];
-  };
-};
-
-const config: VitestConfig = {
+export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
@@ -19,8 +11,6 @@ const config: VitestConfig = {
   test: {
     environment: "jsdom",
     globals: true,
-    setupFiles: []
+    setupFiles: ["./src/test/setup.ts"]
   }
-};
-
-export default defineConfig(config);
+});
