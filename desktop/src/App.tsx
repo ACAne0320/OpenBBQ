@@ -1,15 +1,16 @@
+import { useState } from "react";
+
 import { AppShell } from "./components/AppShell";
+import { SourceImport } from "./components/SourceImport";
+import type { SourceDraft } from "./lib/types";
 
 export function App() {
+  const [source, setSource] = useState<SourceDraft | null>(null);
+  const footerValue = source?.kind === "remote_url" ? "remote URL" : "creator-videos";
+
   return (
-    <AppShell active="New" footerLabel="Workspace" footerValue="creator-videos">
-      <section>
-        <p className="text-xs uppercase text-muted">OpenBBQ Desktop</p>
-        <h1 className="mt-2 font-serif text-[40px] leading-none text-ink-brown">New subtitle task</h1>
-        <p className="mt-4 max-w-xl text-sm leading-6 text-muted">
-          Source import and workflow setup will replace this work surface in the next renderer task.
-        </p>
-      </section>
+    <AppShell active="New" footerLabel={source ? "Source" : "Workspace"} footerValue={footerValue}>
+      <SourceImport onContinue={setSource} />
     </AppShell>
   );
 }
