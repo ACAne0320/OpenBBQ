@@ -19,10 +19,13 @@ export function App({ client: providedClient }: AppProps = {}) {
   const client = providedClient ?? defaultClient;
   const templateRequestId = useRef(0);
   const taskRequestId = useRef(0);
+  const retryInFlight = useRef(false);
   const [screen, setScreen] = useState<Screen>("source");
   const [source, setSource] = useState<SourceDraft | null>(null);
   const [steps, setSteps] = useState<WorkflowStep[]>(workflowSteps);
   const [task, setTask] = useState<TaskMonitorModel | null>(null);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryPending, setRetryPending] = useState(false);
   const footerValue =
     source?.kind === "remote_url" ? "remote URL" : source?.kind === "local_file" ? source.displayName : "creator-videos";
 
@@ -45,6 +48,9 @@ export function App({ client: providedClient }: AppProps = {}) {
     setSource(null);
     setSteps(workflowSteps);
     setTask(null);
+    setRetryError(null);
+    setRetryPending(false);
+    retryInFlight.current = false;
     setScreen("source");
   }
 
@@ -52,6 +58,9 @@ export function App({ client: providedClient }: AppProps = {}) {
     const requestId = taskRequestId.current + 1;
     taskRequestId.current = requestId;
     setSteps(nextSteps);
+    setRetryError(null);
+    setRetryPending(false);
+    retryInFlight.current = false;
     const nextTask = await client.getTaskMonitor("run_sample");
     if (requestId !== taskRequestId.current) {
       return;
@@ -61,12 +70,25 @@ export function App({ client: providedClient }: AppProps = {}) {
     setScreen("monitor");
   }
 
-  function handleRetry() {
-    if (!task) {
+  async function handleRetry() {
+    if (!task || retryInFlight.current) {
       return;
     }
 
-    void client.retryCheckpoint(task.id);
+    retryInFlight.current = true;
+    setRetryError(null);
+    setRetryPending(true);
+    try {
+      await client.retryCheckpoint(task.id);
+      const nextTask = await client.getTaskMonitor(task.id);
+      setTask(nextTask);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : "checkpoint retry did not complete";
+      setRetryError(`Retry failed: ${message}`);
+    } finally {
+      retryInFlight.current = false;
+      setRetryPending(false);
+    }
   }
 
   return (
@@ -79,7 +101,9 @@ export function App({ client: providedClient }: AppProps = {}) {
           onContinue={handleWorkflowContinue}
         />
       ) : null}
-      {screen === "monitor" && task ? <TaskMonitor task={task} onRetry={handleRetry} /> : null}
+      {screen === "monitor" && task ? (
+        <TaskMonitor task={task} onRetry={handleRetry} retryError={retryError} retryPending={retryPending} />
+      ) : null}
     </AppShell>
   );
 }

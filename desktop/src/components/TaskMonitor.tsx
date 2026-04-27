@@ -5,26 +5,67 @@ import { Button } from "./Button";
 
 type TaskMonitorProps = {
   task: TaskMonitorModel;
-  onRetry: () => void;
+  onRetry: () => Promise<void> | void;
+  onCancel?: () => void;
+  retryError?: string | null;
+  retryPending?: boolean;
 };
 
-function stepSummary(task: TaskMonitorModel): string {
-  const failedStep = task.progress.find((step) => step.status === "failed");
-  if (failedStep) {
-    return `${failedStep.label} failed`;
+const fallbackFailureMessage = "Task failed before OpenBBQ received detailed error information.";
+const cancelableStatuses = new Set<TaskMonitorModel["status"]>(["queued", "running", "paused"]);
+
+function stepSummary(task: TaskMonitorModel, progress: ProgressStep[]): string {
+  if (task.status === "failed") {
+    const failedStep = progress.find((step) => step.status === "failed");
+    return failedStep ? `${failedStep.label} failed` : "Task failed";
   }
 
-  const runningStep = task.progress.find((step) => step.status === "running");
-  if (runningStep) {
-    return `${runningStep.label} running`;
+  if (task.status === "running") {
+    const runningStep = progress.find((step) => step.status === "running");
+    return runningStep ? `${runningStep.label} running` : "Task running";
   }
 
-  const completedStep = [...task.progress].reverse().find((step) => step.status === "done");
-  if (completedStep && task.status === "completed") {
-    return `${completedStep.label} completed`;
+  if (task.status === "completed") {
+    const completedStep = [...progress].reverse().find((step) => step.status === "done");
+    const rawHasUnfinishedStep = task.progress.some((step) => step.status === "failed" || step.status === "blocked");
+    return completedStep && !rawHasUnfinishedStep ? `${completedStep.label} completed` : "Task completed";
+  }
+
+  if (task.status === "paused") {
+    return "Task paused";
+  }
+
+  if (task.status === "aborted") {
+    return "Task aborted";
   }
 
   return task.status === "queued" ? "Waiting to start" : "No active step";
+}
+
+function normalizedProgress(task: TaskMonitorModel): ProgressStep[] {
+  if (task.status === "failed") {
+    return task.progress;
+  }
+
+  return task.progress.map((step) => {
+    if (step.status !== "failed") {
+      if (task.status === "completed" && step.status === "blocked") {
+        return { ...step, status: "done" };
+      }
+
+      return step;
+    }
+
+    if (task.status === "running") {
+      return { ...step, status: "running" };
+    }
+
+    if (task.status === "completed") {
+      return { ...step, status: "done" };
+    }
+
+    return { ...step, status: "blocked" };
+  });
 }
 
 function progressCounts(progress: ProgressStep[]) {
@@ -79,10 +120,12 @@ function logLevelClass(level: TaskMonitorModel["logs"][number]["level"]): string
   return "bg-[#403329] text-[#d9c4a2]";
 }
 
-export function TaskMonitor({ task, onRetry }: TaskMonitorProps) {
-  const failed = task.status === "failed" && Boolean(task.errorMessage);
-  const counts = progressCounts(task.progress);
+export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = false, task }: TaskMonitorProps) {
+  const failed = task.status === "failed";
+  const progress = normalizedProgress(task);
+  const counts = progressCounts(progress);
   const logText = task.logs.map((line) => `${line.timestamp} ${line.level} ${line.message}`).join("\n");
+  const showCancel = Boolean(onCancel) && cancelableStatuses.has(task.status);
 
   function copyLog() {
     if (!navigator.clipboard) {
@@ -102,7 +145,11 @@ export function TaskMonitor({ task, onRetry }: TaskMonitorProps) {
         </div>
         <div className="flex shrink-0 gap-2">
           <Button>Diagnostics</Button>
-          <Button variant="ink">Request cancel</Button>
+          {showCancel ? (
+            <Button variant="ink" onClick={onCancel}>
+              Request cancel
+            </Button>
+          ) : null}
         </div>
       </header>
 
@@ -110,13 +157,14 @@ export function TaskMonitor({ task, onRetry }: TaskMonitorProps) {
         <div className="grid grid-cols-[minmax(136px,180px)_minmax(220px,1fr)_minmax(120px,auto)] items-center gap-4">
           <div className="min-w-0">
             <p className="text-[11px] uppercase text-muted">Progress</p>
-            <h2 className="mt-1 truncate text-base font-extrabold leading-tight text-ink-brown">{stepSummary(task)}</h2>
+            <h2 className="mt-1 truncate text-base font-extrabold leading-tight text-ink-brown">{stepSummary(task, progress)}</h2>
           </div>
 
           <ol className="flex min-w-0 items-center gap-2">
-            {task.progress.map((step, index) => (
+            {progress.map((step, index) => (
               <li key={step.id} className="flex min-w-0 flex-1 items-center gap-2 last:flex-none">
                 <span
+                  aria-label={`${step.label}: ${step.status}`}
                   data-testid="progress-step"
                   title={`${step.label}: ${step.status}`}
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${statusTone(step.status)}`}
@@ -155,9 +203,13 @@ export function TaskMonitor({ task, onRetry }: TaskMonitorProps) {
           >
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              <p className="text-sm font-semibold leading-snug">{task.errorMessage}</p>
+              <div className="grid gap-1">
+                <p className="text-sm font-semibold leading-snug">{task.errorMessage ?? fallbackFailureMessage}</p>
+                {retryError ? <p className="text-xs font-semibold leading-snug text-[#8a3f25]">{retryError}</p> : null}
+                {retryPending ? <p className="text-xs font-semibold leading-snug text-[#8a3f25]">Retrying checkpoint...</p> : null}
+              </div>
             </div>
-            <Button className="shrink-0" variant="primary" onClick={onRetry}>
+            <Button className="shrink-0" disabled={retryPending} variant="primary" onClick={onRetry}>
               Retry checkpoint
             </Button>
           </div>

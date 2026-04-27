@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import type { OpenBBQClient } from "../lib/apiClient";
 import { failedTask, reviewModel, workflowSteps } from "../lib/mockData";
-import type { WorkflowStep } from "../lib/types";
+import type { TaskMonitorModel, WorkflowStep } from "../lib/types";
 
 const workflowEditorRender = vi.hoisted(() => vi.fn());
 
@@ -47,7 +47,10 @@ function createDeferred<T>() {
   return { promise, resolve };
 }
 
-function createTestClient(getWorkflowTemplate: OpenBBQClient["getWorkflowTemplate"]): OpenBBQClient {
+function createTestClient(
+  getWorkflowTemplate: OpenBBQClient["getWorkflowTemplate"],
+  overrides: Partial<OpenBBQClient> = {}
+): OpenBBQClient {
   return {
     getWorkflowTemplate,
     async getTaskMonitor() {
@@ -61,7 +64,8 @@ function createTestClient(getWorkflowTemplate: OpenBBQClient["getWorkflowTemplat
     },
     async retryCheckpoint() {
       return undefined;
-    }
+    },
+    ...overrides
   };
 }
 
@@ -78,6 +82,22 @@ function remoteStepsFor(url: string): WorkflowStep[] {
     ...workflowSteps
   ];
 }
+
+const runningTask: TaskMonitorModel = {
+  ...failedTask,
+  status: "running",
+  errorMessage: undefined,
+  progress: failedTask.progress.map((step) => (step.id === "translate" ? { ...step, status: "running" } : step)),
+  logs: [
+    ...failedTask.logs,
+    {
+      sequence: 6,
+      timestamp: "2026-04-27T03:17:14.000Z",
+      level: "info",
+      message: "Retry accepted from checkpoint translate."
+    }
+  ]
+};
 
 describe("App workflow flow", () => {
   beforeEach(() => {
@@ -130,6 +150,66 @@ describe("App workflow flow", () => {
     expect(await screen.findByText("Task monitor")).toBeInTheDocument();
     expect(screen.getByText(/provider returned rate limit/i)).toBeInTheDocument();
     expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
+  it("retries the failed checkpoint once while pending and refreshes the task on success", async () => {
+    const user = userEvent.setup();
+    const retry = createDeferred<void>();
+    const getTaskMonitor = vi.fn().mockResolvedValueOnce(failedTask).mockResolvedValueOnce(runningTask);
+    const retryCheckpoint = vi.fn(() => retry.promise);
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getTaskMonitor,
+      retryCheckpoint
+    });
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Translate failed");
+
+    const retryButton = screen.getByRole("button", { name: "Retry checkpoint" });
+    await user.click(retryButton);
+
+    expect(retryCheckpoint).toHaveBeenCalledTimes(1);
+    expect(retryCheckpoint).toHaveBeenCalledWith(failedTask.id);
+    expect(retryButton).toBeDisabled();
+    expect(screen.getByText("Retrying checkpoint...")).toBeInTheDocument();
+
+    await user.click(retryButton);
+    expect(retryCheckpoint).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      retry.resolve(undefined);
+      await retry.promise;
+    });
+
+    expect(getTaskMonitor).toHaveBeenLastCalledWith(failedTask.id);
+    expect(await screen.findByText("Translate running")).toBeInTheDocument();
+  });
+
+  it("surfaces retry failures without leaving retry pending", async () => {
+    const user = userEvent.setup();
+    const retryCheckpoint = vi.fn().mockRejectedValue(new Error("sidecar unavailable"));
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getTaskMonitor: vi.fn().mockResolvedValue(failedTask),
+      retryCheckpoint
+    });
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Translate failed");
+
+    await user.click(screen.getByRole("button", { name: "Retry checkpoint" }));
+
+    expect(await screen.findByText("Retry failed: sidecar unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry checkpoint" })).toBeEnabled();
   });
 
   it("keeps latest workflow props after an earlier template response resolves last", async () => {
