@@ -228,6 +228,9 @@ pnpm e2e
 
 Run `pnpm e2e:install` once per Playwright browser version before running the
 desktop visual smoke tests.
+If browser download is blocked in a local environment, set
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to a local Chrome or Chromium executable
+before running `pnpm e2e`.
 
 The first renderer slice uses mock data behind a typed client boundary while
 the Electron shell and missing backend contracts are implemented separately.

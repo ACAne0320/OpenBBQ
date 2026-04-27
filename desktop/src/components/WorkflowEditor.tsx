@@ -138,8 +138,8 @@ export function WorkflowEditor({ initialSteps, onBack, onContinue }: WorkflowEdi
         <p className="mt-2 text-sm text-muted">{templateTitle}</p>
       </header>
 
-      <div className="grid min-h-0 grid-cols-[minmax(420px,1fr)_minmax(360px,0.82fr)] gap-[18px]">
-        <section aria-label="Workflow steps" className="grid min-h-0 grid-rows-[auto_1fr] gap-4">
+      <div className="grid min-h-0 grid-cols-1 gap-[18px] xl:grid-cols-[minmax(420px,1fr)_minmax(360px,0.82fr)]">
+        <section aria-label="Workflow steps" className="grid min-h-0 min-w-0 grid-rows-[auto_1fr] gap-4">
           <div>
             <h2 className="text-[22px] font-extrabold leading-tight text-ink-brown">{templateTitle}</h2>
             <p className="mt-1.5 text-sm text-muted">Choose the step to configure and keep optional steps on only when needed.</p>
@@ -209,7 +209,7 @@ export function WorkflowEditor({ initialSteps, onBack, onContinue }: WorkflowEdi
         {selectedStep ? (
           <section
             aria-label="Selected step parameters"
-            className="grid min-h-0 grid-rows-[auto_1fr] rounded-xl bg-paper-muted p-5 shadow-control"
+            className="grid min-h-0 min-w-0 grid-rows-[auto_1fr] rounded-xl bg-paper-muted p-5 shadow-control"
           >
             <div>
               <p className="text-xs uppercase text-muted">Selected step parameters</p>
