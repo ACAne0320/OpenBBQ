@@ -105,6 +105,29 @@ describe("SourceImport", () => {
     });
   });
 
+  it("uses the native media picker when provided", async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    const onChooseLocalMedia = vi.fn().mockResolvedValue({
+      kind: "local_file",
+      path: "C:/video/sample.mp4",
+      displayName: "sample.mp4"
+    });
+
+    render(<SourceImport onContinue={onContinue} onChooseLocalMedia={onChooseLocalMedia} />);
+
+    await user.click(screen.getByRole("button", { name: /drag\/drop or click/i }));
+    expect(onChooseLocalMedia).toHaveBeenCalled();
+    expect(await screen.findByText("Selected: sample.mp4")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(onContinue).toHaveBeenCalledWith({
+      kind: "local_file",
+      path: "C:/video/sample.mp4",
+      displayName: "sample.mp4"
+    });
+  });
+
   it("rejects unsupported dropped files", async () => {
     const onContinue = vi.fn();
     const user = userEvent.setup();

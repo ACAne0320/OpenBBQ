@@ -252,7 +252,7 @@ export function App({ client: providedClient }: AppProps = {}) {
           {loadError}
         </div>
       ) : null}
-      {screen === "source" ? <SourceImport onContinue={handleSourceContinue} /> : null}
+      {screen === "source" ? <SourceImport onContinue={handleSourceContinue} onChooseLocalMedia={client.chooseLocalMedia} /> : null}
       {screen === "workflow" ? (
         <WorkflowEditor
           initialSteps={steps}

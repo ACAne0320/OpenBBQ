@@ -7,6 +7,7 @@ import { Button } from "./Button";
 
 type SourceImportProps = {
   onContinue: (source: SourceDraft) => void;
+  onChooseLocalMedia?: () => Promise<LocalFileSource | null>;
 };
 
 type LocalFileSource = Extract<SourceDraft, { kind: "local_file" }>;
@@ -54,7 +55,7 @@ function isSupportedLocalFile(file: File): boolean {
   return hasSupportedExtension || supportedFileTypes.has(normalizedType);
 }
 
-export function SourceImport({ onContinue }: SourceImportProps) {
+export function SourceImport({ onChooseLocalMedia, onContinue }: SourceImportProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState("");
   const [localSource, setLocalSource] = useState<LocalFileSource | null>(null);
@@ -103,6 +104,22 @@ export function SourceImport({ onContinue }: SourceImportProps) {
     selectFile(event.target.files?.[0]);
   }
 
+  async function chooseLocalMedia() {
+    if (!onChooseLocalMedia) {
+      fileInputRef.current?.click();
+      return;
+    }
+
+    const selected = await onChooseLocalMedia();
+    if (!selected) {
+      return;
+    }
+
+    setUrl("");
+    setFileError(null);
+    setLocalSource(selected);
+  }
+
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
     selectFile(event.dataTransfer.files[0]);
@@ -115,7 +132,7 @@ export function SourceImport({ onContinue }: SourceImportProps) {
   function handleFileTargetKeyDown(event: KeyboardEvent<HTMLLabelElement>) {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      fileInputRef.current?.click();
+      void chooseLocalMedia();
     }
   }
 
@@ -155,9 +172,16 @@ export function SourceImport({ onContinue }: SourceImportProps) {
             onChange={handleFileChange}
           />
           <label
-            htmlFor={fileInputId}
+            htmlFor={onChooseLocalMedia ? undefined : fileInputId}
             role="button"
             tabIndex={0}
+            onClick={(event) => {
+              if (!onChooseLocalMedia) {
+                return;
+              }
+              event.preventDefault();
+              void chooseLocalMedia();
+            }}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
             onKeyDown={handleFileTargetKeyDown}
