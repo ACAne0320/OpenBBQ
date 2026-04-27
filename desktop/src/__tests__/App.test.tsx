@@ -270,6 +270,22 @@ describe("App workflow flow", () => {
     expect(screen.getByRole("heading", { name: "Choose a source" })).toBeInTheDocument();
   });
 
+  it("surfaces real-client review loading errors without falling back to mock data", async () => {
+    const user = userEvent.setup();
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getReview: vi.fn().mockRejectedValue(new Error("No readable review artifacts are available for this run."))
+    });
+
+    render(<App client={client} />);
+
+    await user.click(screen.getByRole("button", { name: "Results" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not load review results: No readable review artifacts are available for this run."
+    );
+    expect(screen.queryByText("Each result is saved as an editable versioned segment.")).not.toBeInTheDocument();
+  });
+
   it("keeps Results active when an earlier source template resolves after review", async () => {
     const user = userEvent.setup();
     const sourceTemplate = createDeferred<WorkflowStep[]>();
