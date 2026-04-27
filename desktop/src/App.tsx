@@ -38,6 +38,15 @@ export function App({ client: providedClient }: AppProps = {}) {
     reviewRequestId.current += 1;
   }
 
+  function invalidateTemplateRequest() {
+    templateRequestId.current += 1;
+  }
+
+  function invalidateTaskRequest() {
+    taskRequestId.current += 1;
+    invalidateRetryRequest();
+  }
+
   function invalidateRetryRequest() {
     retryRequestId.current += 1;
     retryInFlight.current = false;
@@ -58,10 +67,9 @@ export function App({ client: providedClient }: AppProps = {}) {
   }
 
   function handleBackToSource() {
-    templateRequestId.current += 1;
-    taskRequestId.current += 1;
+    invalidateTemplateRequest();
+    invalidateTaskRequest();
     invalidateReviewRequest();
-    invalidateRetryRequest();
     setSource(null);
     setSteps(workflowSteps);
     setTask(null);
@@ -127,6 +135,9 @@ export function App({ client: providedClient }: AppProps = {}) {
   }
 
   async function openReview(runId: string) {
+    invalidateTemplateRequest();
+    invalidateTaskRequest();
+    setRetryPending(false);
     const requestId = reviewRequestId.current + 1;
     reviewRequestId.current = requestId;
     const nextReview = await client.getReview(runId);

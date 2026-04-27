@@ -211,6 +211,61 @@ describe("App workflow flow", () => {
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 
+  it("keeps Results active when an earlier source template resolves after review", async () => {
+    const user = userEvent.setup();
+    const sourceTemplate = createDeferred<WorkflowStep[]>();
+    const client = createTestClient(vi.fn(() => sourceTemplate.promise), {
+      getReview: vi.fn().mockResolvedValue(reviewModel)
+    });
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Results" }));
+
+    expect(await screen.findByText("Review results")).toBeInTheDocument();
+
+    await act(async () => {
+      sourceTemplate.resolve(workflowSteps);
+      await sourceTemplate.promise;
+    });
+
+    expect(screen.getByText("Review results")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Results" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("heading", { name: "Arrange workflow" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
+  it("keeps Results active when an earlier task monitor resolves after review", async () => {
+    const user = userEvent.setup();
+    const taskMonitor = createDeferred<typeof failedTask>();
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getReview: vi.fn().mockResolvedValue(reviewModel),
+      getTaskMonitor: vi.fn(() => taskMonitor.promise)
+    });
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Results" }));
+
+    expect(await screen.findByText("Review results")).toBeInTheDocument();
+
+    await act(async () => {
+      taskMonitor.resolve(failedTask);
+      await taskMonitor.promise;
+    });
+
+    expect(screen.getByText("Review results")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Results" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByText("Task monitor")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
   it("keeps Tasks active when returning to the task monitor before review loading finishes", async () => {
     const user = userEvent.setup();
     const review = createDeferred<typeof reviewModel>();
@@ -398,6 +453,8 @@ describe("App workflow flow", () => {
       firstRetry.resolve(undefined);
       await firstRetry.promise;
     });
+
+    expect(getTaskMonitor).toHaveBeenCalledTimes(2);
 
     await waitFor(() => {
       expect(screen.getByText("Translate failed")).toBeInTheDocument();
