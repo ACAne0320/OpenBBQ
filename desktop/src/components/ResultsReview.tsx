@@ -12,6 +12,8 @@ type ResultsReviewProps = {
   onSegmentChange: (segment: Segment) => Promise<void> | void;
 };
 
+type SaveSegmentCallback = ResultsReviewProps["onSegmentChange"];
+
 type DraftSegment = Segment & {
   saveInFlightToken?: number;
   saveToken: number;
@@ -73,11 +75,12 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
   segmentsRef.current = segments;
 
   useEffect(() => {
+    const cleanupSaveCallback = onSegmentChange;
     setSegments(toDraftSegments(model.segments));
     setActiveSegmentId(model.activeSegmentId);
 
     return () => {
-      flushPendingDirtySegments(false);
+      flushPendingDirtySegments(false, cleanupSaveCallback);
     };
   }, [model]);
 
@@ -119,10 +122,10 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
     );
   }
 
-  function saveSegment(segment: DraftSegment, updateState: boolean) {
+  function saveSegment(segment: DraftSegment, updateState: boolean, saveCallback: SaveSegmentCallback = onSegmentChangeRef.current) {
     const token = segment.saveToken;
     void Promise.resolve()
-      .then(() => onSegmentChangeRef.current(toSegment(segment)))
+      .then(() => saveCallback(toSegment(segment)))
       .then(() => {
         if (!updateState || !mountedRef.current) {
           return;
@@ -160,10 +163,10 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
     saveTimerRef.current = undefined;
   }
 
-  function flushPendingDirtySegments(updateState: boolean) {
+  function flushPendingDirtySegments(updateState: boolean, saveCallback: SaveSegmentCallback = onSegmentChangeRef.current) {
     clearSaveTimer();
     for (const segment of pendingDirtySegments()) {
-      saveSegment(segment, updateState);
+      saveSegment(segment, updateState, saveCallback);
     }
   }
 

@@ -99,6 +99,33 @@ describe("ResultsReview", () => {
     });
   });
 
+  it("flushes dirty drafts through the callback that owned the replaced model", async () => {
+    const onSegmentChangeA = vi.fn().mockResolvedValue(undefined);
+    const onSegmentChangeB = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(<ResultsReview model={reviewModel} onSegmentChange={onSegmentChangeA} />);
+
+    fireEvent.change(screen.getByLabelText("Translation for segment 3"), {
+      target: { value: "Old model dirty edit." }
+    });
+
+    rerender(
+      <ResultsReview
+        model={{ ...reviewModel, activeSegmentId: "seg-02", title: "replacement-review" }}
+        onSegmentChange={onSegmentChangeB}
+      />
+    );
+
+    await waitFor(() => {
+      expect(onSegmentChangeA).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "seg-03",
+          translation: "Old model dirty edit."
+        })
+      );
+    });
+    expect(onSegmentChangeB).not.toHaveBeenCalled();
+  });
+
   it("preserves incoming saving state until a local save completes", async () => {
     vi.useFakeTimers();
     const onSegmentChange = vi.fn().mockResolvedValue(undefined);
