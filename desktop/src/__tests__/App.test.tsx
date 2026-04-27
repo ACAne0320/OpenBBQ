@@ -211,6 +211,52 @@ describe("App workflow flow", () => {
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 
+  it("shows an error when workflow template loading fails", async () => {
+    const user = userEvent.setup();
+    const client = createTestClient(vi.fn().mockRejectedValue(new Error("template unavailable")));
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not load workflow template: template unavailable"
+    );
+    expect(screen.getByRole("heading", { name: "Choose a source" })).toBeInTheDocument();
+  });
+
+  it("shows an error when task monitor loading fails", async () => {
+    const user = userEvent.setup();
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getTaskMonitor: vi.fn().mockRejectedValue(new Error("task unavailable"))
+    });
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load task monitor: task unavailable");
+    expect(screen.getByRole("heading", { name: "Arrange workflow" })).toBeInTheDocument();
+  });
+
+  it("shows an error when review loading fails", async () => {
+    const user = userEvent.setup();
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getReview: vi.fn().mockRejectedValue(new Error("review unavailable"))
+    });
+
+    render(<App client={client} />);
+
+    await user.click(screen.getByRole("button", { name: "Results" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load review results: review unavailable");
+    expect(screen.getByRole("heading", { name: "Choose a source" })).toBeInTheDocument();
+  });
+
   it("keeps Results active when an earlier source template resolves after review", async () => {
     const user = userEvent.setup();
     const sourceTemplate = createDeferred<WorkflowStep[]>();
@@ -412,6 +458,36 @@ describe("App workflow flow", () => {
 
     expect(await screen.findByText("Retry failed: sidecar unavailable")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry checkpoint" })).toBeEnabled();
+  });
+
+  it("keeps retry pending across Results navigation and blocks duplicate retry", async () => {
+    const user = userEvent.setup();
+    const retry = createDeferred<void>();
+    const retryCheckpoint = vi.fn(() => retry.promise);
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getReview: vi.fn().mockResolvedValue(reviewModel),
+      getTaskMonitor: vi.fn().mockResolvedValue(failedTask),
+      retryCheckpoint
+    });
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Translate failed");
+    await user.click(screen.getByRole("button", { name: "Retry checkpoint" }));
+    expect(retryCheckpoint).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Results" }));
+    expect(await screen.findByText("Review results")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    expect(screen.getByText("Retrying checkpoint...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry checkpoint" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Retry checkpoint" }));
+    expect(retryCheckpoint).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a newer retry pending when an earlier task retry resolves later", async () => {

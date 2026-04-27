@@ -31,6 +31,7 @@ export function App({ client: providedClient }: AppProps = {}) {
   const [review, setReview] = useState<ReviewModel | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [retryPending, setRetryPending] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const footerValue =
     source?.kind === "remote_url" ? "remote URL" : source?.kind === "local_file" ? source.displayName : "creator-videos";
 
@@ -44,12 +45,18 @@ export function App({ client: providedClient }: AppProps = {}) {
 
   function invalidateTaskRequest() {
     taskRequestId.current += 1;
-    invalidateRetryRequest();
   }
 
-  function invalidateRetryRequest() {
+  function cancelRetryState() {
     retryRequestId.current += 1;
     retryInFlight.current = false;
+    setRetryError(null);
+    setRetryPending(false);
+  }
+
+  function formatLoadError(prefix: string, error: unknown): string {
+    const message = error instanceof Error && error.message ? error.message : "sidecar request failed";
+    return `${prefix}: ${message}`;
   }
 
   async function handleSourceContinue(nextSource: SourceDraft) {
@@ -57,25 +64,36 @@ export function App({ client: providedClient }: AppProps = {}) {
     templateRequestId.current = requestId;
     invalidateReviewRequest();
     setSource(nextSource);
-    const nextSteps = await client.getWorkflowTemplate(nextSource);
-    if (requestId !== templateRequestId.current) {
-      return;
-    }
+    setLoadError(null);
+    try {
+      const nextSteps = await client.getWorkflowTemplate(nextSource);
+      if (requestId !== templateRequestId.current) {
+        return;
+      }
 
-    setSteps(nextSteps);
-    setScreen("workflow");
+      setSteps(nextSteps);
+      setScreen("workflow");
+    } catch (error) {
+      if (requestId !== templateRequestId.current) {
+        return;
+      }
+
+      setLoadError(formatLoadError("Could not load workflow template", error));
+    }
   }
 
   function handleBackToSource() {
     invalidateTemplateRequest();
     invalidateTaskRequest();
     invalidateReviewRequest();
+    cancelRetryState();
     setSource(null);
     setSteps(workflowSteps);
     setTask(null);
     setReview(null);
     setRetryError(null);
     setRetryPending(false);
+    setLoadError(null);
     setScreen("source");
   }
 
@@ -83,17 +101,26 @@ export function App({ client: providedClient }: AppProps = {}) {
     const requestId = taskRequestId.current + 1;
     taskRequestId.current = requestId;
     invalidateReviewRequest();
-    invalidateRetryRequest();
+    cancelRetryState();
     setSteps(nextSteps);
     setRetryError(null);
     setRetryPending(false);
-    const nextTask = await client.getTaskMonitor("run_sample");
-    if (requestId !== taskRequestId.current) {
-      return;
-    }
+    setLoadError(null);
+    try {
+      const nextTask = await client.getTaskMonitor("run_sample");
+      if (requestId !== taskRequestId.current) {
+        return;
+      }
 
-    setTask(nextTask);
-    setScreen("monitor");
+      setTask(nextTask);
+      setScreen("monitor");
+    } catch (error) {
+      if (requestId !== taskRequestId.current) {
+        return;
+      }
+
+      setLoadError(formatLoadError("Could not load task monitor", error));
+    }
   }
 
   async function handleRetry() {
@@ -102,32 +129,31 @@ export function App({ client: providedClient }: AppProps = {}) {
     }
 
     retryInFlight.current = true;
-    const taskFlowId = taskRequestId.current;
     const requestId = retryRequestId.current + 1;
     retryRequestId.current = requestId;
     setRetryError(null);
     setRetryPending(true);
     try {
       await client.retryCheckpoint(task.id);
-      if (requestId !== retryRequestId.current || taskFlowId !== taskRequestId.current) {
+      if (requestId !== retryRequestId.current) {
         return;
       }
 
       const nextTask = await client.getTaskMonitor(task.id);
-      if (requestId !== retryRequestId.current || taskFlowId !== taskRequestId.current) {
+      if (requestId !== retryRequestId.current) {
         return;
       }
 
       setTask(nextTask);
     } catch (error) {
-      if (requestId !== retryRequestId.current || taskFlowId !== taskRequestId.current) {
+      if (requestId !== retryRequestId.current) {
         return;
       }
 
       const message = error instanceof Error && error.message ? error.message : "checkpoint retry did not complete";
       setRetryError(`Retry failed: ${message}`);
     } finally {
-      if (requestId === retryRequestId.current && taskFlowId === taskRequestId.current) {
+      if (requestId === retryRequestId.current) {
         retryInFlight.current = false;
         setRetryPending(false);
       }
@@ -137,16 +163,24 @@ export function App({ client: providedClient }: AppProps = {}) {
   async function openReview(runId: string) {
     invalidateTemplateRequest();
     invalidateTaskRequest();
-    setRetryPending(false);
     const requestId = reviewRequestId.current + 1;
     reviewRequestId.current = requestId;
-    const nextReview = await client.getReview(runId);
-    if (requestId !== reviewRequestId.current) {
-      return;
-    }
+    setLoadError(null);
+    try {
+      const nextReview = await client.getReview(runId);
+      if (requestId !== reviewRequestId.current) {
+        return;
+      }
 
-    setReview(nextReview);
-    setScreen("results");
+      setReview(nextReview);
+      setScreen("results");
+    } catch (error) {
+      if (requestId !== reviewRequestId.current) {
+        return;
+      }
+
+      setLoadError(formatLoadError("Could not load review results", error));
+    }
   }
 
   function handleNavigate(item: NavItem) {
@@ -180,6 +214,11 @@ export function App({ client: providedClient }: AppProps = {}) {
 
   return (
     <AppShell active={activeNav} footerLabel={source ? "Source" : "Workspace"} footerValue={footerValue} onNavigate={handleNavigate}>
+      {loadError ? (
+        <div className="mb-4 rounded-lg bg-accent-soft px-3.5 py-3 text-sm font-semibold text-[#6b3f27]" role="alert">
+          {loadError}
+        </div>
+      ) : null}
       {screen === "source" ? <SourceImport onContinue={handleSourceContinue} /> : null}
       {screen === "workflow" ? (
         <WorkflowEditor

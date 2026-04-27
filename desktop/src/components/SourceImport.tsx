@@ -12,6 +12,17 @@ type SourceImportProps = {
 type LocalFileSource = Extract<SourceDraft, { kind: "local_file" }>;
 
 const fileInputId = "source-local-file";
+const supportedFileExtensions = [".mp4", ".mov", ".mkv", ".m4a", ".wav"];
+const supportedFileTypes = new Set([
+  "video/mp4",
+  "video/quicktime",
+  "video/x-matroska",
+  "audio/mp4",
+  "audio/wav",
+  "audio/wave",
+  "audio/x-wav"
+]);
+const unsupportedFileMessage = "Unsupported file type. Use MP4, MOV, MKV, M4A, or WAV.";
 
 function getValidRemoteUrl(value: string): string | null {
   const trimmedValue = value.trim();
@@ -35,10 +46,19 @@ function toLocalFileSource(file: File): LocalFileSource {
   };
 }
 
+function isSupportedLocalFile(file: File): boolean {
+  const normalizedName = file.name.toLowerCase();
+  const hasSupportedExtension = supportedFileExtensions.some((extension) => normalizedName.endsWith(extension));
+  const normalizedType = file.type.toLowerCase();
+
+  return hasSupportedExtension || supportedFileTypes.has(normalizedType);
+}
+
 export function SourceImport({ onContinue }: SourceImportProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState("");
   const [localSource, setLocalSource] = useState<LocalFileSource | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const validRemoteUrl = getValidRemoteUrl(url);
   const sourceDraft: SourceDraft | null = validRemoteUrl
     ? { kind: "remote_url", url: validRemoteUrl }
@@ -54,6 +74,7 @@ export function SourceImport({ onContinue }: SourceImportProps) {
 
   function handleUrlChange(event: ChangeEvent<HTMLInputElement>) {
     setUrl(event.target.value);
+    setFileError(null);
     if (event.target.value.length > 0) {
       setLocalSource(null);
     }
@@ -64,7 +85,17 @@ export function SourceImport({ onContinue }: SourceImportProps) {
       return;
     }
 
+    if (!isSupportedLocalFile(file)) {
+      setLocalSource(null);
+      setFileError(unsupportedFileMessage);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
+
     setUrl("");
+    setFileError(null);
     setLocalSource(toLocalFileSource(file));
   }
 
@@ -140,6 +171,11 @@ export function SourceImport({ onContinue }: SourceImportProps) {
               <span className="mt-3 block text-sm leading-6 text-muted">
                 {localSource ? `Selected: ${localSource.displayName}` : "Supported types: MP4, MOV, MKV, M4A, WAV"}
               </span>
+              {fileError ? (
+                <span className="mt-2 block text-sm font-semibold text-accent" role="alert">
+                  {fileError}
+                </span>
+              ) : null}
             </span>
           </label>
         </div>

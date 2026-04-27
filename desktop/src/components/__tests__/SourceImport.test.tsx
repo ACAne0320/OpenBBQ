@@ -105,6 +105,23 @@ describe("SourceImport", () => {
     });
   });
 
+  it("rejects unsupported dropped files", async () => {
+    const onContinue = vi.fn();
+    const user = userEvent.setup();
+    render(<SourceImport onContinue={onContinue} />);
+    const file = new File(["notes"], "notes.txt", { type: "text/plain" });
+
+    fireEvent.drop(screen.getByRole("button", { name: /drag\/drop or click to choose a local file/i }), {
+      dataTransfer: { files: [file] }
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Unsupported file type");
+    expect(screen.getByRole("button", { name: /continue/i })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: /continue/i }));
+    expect(onContinue).not.toHaveBeenCalled();
+  });
+
   it("renders as section content without owning another main surface", () => {
     render(<SourceImport onContinue={vi.fn()} />);
 
