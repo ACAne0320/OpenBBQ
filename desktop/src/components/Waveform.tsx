@@ -21,15 +21,20 @@ function boundedPercent(value: number): number {
 
 function segmentPosition(segment: Segment, durationMs: number) {
   if (durationMs <= 0) {
-    return { left: "0%", width: "8%" };
+    return { left: "0%", width: "0%" };
   }
 
-  const left = boundedPercent((segment.startMs / durationMs) * 100);
-  const width = boundedPercent(((segment.endMs - segment.startMs) / durationMs) * 100);
+  const segmentStart = Math.min(segment.startMs, segment.endMs);
+  const segmentEnd = Math.max(segment.startMs, segment.endMs);
+  const clippedStart = Math.min(durationMs, Math.max(0, segmentStart));
+  const clippedEnd = Math.min(durationMs, Math.max(0, segmentEnd));
+  const left = boundedPercent((clippedStart / durationMs) * 100);
+  const rawWidth = boundedPercent(((clippedEnd - clippedStart) / durationMs) * 100);
+  const width = Math.min(rawWidth, 100 - left);
 
   return {
     left: `${left}%`,
-    width: `${Math.max(width, 1.6)}%`
+    width: `${Math.max(0, width)}%`
   };
 }
 
@@ -61,7 +66,7 @@ export function Waveform({ activeSegmentId, durationMs, onSelectSegment, segment
             data-testid="waveform-segment-overlay"
             onClick={() => onSelectSegment(segment.id)}
             className={clsx(
-              "absolute top-3 h-[104px] min-w-10 rounded-md transition-transform duration-150 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+              "absolute top-3 h-[104px] rounded-md transition-transform duration-150 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
               active ? "bg-accent/30 shadow-selected" : "bg-accent/15 shadow-control [@media(hover:hover)]:hover:bg-accent/25"
             )}
             style={segmentPosition(segment, durationMs)}

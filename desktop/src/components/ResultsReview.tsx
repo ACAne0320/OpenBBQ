@@ -20,7 +20,6 @@ type DraftSegment = Segment & {
 function toDraftSegments(segments: Segment[]): DraftSegment[] {
   return segments.map((segment) => ({
     ...segment,
-    savedState: segment.savedState === "error" ? "error" : "saved",
     saveToken: 0
   }));
 }
@@ -42,7 +41,7 @@ function saveStatus(segments: DraftSegment[]) {
     return { label: "Autosave error", tone: "error" as const };
   }
 
-  if (segments.some((segment) => segment.savedState === "saving" && segment.saveToken > 0)) {
+  if (segments.some((segment) => segment.savedState === "saving")) {
     return { label: "Saving", tone: "saving" as const };
   }
 
@@ -54,7 +53,7 @@ function segmentStatus(segment: DraftSegment): string {
     return "Autosave error";
   }
 
-  if (segment.savedState === "saving" && segment.saveToken > 0) {
+  if (segment.savedState === "saving") {
     return "Saving";
   }
 
@@ -65,10 +64,21 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
   const [segments, setSegments] = useState<DraftSegment[]>(() => toDraftSegments(model.segments));
   const [activeSegmentId, setActiveSegmentId] = useState(model.activeSegmentId);
   const cardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const mountedRef = useRef(false);
+  const onSegmentChangeRef = useRef(onSegmentChange);
+  const saveTimerRef = useRef<number | undefined>(undefined);
+  const segmentsRef = useRef<DraftSegment[]>(segments);
+
+  onSegmentChangeRef.current = onSegmentChange;
+  segmentsRef.current = segments;
 
   useEffect(() => {
     setSegments(toDraftSegments(model.segments));
     setActiveSegmentId(model.activeSegmentId);
+
+    return () => {
+      flushPendingDirtySegments(false);
+    };
   }, [model]);
 
   const activeSegment = useMemo(
@@ -102,16 +112,76 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
     );
   }
 
-  useEffect(() => {
-    const pending = segments.filter(
+  function pendingDirtySegments() {
+    return segmentsRef.current.filter(
       (segment) =>
         segment.savedState === "saving" && segment.saveToken > 0 && segment.saveInFlightToken !== segment.saveToken
     );
+  }
+
+  function saveSegment(segment: DraftSegment, updateState: boolean) {
+    const token = segment.saveToken;
+    void Promise.resolve()
+      .then(() => onSegmentChangeRef.current(toSegment(segment)))
+      .then(() => {
+        if (!updateState || !mountedRef.current) {
+          return;
+        }
+
+        setSegments((current) =>
+          current.map((item) =>
+            item.id === segment.id && item.saveToken === token
+              ? { ...item, saveInFlightToken: undefined, savedState: "saved" }
+              : item
+          )
+        );
+      })
+      .catch(() => {
+        if (!updateState || !mountedRef.current) {
+          return;
+        }
+
+        setSegments((current) =>
+          current.map((item) =>
+            item.id === segment.id && item.saveToken === token
+              ? { ...item, saveInFlightToken: undefined, savedState: "error" }
+              : item
+          )
+        );
+      });
+  }
+
+  function clearSaveTimer() {
+    if (saveTimerRef.current === undefined) {
+      return;
+    }
+
+    window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = undefined;
+  }
+
+  function flushPendingDirtySegments(updateState: boolean) {
+    clearSaveTimer();
+    for (const segment of pendingDirtySegments()) {
+      saveSegment(segment, updateState);
+    }
+  }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const pending = pendingDirtySegments();
     if (pending.length === 0) {
       return undefined;
     }
 
-    const timeout = window.setTimeout(() => {
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = undefined;
       setSegments((current) =>
         current.map((item) => {
           const pendingSegment = pending.find((segment) => segment.id === item.id);
@@ -122,41 +192,22 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
       );
 
       for (const segment of pending) {
-        const token = segment.saveToken;
-        void Promise.resolve(onSegmentChange(toSegment(segment)))
-          .then(() => {
-            setSegments((current) =>
-              current.map((item) =>
-                item.id === segment.id && item.saveToken === token
-                  ? { ...item, saveInFlightToken: undefined, savedState: "saved" }
-                  : item
-              )
-            );
-          })
-          .catch(() => {
-            setSegments((current) =>
-              current.map((item) =>
-                item.id === segment.id && item.saveToken === token
-                  ? { ...item, saveInFlightToken: undefined, savedState: "error" }
-                  : item
-              )
-            );
-          });
+        saveSegment(segment, true);
       }
     }, 350);
 
-    return () => window.clearTimeout(timeout);
-  }, [onSegmentChange, segments]);
+    return clearSaveTimer;
+  }, [segments]);
 
   return (
     <section aria-label="Results review" className="grid min-h-[calc(100vh-84px)] grid-rows-[auto_minmax(0,1fr)] gap-4">
-      <header className="flex items-end justify-between gap-4">
+      <header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end sm:gap-4">
         <div className="min-w-0">
           <p className="text-[11px] uppercase text-muted">Review results</p>
           <h1 className="mt-2 truncate font-serif text-[38px] leading-none text-ink-brown">{model.title}</h1>
           <p className="mt-1.5 text-sm text-muted">Completed - edits autosave as you review.</p>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
           <span
             className={clsx(
               "flex items-center gap-1.5 text-xs font-semibold",
@@ -180,8 +231,11 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
         </div>
       </header>
 
-      <section className="grid min-h-0 grid-cols-[minmax(420px,1.06fr)_minmax(360px,0.94fr)] gap-[18px]">
-        <div className="grid min-h-0 content-start gap-3.5">
+      <section
+        aria-label="Results review layout"
+        className="grid min-h-0 grid-cols-1 gap-[18px] xl:grid-cols-[minmax(420px,1.06fr)_minmax(360px,0.94fr)]"
+      >
+        <div className="grid min-h-0 min-w-0 content-start gap-3.5">
           <section className="rounded-lg bg-paper-muted p-4 shadow-control" aria-label="Video preview panel">
             <div
               aria-label="Video preview"
@@ -225,7 +279,7 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
           </section>
         </div>
 
-        <aside className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] rounded-lg bg-paper-muted p-4 shadow-control">
+        <aside className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] rounded-lg bg-paper-muted p-4 shadow-control">
           <div className="mb-3 flex items-center justify-between gap-4">
             <div>
               <p className="text-xs uppercase text-muted">Editable segments</p>
