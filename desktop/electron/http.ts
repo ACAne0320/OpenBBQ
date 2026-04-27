@@ -1,5 +1,5 @@
-import type { ApiEnvelope } from "./apiTypes";
-import type { SidecarConnection } from "./sidecar";
+import type { ApiEnvelope } from "./apiTypes.js";
+import type { SidecarConnection } from "./sidecar.js";
 
 type RequestOptions = {
   method?: "GET" | "POST";

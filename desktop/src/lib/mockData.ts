@@ -1,4 +1,4 @@
-import type { ReviewModel, TaskMonitorModel, WorkflowStep } from "./types";
+import type { ReviewModel, TaskMonitorModel, WorkflowStep } from "./types.js";
 
 export const workflowSteps: WorkflowStep[] = [
   {

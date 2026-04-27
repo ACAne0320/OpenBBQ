@@ -28,6 +28,7 @@ yarn-error.log*
 pnpm-debug.log*
 desktop/test-results/
 desktop/playwright-report/
+desktop/dist-electron/
 
 # OpenBBQ local runtime state
 .openbbq/
