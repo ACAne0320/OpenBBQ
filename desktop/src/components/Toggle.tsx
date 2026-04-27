@@ -1,18 +1,33 @@
 import { clsx } from "clsx";
+import type { ButtonHTMLAttributes } from "react";
 
-type ToggleProps = {
+type ToggleButtonProps = Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "aria-checked" | "aria-label" | "aria-pressed" | "disabled" | "onClick" | "role" | "type"
+>;
+
+type ToggleProps = ToggleButtonProps & {
   checked: boolean;
   disabled?: boolean;
-  label: string;
   onChange?: (checked: boolean) => void;
-};
+} & ({ label: string; "aria-label"?: string } | { label?: string; "aria-label": string });
 
-export function Toggle({ checked, disabled = false, label, onChange }: ToggleProps) {
+export function Toggle({
+  checked,
+  className,
+  disabled = false,
+  label,
+  onChange,
+  "aria-label": ariaLabel,
+  ...props
+}: ToggleProps) {
   return (
     <button
+      {...props}
       type="button"
-      aria-label={label}
-      aria-pressed={checked}
+      role="switch"
+      aria-label={ariaLabel ?? label}
+      aria-checked={checked}
       disabled={disabled}
       onClick={() => {
         if (!disabled) {
@@ -25,7 +40,8 @@ export function Toggle({ checked, disabled = false, label, onChange }: TogglePro
           ? "bg-[#c9b79c] shadow-none"
           : checked
             ? "bg-accent shadow-selected"
-            : "bg-[#d8c8b1] shadow-control [@media(hover:hover)]:hover:bg-[#d0bfa6]"
+            : "bg-[#d8c8b1] shadow-control [@media(hover:hover)]:hover:bg-[#d0bfa6]",
+        className
       )}
     >
       <span

@@ -7,12 +7,13 @@ type AppShellProps = {
   active: NavItem;
   footerLabel: string;
   footerValue: string;
+  onNavigate?: (item: NavItem) => void;
   children: ReactNode;
 };
 
 const navItems: NavItem[] = ["Home", "New", "Tasks", "Results", "Settings"];
 
-export function AppShell({ active, footerLabel, footerValue, children }: AppShellProps) {
+export function AppShell({ active, footerLabel, footerValue, onNavigate, children }: AppShellProps) {
   return (
     <div className="min-h-screen bg-canvas p-[18px] text-ink">
       <div className="grid min-h-[calc(100vh-36px)] grid-cols-[104px_minmax(0,1fr)] gap-[18px]">
@@ -25,19 +26,20 @@ export function AppShell({ active, footerLabel, footerValue, children }: AppShel
             </div>
             <nav className="grid gap-2 text-xs" aria-label="Primary">
               {navItems.map((item) => (
-                <a
+                <button
                   key={item}
-                  href={`#${item.toLowerCase()}`}
+                  type="button"
                   aria-current={active === item ? "page" : undefined}
+                  onClick={() => onNavigate?.(item)}
                   className={clsx(
-                    "min-h-10 rounded-sm px-2.5 py-2.5 transition-transform duration-150 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                    "min-h-10 rounded-sm px-2.5 py-2.5 text-left transition-transform duration-150 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                     active === item
                       ? "bg-accent text-[#fff8ea] shadow-selected"
                       : "text-ink/75 [@media(hover:hover)]:hover:bg-paper-selected [@media(hover:hover)]:hover:text-ink"
                   )}
                 >
                   {item}
-                </a>
+                </button>
               ))}
             </nav>
           </div>
@@ -47,7 +49,7 @@ export function AppShell({ active, footerLabel, footerValue, children }: AppShel
             <strong className="font-semibold text-ink">{footerValue}</strong>
           </div>
         </aside>
-        {children}
+        <main className="min-w-0 rounded-xl bg-paper p-6 shadow-panel">{children}</main>
       </div>
     </div>
   );
