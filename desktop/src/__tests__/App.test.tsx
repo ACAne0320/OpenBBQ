@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -244,6 +244,61 @@ describe("App workflow flow", () => {
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 
+  it("ignores a pending review when source import starts a new workflow", async () => {
+    const user = userEvent.setup();
+    const review = createDeferred<typeof reviewModel>();
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getReview: vi.fn(() => review.promise)
+    });
+
+    render(<App client={client} />);
+
+    await user.click(screen.getByRole("button", { name: "Results" }));
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/new-source.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByRole("heading", { name: "Arrange workflow" })).toBeInTheDocument();
+
+    await act(async () => {
+      review.resolve(reviewModel);
+      await review.promise;
+    });
+
+    expect(screen.getByRole("heading", { name: "Arrange workflow" })).toBeInTheDocument();
+    expect(screen.queryByText("Review results")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
+  it("ignores a pending review when workflow arrangement starts a task", async () => {
+    const user = userEvent.setup();
+    const review = createDeferred<typeof reviewModel>();
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getReview: vi.fn(() => review.promise),
+      getTaskMonitor: vi.fn().mockResolvedValue(failedTask)
+    });
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+
+    await user.click(screen.getByRole("button", { name: "Results" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("Task monitor")).toBeInTheDocument();
+
+    await act(async () => {
+      review.resolve(reviewModel);
+      await review.promise;
+    });
+
+    expect(screen.getByText("Task monitor")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tasks" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByText("Review results")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
   it("retries the failed checkpoint once while pending and refreshes the task on success", async () => {
     const user = userEvent.setup();
     const retry = createDeferred<void>();
@@ -302,6 +357,53 @@ describe("App workflow flow", () => {
 
     expect(await screen.findByText("Retry failed: sidecar unavailable")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry checkpoint" })).toBeEnabled();
+  });
+
+  it("keeps a newer retry pending when an earlier task retry resolves later", async () => {
+    const user = userEvent.setup();
+    const firstRetry = createDeferred<void>();
+    const secondRetry = createDeferred<void>();
+    const getTaskMonitor = vi
+      .fn()
+      .mockResolvedValueOnce(failedTask)
+      .mockResolvedValueOnce(failedTask)
+      .mockResolvedValueOnce(runningTask);
+    const retryCheckpoint = vi
+      .fn()
+      .mockImplementationOnce(() => firstRetry.promise)
+      .mockImplementationOnce(() => secondRetry.promise);
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getTaskMonitor,
+      retryCheckpoint
+    });
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/first.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Translate failed");
+    await user.click(screen.getByRole("button", { name: "Retry checkpoint" }));
+
+    await user.click(screen.getByRole("button", { name: "New" }));
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/second.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Translate failed");
+    await user.click(screen.getByRole("button", { name: "Retry checkpoint" }));
+
+    await act(async () => {
+      firstRetry.resolve(undefined);
+      await firstRetry.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Translate failed")).toBeInTheDocument();
+      expect(screen.getByText("Retrying checkpoint...")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Retry checkpoint" })).toBeDisabled();
+    });
   });
 
   it("keeps latest workflow props after an earlier template response resolves last", async () => {

@@ -22,6 +22,7 @@ export function App({ client: providedClient }: AppProps = {}) {
   const templateRequestId = useRef(0);
   const taskRequestId = useRef(0);
   const reviewRequestId = useRef(0);
+  const retryRequestId = useRef(0);
   const retryInFlight = useRef(false);
   const [screen, setScreen] = useState<Screen>("source");
   const [source, setSource] = useState<SourceDraft | null>(null);
@@ -33,9 +34,19 @@ export function App({ client: providedClient }: AppProps = {}) {
   const footerValue =
     source?.kind === "remote_url" ? "remote URL" : source?.kind === "local_file" ? source.displayName : "creator-videos";
 
+  function invalidateReviewRequest() {
+    reviewRequestId.current += 1;
+  }
+
+  function invalidateRetryRequest() {
+    retryRequestId.current += 1;
+    retryInFlight.current = false;
+  }
+
   async function handleSourceContinue(nextSource: SourceDraft) {
     const requestId = templateRequestId.current + 1;
     templateRequestId.current = requestId;
+    invalidateReviewRequest();
     setSource(nextSource);
     const nextSteps = await client.getWorkflowTemplate(nextSource);
     if (requestId !== templateRequestId.current) {
@@ -49,24 +60,25 @@ export function App({ client: providedClient }: AppProps = {}) {
   function handleBackToSource() {
     templateRequestId.current += 1;
     taskRequestId.current += 1;
-    reviewRequestId.current += 1;
+    invalidateReviewRequest();
+    invalidateRetryRequest();
     setSource(null);
     setSteps(workflowSteps);
     setTask(null);
     setReview(null);
     setRetryError(null);
     setRetryPending(false);
-    retryInFlight.current = false;
     setScreen("source");
   }
 
   async function handleWorkflowContinue(nextSteps: WorkflowStep[]) {
     const requestId = taskRequestId.current + 1;
     taskRequestId.current = requestId;
+    invalidateReviewRequest();
+    invalidateRetryRequest();
     setSteps(nextSteps);
     setRetryError(null);
     setRetryPending(false);
-    retryInFlight.current = false;
     const nextTask = await client.getTaskMonitor("run_sample");
     if (requestId !== taskRequestId.current) {
       return;
@@ -82,18 +94,35 @@ export function App({ client: providedClient }: AppProps = {}) {
     }
 
     retryInFlight.current = true;
+    const taskFlowId = taskRequestId.current;
+    const requestId = retryRequestId.current + 1;
+    retryRequestId.current = requestId;
     setRetryError(null);
     setRetryPending(true);
     try {
       await client.retryCheckpoint(task.id);
+      if (requestId !== retryRequestId.current || taskFlowId !== taskRequestId.current) {
+        return;
+      }
+
       const nextTask = await client.getTaskMonitor(task.id);
+      if (requestId !== retryRequestId.current || taskFlowId !== taskRequestId.current) {
+        return;
+      }
+
       setTask(nextTask);
     } catch (error) {
+      if (requestId !== retryRequestId.current || taskFlowId !== taskRequestId.current) {
+        return;
+      }
+
       const message = error instanceof Error && error.message ? error.message : "checkpoint retry did not complete";
       setRetryError(`Retry failed: ${message}`);
     } finally {
-      retryInFlight.current = false;
-      setRetryPending(false);
+      if (requestId === retryRequestId.current && taskFlowId === taskRequestId.current) {
+        retryInFlight.current = false;
+        setRetryPending(false);
+      }
     }
   }
 
@@ -116,7 +145,7 @@ export function App({ client: providedClient }: AppProps = {}) {
     }
 
     if (item === "Tasks") {
-      reviewRequestId.current += 1;
+      invalidateReviewRequest();
       if (task) {
         setScreen("monitor");
       }
