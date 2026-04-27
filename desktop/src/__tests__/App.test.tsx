@@ -53,6 +53,9 @@ function createTestClient(
 ): OpenBBQClient {
   return {
     getWorkflowTemplate,
+    async startSubtitleTask() {
+      return { runId: "run_sample" };
+    },
     async getTaskMonitor() {
       return failedTask;
     },
@@ -137,9 +140,16 @@ describe("App workflow flow", () => {
     expect(screen.queryByText("remote URL")).not.toBeInTheDocument();
   });
 
-  it("shows the task monitor after continuing from workflow arrangement", async () => {
+  it("starts a task with the selected source and workflow before showing monitor", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    const startSubtitleTask = vi.fn().mockResolvedValue({ runId: "run_test" });
+    const getTaskMonitor = vi.fn().mockResolvedValue({ ...failedTask, id: "run_test" });
+    const client = createTestClient(vi.fn().mockResolvedValue(remoteStepsFor("https://example.com/video.mp4")), {
+      startSubtitleTask,
+      getTaskMonitor
+    });
+
+    render(<App client={client} />);
 
     await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
     await user.click(screen.getByRole("button", { name: "Continue" }));
@@ -148,8 +158,11 @@ describe("App workflow flow", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(await screen.findByText("Task monitor")).toBeInTheDocument();
-    expect(screen.getByText(/provider returned rate limit/i)).toBeInTheDocument();
-    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(startSubtitleTask).toHaveBeenCalledWith({
+      source: { kind: "remote_url", url: "https://example.com/video.mp4" },
+      steps: expect.arrayContaining([expect.objectContaining({ id: "fetch_source" })])
+    });
+    expect(getTaskMonitor).toHaveBeenCalledWith("run_test");
   });
 
   it("keeps the current screen when Tasks is selected before a task exists", async () => {
@@ -239,7 +252,7 @@ describe("App workflow flow", () => {
     await screen.findByRole("heading", { name: "Arrange workflow" });
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load task monitor: task unavailable");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not start task: task unavailable");
     expect(screen.getByRole("heading", { name: "Arrange workflow" })).toBeInTheDocument();
   });
 

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "./components/AppShell";
 import type { NavItem } from "./components/AppShell";
@@ -6,7 +6,8 @@ import { ResultsReview } from "./components/ResultsReview";
 import { SourceImport } from "./components/SourceImport";
 import { TaskMonitor } from "./components/TaskMonitor";
 import { WorkflowEditor } from "./components/WorkflowEditor";
-import { createMockClient, type OpenBBQClient } from "./lib/apiClient";
+import type { OpenBBQClient } from "./lib/apiClient";
+import { createDefaultClient } from "./lib/clientFactory";
 import { workflowSteps } from "./lib/mockData";
 import type { ReviewModel, Segment, SourceDraft, TaskMonitorModel, WorkflowStep } from "./lib/types";
 
@@ -17,7 +18,7 @@ type AppProps = {
 };
 
 export function App({ client: providedClient }: AppProps = {}) {
-  const defaultClient = useMemo(() => createMockClient(), []);
+  const defaultClient = useMemo(() => createDefaultClient(), []);
   const client = providedClient ?? defaultClient;
   const templateRequestId = useRef(0);
   const taskRequestId = useRef(0);
@@ -98,6 +99,11 @@ export function App({ client: providedClient }: AppProps = {}) {
   }
 
   async function handleWorkflowContinue(nextSteps: WorkflowStep[]) {
+    if (!source) {
+      setLoadError("Could not start task: source is missing");
+      return;
+    }
+
     const requestId = taskRequestId.current + 1;
     taskRequestId.current = requestId;
     invalidateReviewRequest();
@@ -107,7 +113,12 @@ export function App({ client: providedClient }: AppProps = {}) {
     setRetryPending(false);
     setLoadError(null);
     try {
-      const nextTask = await client.getTaskMonitor("run_sample");
+      const started = await client.startSubtitleTask({ source, steps: nextSteps });
+      if (requestId !== taskRequestId.current) {
+        return;
+      }
+
+      const nextTask = await client.getTaskMonitor(started.runId);
       if (requestId !== taskRequestId.current) {
         return;
       }
@@ -119,7 +130,7 @@ export function App({ client: providedClient }: AppProps = {}) {
         return;
       }
 
-      setLoadError(formatLoadError("Could not load task monitor", error));
+      setLoadError(formatLoadError("Could not start task", error));
     }
   }
 
@@ -209,6 +220,28 @@ export function App({ client: providedClient }: AppProps = {}) {
       translation: segment.translation
     });
   }
+
+  useEffect(() => {
+    if (screen !== "monitor" || !task) {
+      return undefined;
+    }
+
+    if (task.status !== "queued" && task.status !== "running" && task.status !== "paused") {
+      return undefined;
+    }
+
+    const interval = window.setInterval(() => {
+      const runId = task.id;
+      void client
+        .getTaskMonitor(runId)
+        .then((nextTask) => {
+          setTask((current) => (current?.id === runId ? nextTask : current));
+        })
+        .catch(() => undefined);
+    }, 1500);
+
+    return () => window.clearInterval(interval);
+  }, [client, screen, task]);
 
   const activeNav = screen === "monitor" ? "Tasks" : screen === "results" ? "Results" : "New";
 
