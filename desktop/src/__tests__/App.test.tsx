@@ -12,10 +12,12 @@ const workflowEditorRender = vi.hoisted(() => vi.fn());
 vi.mock("../components/WorkflowEditor", () => ({
   WorkflowEditor: ({
     initialSteps,
-    onBack
+    onBack,
+    onContinue
   }: {
     initialSteps: Array<{ id: string }>;
     onBack?: () => void;
+    onContinue?: (steps: Array<{ id: string }>) => void;
   }) => {
     workflowEditorRender(initialSteps);
     const remote = initialSteps[0]?.id === "fetch_source";
@@ -27,6 +29,9 @@ vi.mock("../components/WorkflowEditor", () => ({
         <p data-testid="workflow-first-step">{initialSteps[0]?.id}</p>
         <button type="button" onClick={onBack}>
           Back
+        </button>
+        <button type="button" onClick={() => onContinue?.(initialSteps)}>
+          Continue
         </button>
       </section>
     );
@@ -110,6 +115,21 @@ describe("App workflow flow", () => {
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByText("creator-videos")).toBeInTheDocument();
     expect(screen.queryByText("remote URL")).not.toBeInTheDocument();
+  });
+
+  it("shows the task monitor after continuing from workflow arrangement", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("Task monitor")).toBeInTheDocument();
+    expect(screen.getByText(/provider returned rate limit/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 
   it("keeps latest workflow props after an earlier template response resolves last", async () => {
