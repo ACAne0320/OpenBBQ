@@ -58,4 +58,14 @@ describe("createMockClient", () => {
     });
     expect(remoteWorkflow[1]).toMatchObject({ id: "extract_audio" });
   });
+
+  it("returns a sample run id when starting a mock subtitle task", async () => {
+    const client = createMockClient();
+    await expect(
+      client.startSubtitleTask({
+        source: { kind: "remote_url", url: "https://example.test/video" },
+        steps: await client.getWorkflowTemplate({ kind: "remote_url", url: "https://example.test/video" })
+      })
+    ).resolves.toEqual({ runId: "run_sample" });
+  });
 });

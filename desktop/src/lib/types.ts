@@ -4,6 +4,17 @@ export type SourceDraft =
   | { kind: "local_file"; path: string; displayName: string }
   | { kind: "remote_url"; url: string };
 
+export type StartSubtitleTaskInput = {
+  source: SourceDraft;
+  steps: WorkflowStep[];
+};
+
+export type StartSubtitleTaskResult = {
+  runId: string;
+};
+
+export type LocalMediaSelection = Extract<SourceDraft, { kind: "local_file" }>;
+
 export type StepStatus = "locked" | "enabled" | "disabled";
 
 export type WorkflowStep = {

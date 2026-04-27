@@ -1,8 +1,19 @@
 import { failedTask, reviewModel, workflowSteps } from "./mockData";
-import type { ReviewModel, SourceDraft, StepParameter, TaskMonitorModel, WorkflowStep } from "./types";
+import type {
+  LocalMediaSelection,
+  ReviewModel,
+  SourceDraft,
+  StartSubtitleTaskInput,
+  StartSubtitleTaskResult,
+  StepParameter,
+  TaskMonitorModel,
+  WorkflowStep
+} from "./types";
 
 export type OpenBBQClient = {
+  chooseLocalMedia?(): Promise<LocalMediaSelection | null>;
   getWorkflowTemplate(source: SourceDraft): Promise<WorkflowStep[]>;
+  startSubtitleTask(input: StartSubtitleTaskInput): Promise<StartSubtitleTaskResult>;
   getTaskMonitor(runId: string): Promise<TaskMonitorModel>;
   getReview(runId: string): Promise<ReviewModel>;
   updateSegmentText(input: {
@@ -44,6 +55,9 @@ export function createMockClient(): OpenBBQClient {
   return {
     async getWorkflowTemplate(source) {
       return cloneModel(workflowTemplateForSource(source));
+    },
+    async startSubtitleTask() {
+      return { runId: "run_sample" };
     },
     async getTaskMonitor() {
       return cloneModel(failedTask);
