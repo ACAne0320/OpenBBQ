@@ -1,16 +1,22 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { AppShell } from "./components/AppShell";
 import { SourceImport } from "./components/SourceImport";
 import { WorkflowEditor } from "./components/WorkflowEditor";
-import { createMockClient } from "./lib/apiClient";
+import { createMockClient, type OpenBBQClient } from "./lib/apiClient";
 import { workflowSteps } from "./lib/mockData";
 import type { SourceDraft, WorkflowStep } from "./lib/types";
 
 type Screen = "source" | "workflow";
 
-export function App() {
-  const client = useMemo(() => createMockClient(), []);
+type AppProps = {
+  client?: OpenBBQClient;
+};
+
+export function App({ client: providedClient }: AppProps = {}) {
+  const defaultClient = useMemo(() => createMockClient(), []);
+  const client = providedClient ?? defaultClient;
+  const templateRequestId = useRef(0);
   const [screen, setScreen] = useState<Screen>("source");
   const [source, setSource] = useState<SourceDraft | null>(null);
   const [steps, setSteps] = useState<WorkflowStep[]>(workflowSteps);
@@ -18,9 +24,23 @@ export function App() {
     source?.kind === "remote_url" ? "remote URL" : source?.kind === "local_file" ? source.displayName : "creator-videos";
 
   async function handleSourceContinue(nextSource: SourceDraft) {
+    const requestId = templateRequestId.current + 1;
+    templateRequestId.current = requestId;
     setSource(nextSource);
-    setSteps(await client.getWorkflowTemplate(nextSource));
+    const nextSteps = await client.getWorkflowTemplate(nextSource);
+    if (requestId !== templateRequestId.current) {
+      return;
+    }
+
+    setSteps(nextSteps);
     setScreen("workflow");
+  }
+
+  function handleBackToSource() {
+    templateRequestId.current += 1;
+    setSource(null);
+    setSteps(workflowSteps);
+    setScreen("source");
   }
 
   return (
@@ -29,7 +49,7 @@ export function App() {
       {screen === "workflow" ? (
         <WorkflowEditor
           initialSteps={steps}
-          onBack={() => setScreen("source")}
+          onBack={handleBackToSource}
           onContinue={(nextSteps) => {
             setSteps(nextSteps);
           }}
