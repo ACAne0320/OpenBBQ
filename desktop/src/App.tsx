@@ -1,14 +1,16 @@
 import { useMemo, useRef, useState } from "react";
 
 import { AppShell } from "./components/AppShell";
+import type { NavItem } from "./components/AppShell";
+import { ResultsReview } from "./components/ResultsReview";
 import { SourceImport } from "./components/SourceImport";
 import { TaskMonitor } from "./components/TaskMonitor";
 import { WorkflowEditor } from "./components/WorkflowEditor";
 import { createMockClient, type OpenBBQClient } from "./lib/apiClient";
 import { workflowSteps } from "./lib/mockData";
-import type { SourceDraft, TaskMonitorModel, WorkflowStep } from "./lib/types";
+import type { ReviewModel, Segment, SourceDraft, TaskMonitorModel, WorkflowStep } from "./lib/types";
 
-type Screen = "source" | "workflow" | "monitor";
+type Screen = "source" | "workflow" | "monitor" | "results";
 
 type AppProps = {
   client?: OpenBBQClient;
@@ -19,11 +21,13 @@ export function App({ client: providedClient }: AppProps = {}) {
   const client = providedClient ?? defaultClient;
   const templateRequestId = useRef(0);
   const taskRequestId = useRef(0);
+  const reviewRequestId = useRef(0);
   const retryInFlight = useRef(false);
   const [screen, setScreen] = useState<Screen>("source");
   const [source, setSource] = useState<SourceDraft | null>(null);
   const [steps, setSteps] = useState<WorkflowStep[]>(workflowSteps);
   const [task, setTask] = useState<TaskMonitorModel | null>(null);
+  const [review, setReview] = useState<ReviewModel | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [retryPending, setRetryPending] = useState(false);
   const footerValue =
@@ -45,9 +49,11 @@ export function App({ client: providedClient }: AppProps = {}) {
   function handleBackToSource() {
     templateRequestId.current += 1;
     taskRequestId.current += 1;
+    reviewRequestId.current += 1;
     setSource(null);
     setSteps(workflowSteps);
     setTask(null);
+    setReview(null);
     setRetryError(null);
     setRetryPending(false);
     retryInFlight.current = false;
@@ -91,8 +97,46 @@ export function App({ client: providedClient }: AppProps = {}) {
     }
   }
 
+  async function openReview(runId: string) {
+    const requestId = reviewRequestId.current + 1;
+    reviewRequestId.current = requestId;
+    const nextReview = await client.getReview(runId);
+    if (requestId !== reviewRequestId.current) {
+      return;
+    }
+
+    setReview(nextReview);
+    setScreen("results");
+  }
+
+  function handleNavigate(item: NavItem) {
+    if (item === "New") {
+      handleBackToSource();
+      return;
+    }
+
+    if (item === "Tasks" && task) {
+      setScreen("monitor");
+      return;
+    }
+
+    if (item === "Results") {
+      void openReview(task?.id ?? "run_sample");
+    }
+  }
+
+  async function handleSegmentChange(segment: Segment) {
+    await client.updateSegmentText({
+      segmentId: segment.id,
+      transcript: segment.transcript,
+      translation: segment.translation
+    });
+  }
+
+  const activeNav = screen === "monitor" ? "Tasks" : screen === "results" ? "Results" : "New";
+
   return (
-    <AppShell active={screen === "monitor" ? "Tasks" : "New"} footerLabel={source ? "Source" : "Workspace"} footerValue={footerValue}>
+    <AppShell active={activeNav} footerLabel={source ? "Source" : "Workspace"} footerValue={footerValue} onNavigate={handleNavigate}>
       {screen === "source" ? <SourceImport onContinue={handleSourceContinue} /> : null}
       {screen === "workflow" ? (
         <WorkflowEditor
@@ -103,6 +147,9 @@ export function App({ client: providedClient }: AppProps = {}) {
       ) : null}
       {screen === "monitor" && task ? (
         <TaskMonitor task={task} onRetry={handleRetry} retryError={retryError} retryPending={retryPending} />
+      ) : null}
+      {screen === "results" && review ? (
+        <ResultsReview model={review} onSegmentChange={handleSegmentChange} />
       ) : null}
     </AppShell>
   );
