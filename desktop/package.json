@@ -9,6 +9,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run --passWithNoTests --exclude tests/**",
     "test:watch": "vitest",
+    "e2e:install": "playwright install chromium",
     "e2e": "playwright test"
   },
   "dependencies": {

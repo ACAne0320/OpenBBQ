@@ -42,6 +42,7 @@ test("workflow page renders after entering a valid URL", async ({ page }) => {
 
   await expect(page.getByText("Selected step parameters")).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue" })).toBeVisible();
+  await expectNoHorizontalDocumentOverflow(page);
 });
 
 test("task monitor renders the failed checkpoint state", async ({ page }) => {

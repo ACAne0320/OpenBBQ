@@ -222,7 +222,12 @@ pnpm install
 pnpm dev
 pnpm test
 pnpm build
+pnpm e2e:install
+pnpm e2e
 ```
+
+Run `pnpm e2e:install` once per Playwright browser version before running the
+desktop visual smoke tests.
 
 The first renderer slice uses mock data behind a typed client boundary while
 the Electron shell and missing backend contracts are implemented separately.
