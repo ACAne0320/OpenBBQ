@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -178,10 +178,18 @@ describe("WorkflowEditor", () => {
     await user.type(screen.getByLabelText(/video link/i), "https://example.com/later.mp4");
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
-    localTemplate.resolve(workflowSteps);
-    remoteTemplate.resolve(remoteStepsFor("https://example.com/later.mp4"));
+    await act(async () => {
+      remoteTemplate.resolve(remoteStepsFor("https://example.com/later.mp4"));
+    });
 
     expect(await screen.findByRole("heading", { name: "Arrange workflow" })).toBeInTheDocument();
+    expect(screen.getAllByText("Remote video -> translated SRT").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /select step 1: fetch source/i })).toBeInTheDocument();
+
+    await act(async () => {
+      localTemplate.resolve(workflowSteps);
+    });
+
     expect(screen.getAllByText("Remote video -> translated SRT").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /select step 1: fetch source/i })).toBeInTheDocument();
     expect(screen.queryByText("Local video -> translated SRT")).not.toBeInTheDocument();
