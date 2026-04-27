@@ -115,8 +115,11 @@ export function App({ client: providedClient }: AppProps = {}) {
       return;
     }
 
-    if (item === "Tasks" && task) {
-      setScreen("monitor");
+    if (item === "Tasks") {
+      reviewRequestId.current += 1;
+      if (task) {
+        setScreen("monitor");
+      }
       return;
     }
 

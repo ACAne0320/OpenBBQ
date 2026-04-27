@@ -211,3 +211,18 @@ uv run openbbq api serve \
 ```
 
 The direct script entry point is also available as `uv run openbbq-api`.
+
+## Desktop renderer development
+
+The desktop renderer lives under `desktop/`.
+
+```bash
+cd desktop
+pnpm install
+pnpm dev
+pnpm test
+pnpm build
+```
+
+The first renderer slice uses mock data behind a typed client boundary while
+the Electron shell and missing backend contracts are implemented separately.

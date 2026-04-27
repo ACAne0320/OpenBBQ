@@ -152,6 +152,98 @@ describe("App workflow flow", () => {
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 
+  it("keeps the current screen when Tasks is selected before a task exists", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    expect(screen.getByRole("heading", { name: "Choose a source" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
+  it("opens results from navigation using the loaded task run id", async () => {
+    const user = userEvent.setup();
+    const getReview = vi.fn().mockResolvedValue(reviewModel);
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getReview,
+      getTaskMonitor: vi.fn().mockResolvedValue(failedTask)
+    });
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Task monitor");
+
+    await user.click(screen.getByRole("button", { name: "Results" }));
+
+    expect(await screen.findByText("Review results")).toBeInTheDocument();
+    expect(getReview).toHaveBeenCalledWith(failedTask.id);
+    expect(screen.getByRole("button", { name: "Results" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
+  it("keeps the current screen while Results loads without a task and then shows review", async () => {
+    const user = userEvent.setup();
+    const review = createDeferred<typeof reviewModel>();
+    const getReview = vi.fn(() => review.promise);
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), { getReview });
+
+    render(<App client={client} />);
+
+    await user.click(screen.getByRole("button", { name: "Results" }));
+
+    expect(screen.getByRole("heading", { name: "Choose a source" })).toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(getReview).toHaveBeenCalledWith("run_sample");
+
+    await act(async () => {
+      review.resolve(reviewModel);
+      await review.promise;
+    });
+
+    expect(await screen.findByText("Review results")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Results" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
+  it("keeps Tasks active when returning to the task monitor before review loading finishes", async () => {
+    const user = userEvent.setup();
+    const review = createDeferred<typeof reviewModel>();
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getReview: vi.fn(() => review.promise),
+      getTaskMonitor: vi.fn().mockResolvedValue(failedTask)
+    });
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Task monitor");
+
+    await user.click(screen.getByRole("button", { name: "Results" }));
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    expect(screen.getByText("Task monitor")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tasks" })).toHaveAttribute("aria-current", "page");
+
+    await act(async () => {
+      review.resolve(reviewModel);
+      await review.promise;
+    });
+
+    expect(screen.getByText("Task monitor")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tasks" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByText("Review results")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
   it("retries the failed checkpoint once while pending and refreshes the task on success", async () => {
     const user = userEvent.setup();
     const retry = createDeferred<void>();
