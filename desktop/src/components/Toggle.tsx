@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes } from "react";
 
 type ToggleButtonProps = Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
-  "aria-checked" | "aria-label" | "aria-pressed" | "disabled" | "onClick" | "role" | "type"
+  "aria-checked" | "aria-label" | "aria-pressed" | "disabled" | "onChange" | "onClick" | "role" | "type"
 >;
 
 type ToggleProps = ToggleButtonProps & {
