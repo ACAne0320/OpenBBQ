@@ -23,7 +23,7 @@ export const workflowSteps: WorkflowStep[] = [
       { kind: "select", key: "language", label: "Language", value: "English", options: ["English", "Auto"] },
       { kind: "select", key: "model", label: "Model", value: "base", options: ["tiny", "base", "small", "medium"] },
       { kind: "select", key: "device", label: "Device", value: "cpu", options: ["cpu", "cuda"] },
-      { kind: "select", key: "compute", label: "Compute", value: "int8", options: ["int8", "float16", "float32"] },
+      { kind: "select", key: "compute_type", label: "Compute", value: "int8", options: ["int8", "float16", "float32"] },
       {
         kind: "toggle",
         key: "word_timestamps",
@@ -101,7 +101,7 @@ export const failedTask: TaskMonitorModel = {
       sequence: 1,
       timestamp: "2026-04-27T03:15:12.000Z",
       level: "info",
-      message: "Run run_sample started for sample-interview."
+      message: "Task started for sample-interview."
     },
     {
       sequence: 2,
@@ -125,12 +125,12 @@ export const failedTask: TaskMonitorModel = {
       sequence: 5,
       timestamp: "2026-04-27T03:17:09.000Z",
       level: "error",
-      message: "Translation provider failed at checkpoint translate."
+      message: "Translation provider failed: provider returned rate limit at checkpoint translate."
     }
   ]
 };
 
-const waveformLevels = [0.18, 0.36, 0.64, 0.42, 0.78, 0.55, 0.9, 0.31];
+const waveformLevels = [24, 40, 62, 48, 72, 56, 80, 34];
 
 export const reviewModel: ReviewModel = {
   title: "sample-interview",

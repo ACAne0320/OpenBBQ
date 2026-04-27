@@ -21,7 +21,7 @@ export type StepParameter =
   | { kind: "select"; key: string; label: string; value: string; options: string[] }
   | { kind: "toggle"; key: string; label: string; description: string; value: boolean };
 
-export type TaskStatus = "running" | "failed" | "completed" | "aborted";
+export type TaskStatus = "queued" | "running" | "paused" | "failed" | "completed" | "aborted";
 
 export type ProgressStep = {
   id: string;
