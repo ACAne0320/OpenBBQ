@@ -142,7 +142,9 @@ def _report(
     total=None,
     unit=None,
 ) -> None:
-    if progress is not None:
+    if progress is None:
+        return
+    try:
         progress(
             phase=phase,
             label=label,
@@ -151,6 +153,8 @@ def _report(
             total=total,
             unit=unit,
         )
+    except Exception:
+        return
 
 
 def _yt_dlp_progress_hook(progress):

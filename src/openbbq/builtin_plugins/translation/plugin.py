@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import re
 from typing import Any
@@ -31,18 +30,6 @@ DEFAULT_MAX_CHARS_PER_LINE = 42
 DEFAULT_MAX_CHARS_PER_SECOND = 20.0
 NUMBER_RE = re.compile(r"\d+(?:[.,:]\d+)*")
 WHITESPACE_RE = re.compile(r"\s+")
-
-
-@dataclass(frozen=True)
-class _IndexedTimedSegment:
-    index: int
-    start: float
-    end: float
-    text: str
-    payload: dict[str, Any]
-    source_text: str | None = None
-    confidence: float | None = None
-    words: tuple[Any, ...] = ()
 
 
 def run(request: dict, client_factory=None, progress=None) -> dict:
@@ -93,9 +80,7 @@ def run_translation(
         tool_name=error_prefix,
     )
     client = client_factory(api_key=provider.api_key, base_url=provider.base_url)
-    segments = _segments_with_indexes(
-        _timed_segments_any(request, input_names=input_names, error_prefix=error_prefix)
-    )
+    segments = _timed_segments_any(request, input_names=input_names, error_prefix=error_prefix)
     translated_segments = []
     total_segments = len(segments)
     translated_count = 0
@@ -314,7 +299,9 @@ def _report(
     total=None,
     unit=None,
 ) -> None:
-    if progress is not None:
+    if progress is None:
+        return
+    try:
         progress(
             phase=phase,
             label=label,
@@ -323,33 +310,14 @@ def _report(
             total=total,
             unit=unit,
         )
-
-
-def _segments_with_indexes(segments: list[TimedSegment]) -> list[_IndexedTimedSegment]:
-    return [
-        _IndexedTimedSegment(
-            index=_segment_index(segment, fallback_index),
-            start=segment.start,
-            end=segment.end,
-            text=segment.text,
-            payload=segment.payload,
-            source_text=segment.source_text,
-            confidence=segment.confidence,
-            words=segment.words,
-        )
-        for fallback_index, segment in enumerate(segments)
-    ]
-
-
-def _segment_index(segment: TimedSegment, fallback_index: int) -> int:
-    index = segment.payload.get("index")
-    return index if isinstance(index, int) else fallback_index
+    except Exception:
+        return
 
 
 def _translate_chunk(
     *,
     client: Any,
-    chunk: list[_IndexedTimedSegment],
+    chunk: list[TimedSegment],
     model: str,
     temperature: float,
     system_prompt: str,
@@ -400,7 +368,7 @@ def _translate_chunk(
 def _translate_chunk_once(
     *,
     client: Any,
-    chunk: list[_IndexedTimedSegment],
+    chunk: list[TimedSegment],
     model: str,
     temperature: float,
     system_prompt: str,

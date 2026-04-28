@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 import subprocess
 
@@ -37,7 +38,7 @@ def run(request: dict, runner=None, duration_probe=None, progress=None) -> dict:
     ]
     if progress is None:
         runner(command)
-    else:
+    elif _runner_supports_progress(runner):
         duration_probe = _probe_duration_seconds if duration_probe is None else duration_probe
         duration_seconds = float(duration_probe(video_file) or 0)
         _report(
@@ -55,7 +56,7 @@ def run(request: dict, runner=None, duration_probe=None, progress=None) -> dict:
                 progress,
                 phase="extract_audio",
                 label="Extract audio",
-                percent=(seconds / duration_seconds) * 100 if duration_seconds > 0 else 0,
+                percent=_percent_from_seconds(seconds, duration_seconds),
                 current=seconds,
                 total=duration_seconds,
                 unit="seconds",
@@ -68,6 +69,23 @@ def run(request: dict, runner=None, duration_probe=None, progress=None) -> dict:
             percent=100,
             current=duration_seconds,
             total=duration_seconds,
+            unit="seconds",
+        )
+    else:
+        _report(
+            progress,
+            phase="extract_audio",
+            label="Extract audio",
+            percent=0,
+            current=0,
+            unit="seconds",
+        )
+        runner(command)
+        _report(
+            progress,
+            phase="extract_audio",
+            label="Extract audio",
+            percent=100,
             unit="seconds",
         )
     return {
@@ -95,7 +113,9 @@ def _report(
     total=None,
     unit=None,
 ) -> None:
-    if progress is not None:
+    if progress is None:
+        return
+    try:
         progress(
             phase=phase,
             label=label,
@@ -104,6 +124,25 @@ def _report(
             total=total,
             unit=unit,
         )
+    except Exception:
+        return
+
+
+def _runner_supports_progress(runner) -> bool:
+    try:
+        parameters = inspect.signature(runner).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.name == "on_progress" or parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+
+
+def _percent_from_seconds(seconds: float, duration_seconds: float) -> float:
+    if duration_seconds <= 0:
+        return 0
+    return min(max((seconds / duration_seconds) * 100, 0), 100)
 
 
 def _probe_duration_seconds(path: Path) -> float:
@@ -153,16 +192,26 @@ def _run_subprocess_with_progress(command: list[str], *, on_progress) -> None:
     except FileNotFoundError as exc:
         raise RuntimeError("ffmpeg binary was not found on PATH.") from exc
     output_lines: list[str] = []
-    if process.stdout is not None:
-        for line in process.stdout:
-            output_lines.append(line)
-            seconds = _progress_seconds(line)
-            if seconds is not None:
-                on_progress(seconds)
+    try:
+        if process.stdout is not None:
+            for line in process.stdout:
+                output_lines.append(line)
+                seconds = _progress_seconds(line)
+                if seconds is not None:
+                    on_progress(seconds)
+    except Exception:
+        _cleanup_process(process)
+        raise
     return_code = process.wait()
     if return_code != 0:
         output = "".join(output_lines).strip()
         raise RuntimeError(f"ffmpeg failed: {output}")
+
+
+def _cleanup_process(process) -> None:
+    if process.poll() is None:
+        process.kill()
+    process.wait()
 
 
 def _progress_seconds(line: str) -> float | None:
