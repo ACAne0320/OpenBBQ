@@ -84,6 +84,7 @@ def execute_step_attempt(
             workflow_id=context.workflow.id,
             step_id=step.id,
             attempt=attempt,
+            redactor=redact_runtime_secrets,
         )
         raw_response = execute_plugin_tool(
             plugin,
