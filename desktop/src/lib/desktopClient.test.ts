@@ -67,7 +67,7 @@ describe("createDesktopClient", () => {
       }),
       getRuntimeModels: vi.fn().mockResolvedValue([
         {
-          provider: "faster_whisper",
+          provider: "faster-whisper",
           model: "base",
           cacheDir: "cache/models/faster-whisper",
           present: false,

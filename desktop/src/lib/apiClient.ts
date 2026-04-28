@@ -91,7 +91,7 @@ export function createMockClient(): OpenBBQClient {
   };
   let runtimeModels: RuntimeModelStatus[] = [
     {
-      provider: "faster_whisper",
+      provider: "faster-whisper",
       model: "base",
       cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
       present: false,
@@ -184,7 +184,7 @@ export function createMockClient(): OpenBBQClient {
         }
       };
       runtimeModels = runtimeModels.map((model) =>
-        model.provider === "faster_whisper"
+        model.provider === "faster-whisper"
           ? { ...model, model: input.defaultModel, cacheDir: input.cacheDir }
           : model
       );

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type {
   DiagnosticCheck,
@@ -51,6 +51,34 @@ function providerDraft(provider: LlmProviderModel): ProviderDraft {
     apiKeyRef: provider.apiKeyRef ?? `sqlite:openbbq/providers/${provider.name}/api_key`,
     secretValue: ""
   };
+}
+
+function defaultLlmProvider(name: string): LlmProviderModel {
+  return {
+    name,
+    type: "openai_compatible",
+    baseUrl: null,
+    apiKeyRef: `sqlite:openbbq/providers/${name}/api_key`,
+    defaultChatModel: null,
+    displayName: name
+  };
+}
+
+function llmProviderOptions(settings: RuntimeSettingsModel): LlmProviderModel[] {
+  const defaultName = settings.defaults.llmProvider;
+  if (settings.llmProviders.some((provider) => provider.name === defaultName)) {
+    return settings.llmProviders;
+  }
+
+  return [defaultLlmProvider(defaultName), ...settings.llmProviders];
+}
+
+function upsertProvider(providers: LlmProviderModel[], saved: LlmProviderModel): LlmProviderModel[] {
+  if (!providers.some((provider) => provider.name === saved.name)) {
+    return [...providers, saved];
+  }
+
+  return providers.map((provider) => (provider.name === saved.name ? saved : provider));
 }
 
 function emptyToNull(value: string): string | null {
@@ -189,7 +217,11 @@ function LlmProviderSection({
   checkLlmProvider: SettingsProps["checkLlmProvider"];
 }) {
   const [selectedName, setSelectedName] = useState(settings.defaults.llmProvider);
-  const selected = settings.llmProviders.find((provider) => provider.name === selectedName) ?? settings.llmProviders[0];
+  const providers = useMemo(() => llmProviderOptions(settings), [settings]);
+  const selected = useMemo(
+    () => providers.find((provider) => provider.name === selectedName) ?? providers[0],
+    [providers, selectedName]
+  );
   const [draft, setDraft] = useState<ProviderDraft>(() =>
     selected
       ? providerDraft(selected)
@@ -236,7 +268,7 @@ function LlmProviderSection({
 
       onSettingsChange({
         ...settings,
-        llmProviders: settings.llmProviders.map((provider) => (provider.name === saved.name ? saved : provider))
+        llmProviders: upsertProvider(settings.llmProviders, saved)
       });
       setDraft((current) => ({ ...current, secretValue: "" }));
       setFeedback("Provider saved.");
@@ -278,7 +310,7 @@ function LlmProviderSection({
       <aside className="rounded-lg bg-paper-muted p-3 shadow-control">
         <p className="text-xs font-bold uppercase text-muted">Providers</p>
         <div className="mt-3 grid gap-2">
-          {settings.llmProviders.map((provider) => {
+          {providers.map((provider) => {
             const selectedProvider = provider.name === selected.name;
             return (
               <button
@@ -385,7 +417,7 @@ function AsrSection({
   saveFasterWhisperDefaults: SettingsProps["saveFasterWhisperDefaults"];
 }) {
   const [draft, setDraft] = useState<FasterWhisperSettingsModel>(settings.fasterWhisper);
-  const status = models.find((model) => model.provider === "faster_whisper");
+  const status = models.find((model) => model.provider === "faster-whisper");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
 

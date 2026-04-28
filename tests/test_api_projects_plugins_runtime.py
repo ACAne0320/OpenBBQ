@@ -96,7 +96,7 @@ def test_runtime_routes(tmp_path, monkeypatch):
 
     assert settings_response.status_code == 200
     assert "settings" in settings_response.json()["data"]
-    assert models_response.json()["data"]["models"][0]["provider"] == "faster_whisper"
+    assert models_response.json()["data"]["models"][0]["provider"] == "faster-whisper"
     assert isinstance(doctor_response.json()["data"]["checks"], list)
 
 
@@ -131,7 +131,10 @@ def test_runtime_auth_and_secret_routes(tmp_path, monkeypatch):
 def test_runtime_defaults_and_faster_whisper_routes(tmp_path, monkeypatch):
     project = write_project_fixture(tmp_path, "text-basic")
     monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
     client, headers = authed_client(project)
+    cache_dir = cache_root / "models" / "faster-whisper"
 
     defaults = client.put(
         "/runtime/defaults",
@@ -142,7 +145,7 @@ def test_runtime_defaults_and_faster_whisper_routes(tmp_path, monkeypatch):
         "/runtime/models/faster-whisper",
         headers=headers,
         json={
-            "cache_dir": str(tmp_path / "fw-cache"),
+            "cache_dir": str(cache_dir),
             "default_model": "small",
             "default_device": "cpu",
             "default_compute_type": "int8",
@@ -158,7 +161,7 @@ def test_runtime_defaults_and_faster_whisper_routes(tmp_path, monkeypatch):
         settings.json()["data"]["settings"]["models"]["faster_whisper"]["default_model"] == "small"
     )
     assert models.json()["data"]["models"][0]["model"] == "small"
-    assert models.json()["data"]["models"][0]["cache_dir"] == str((tmp_path / "fw-cache").resolve())
+    assert models.json()["data"]["models"][0]["cache_dir"] == str(cache_dir.resolve())
 
 
 @pytest.mark.parametrize(
@@ -172,9 +175,11 @@ def test_runtime_defaults_and_faster_whisper_routes(tmp_path, monkeypatch):
 def test_runtime_faster_whisper_rejects_blank_settings(tmp_path, monkeypatch, field, value):
     project = write_project_fixture(tmp_path, "text-basic")
     monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
     client, headers = authed_client(project)
     valid_body = {
-        "cache_dir": str(tmp_path / "fw-cache"),
+        "cache_dir": str(cache_root / "models" / "faster-whisper"),
         "default_model": "small",
         "default_device": "cpu",
         "default_compute_type": "int8",
@@ -198,6 +203,40 @@ def test_runtime_faster_whisper_rejects_blank_settings(tmp_path, monkeypatch, fi
     assert settings.status_code == 200
     assert (
         settings.json()["data"]["settings"]["models"]["faster_whisper"][field] == valid_body[field]
+    )
+
+
+def test_runtime_faster_whisper_rejects_cache_dir_outside_runtime_cache_root(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
+    client, headers = authed_client(project, raise_server_exceptions=False)
+    valid_body = {
+        "cache_dir": str(cache_root / "models" / "faster-whisper"),
+        "default_model": "small",
+        "default_device": "cpu",
+        "default_compute_type": "int8",
+    }
+    valid = client.put(
+        "/runtime/models/faster-whisper",
+        headers=headers,
+        json=valid_body,
+    )
+
+    rejected = client.put(
+        "/runtime/models/faster-whisper",
+        headers=headers,
+        json=valid_body | {"cache_dir": str(tmp_path / "outside-model-cache")},
+    )
+    settings = client.get("/runtime/settings", headers=headers)
+
+    assert valid.status_code == 200
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "validation_error"
+    assert "cache.root" in rejected.json()["error"]["message"]
+    assert settings.json()["data"]["settings"]["models"]["faster_whisper"]["cache_dir"] == str(
+        (cache_root / "models" / "faster-whisper").resolve()
     )
 
 
@@ -524,6 +563,101 @@ def test_quickstart_cache_key_uses_current_resolved_runtime_defaults(tmp_path, m
     assert third.json()["data"]["run_id"] == second.json()["data"]["run_id"]
     assert len(tasks) == 2
     assert len({task.cache_key for task in tasks}) == 2
+
+
+def test_quickstart_cached_task_reuse_does_not_require_live_secret(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    generated_project = write_project_fixture(
+        tmp_path,
+        "text-basic",
+        project_dir_name="generated-project",
+    )
+    generated_config = load_project_config(generated_project)
+    write_run(
+        generated_config.storage.state,
+        RunRecord(
+            id="run_generated",
+            workflow_id="text-demo",
+            mode="start",
+            status="completed",
+            project_root=generated_project,
+            config_path=generated_config.config_path,
+            created_by="api",
+        ),
+    )
+    calls = []
+
+    def runtime_settings():
+        return RuntimeSettings(
+            version=1,
+            config_path=tmp_path / "config.toml",
+            cache=CacheSettings(root=tmp_path / "cache"),
+            defaults=RuntimeDefaults(
+                llm_provider="openai-compatible",
+                asr_provider="faster-whisper",
+            ),
+            providers={
+                "openai-compatible": ProviderProfile(
+                    name="openai-compatible",
+                    type="openai_compatible",
+                    api_key="env:OPENBBQ_LLM_API_KEY",
+                    default_chat_model="gpt-4o-mini",
+                )
+            },
+            models=ModelsSettings(
+                faster_whisper=FasterWhisperSettings(
+                    cache_dir=tmp_path / "fw-cache",
+                    default_model="small",
+                    default_device="cpu",
+                    default_compute_type="int8",
+                )
+            ),
+        )
+
+    def fake_youtube_job(request):
+        calls.append(request)
+        return SubtitleJobResult(
+            generated_project_root=generated_project,
+            generated_config_path=generated_config.config_path,
+            workflow_id="text-demo",
+            run_id="run_generated",
+            output_path=request.output_path,
+            source_artifact_id=None,
+            provider=request.provider,
+            model=request.model,
+            asr_model=request.asr_model,
+            asr_device=request.asr_device,
+            asr_compute_type=request.asr_compute_type,
+        )
+
+    monkeypatch.setattr(
+        "openbbq.application.quickstart.load_runtime_settings",
+        runtime_settings,
+    )
+    monkeypatch.setattr(
+        "openbbq.api.routes.quickstart.create_youtube_subtitle_job", fake_youtube_job
+    )
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-test")
+    user_db_path = tmp_path / "user.db"
+    client = TestClient(
+        create_app(ApiAppSettings(project_root=project, token="token", user_db_path=user_db_path))
+    )
+    headers = {"Authorization": "Bearer token"}
+    body = {
+        "url": "https://www.youtube.com/watch?v=demo",
+        "source_lang": "en",
+        "target_lang": "zh",
+        "quality": "best",
+    }
+
+    first = client.post("/quickstart/subtitle/youtube", headers=headers, json=body)
+    monkeypatch.delenv("OPENBBQ_LLM_API_KEY", raising=False)
+    second = client.post("/quickstart/subtitle/youtube", headers=headers, json=body)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["data"] == first.json()["data"]
+    assert len(calls) == 1
 
 
 def test_quickstart_history_resolves_run_after_app_restart(tmp_path):

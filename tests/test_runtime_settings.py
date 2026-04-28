@@ -383,7 +383,7 @@ def test_runtime_model_payload_methods_delegate_to_model_payload(tmp_path, monke
         base_url=None,
     ).request_payload() == {"kind": "ResolvedProvider"}
     assert ModelAssetStatus(
-        provider="faster_whisper",
+        provider="faster-whisper",
         model="base",
         cache_dir=Path("models"),
         present=False,

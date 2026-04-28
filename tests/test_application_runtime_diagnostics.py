@@ -97,7 +97,7 @@ def test_secret_check_and_model_list_return_pydantic_results(tmp_path, monkeypat
     models = model_list()
 
     assert result.secret.resolved is False
-    assert models.models[0].provider == "faster_whisper"
+    assert models.models[0].provider == "faster-whisper"
 
 
 def test_doctor_service_reports_setting_checks(tmp_path, monkeypatch):

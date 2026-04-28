@@ -37,7 +37,7 @@ const settings: RuntimeSettingsModel = {
 
 const models: RuntimeModelStatus[] = [
   {
-    provider: "faster_whisper",
+    provider: "faster-whisper",
     model: "base",
     cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
     present: false,
@@ -184,6 +184,43 @@ describe("Settings", () => {
     expect(secretInput).toHaveValue("");
   });
 
+  it("bootstraps the default LLM provider when no providers are configured", async () => {
+    const user = userEvent.setup();
+    const saveLlmProvider = vi.fn().mockImplementation(async (input) => ({
+      name: input.name,
+      type: input.type,
+      baseUrl: input.baseUrl,
+      apiKeyRef: input.apiKeyRef,
+      defaultChatModel: input.defaultChatModel,
+      displayName: input.displayName
+    }));
+    renderSettings({
+      loadSettings: vi.fn().mockResolvedValue({
+        ...clone(settings),
+        llmProviders: []
+      }),
+      saveLlmProvider
+    });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    expect(screen.getByRole("button", { name: /openai-compatible Default/i })).toHaveAttribute("aria-pressed", "true");
+
+    await user.type(screen.getByLabelText("Base URL"), "https://llm.example.test/v1");
+    await user.type(screen.getByLabelText("Default chat model"), "gpt-4.1-mini");
+    await user.type(screen.getByLabelText("API key"), "sk-test-secret");
+    await user.click(screen.getByRole("button", { name: "Save provider" }));
+
+    expect(saveLlmProvider).toHaveBeenCalledWith({
+      name: "openai-compatible",
+      type: "openai_compatible",
+      baseUrl: "https://llm.example.test/v1",
+      defaultChatModel: "gpt-4.1-mini",
+      secretValue: "sk-test-secret",
+      apiKeyRef: "sqlite:openbbq/providers/openai-compatible/api_key",
+      displayName: "openai-compatible"
+    });
+  });
+
   it("checks a provider secret without echoing the typed secret", async () => {
     const user = userEvent.setup();
     const checkLlmProvider = vi.fn().mockResolvedValue(clone(secretStatus));
@@ -306,7 +343,7 @@ describe("Settings", () => {
     expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeInTheDocument();
     expect(screen.getByText("cache.root_writable")).toBeInTheDocument();
     expect(screen.getByText("Runtime cache root is writable.")).toBeInTheDocument();
-    expect(screen.getByText("faster_whisper")).toBeInTheDocument();
+    expect(screen.getByText("faster-whisper")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Advanced" }));
 

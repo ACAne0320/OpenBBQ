@@ -157,6 +157,8 @@ def create_local_subtitle_job(request: LocalSubtitleJobRequest) -> SubtitleJobRe
 
 def resolve_local_subtitle_job_request(
     request: LocalSubtitleJobRequest,
+    *,
+    validate_provider_auth: bool = True,
 ) -> LocalSubtitleJobRequest:
     defaults = _runtime_defaults_for_request(
         provider=request.provider,
@@ -164,6 +166,7 @@ def resolve_local_subtitle_job_request(
         asr_model=request.asr_model,
         asr_device=request.asr_device,
         asr_compute_type=request.asr_compute_type,
+        validate_provider_auth=validate_provider_auth,
     )
     return request.model_copy(
         update={
@@ -220,6 +223,8 @@ def create_youtube_subtitle_job(request: YouTubeSubtitleJobRequest) -> SubtitleJ
 
 def resolve_youtube_subtitle_job_request(
     request: YouTubeSubtitleJobRequest,
+    *,
+    validate_provider_auth: bool = True,
 ) -> YouTubeSubtitleJobRequest:
     defaults = _runtime_defaults_for_request(
         provider=request.provider,
@@ -227,6 +232,7 @@ def resolve_youtube_subtitle_job_request(
         asr_model=request.asr_model,
         asr_device=request.asr_device,
         asr_compute_type=request.asr_compute_type,
+        validate_provider_auth=validate_provider_auth,
     )
     return request.model_copy(
         update={
@@ -254,20 +260,15 @@ def _runtime_defaults_for_request(
     asr_model: str | None,
     asr_device: str | None,
     asr_compute_type: str | None,
+    validate_provider_auth: bool,
 ) -> _ResolvedQuickstartDefaults:
     settings = load_runtime_settings()
     provider_name = provider or settings.defaults.llm_provider
     profile = settings.providers.get(provider_name)
     if profile is None:
         raise ValidationError(f"Default LLM provider '{provider_name}' is not configured.")
-    if profile.api_key is None:
-        raise ValidationError(f"Default LLM provider '{provider_name}' does not define an API key.")
-    resolved_secret = SecretResolver().resolve(profile.api_key)
-    if not resolved_secret.resolved:
-        raise ValidationError(
-            resolved_secret.public.error
-            or f"Default LLM provider '{provider_name}' API key is not resolved."
-        )
+    if validate_provider_auth:
+        _validate_provider_auth(provider_name, profile.api_key)
     if settings.defaults.asr_provider != "faster-whisper":
         raise ValidationError(
             f"Default ASR provider '{settings.defaults.asr_provider}' is not supported by this quickstart."
@@ -282,3 +283,14 @@ def _runtime_defaults_for_request(
         asr_device=asr_device or faster_whisper.default_device,
         asr_compute_type=asr_compute_type or faster_whisper.default_compute_type,
     )
+
+
+def _validate_provider_auth(provider_name: str, api_key: str | None) -> None:
+    if api_key is None:
+        raise ValidationError(f"Default LLM provider '{provider_name}' does not define an API key.")
+    resolved_secret = SecretResolver().resolve(api_key)
+    if not resolved_secret.resolved:
+        raise ValidationError(
+            resolved_secret.public.error
+            or f"Default LLM provider '{provider_name}' API key is not resolved."
+        )

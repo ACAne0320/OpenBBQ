@@ -52,7 +52,8 @@ def post_local_subtitle_job(
             plugin_paths=settings.plugin_paths,
             created_by="api",
             execute_inline=settings.execute_runs_inline,
-        )
+        ),
+        validate_provider_auth=False,
     )
     resolved_body = body.model_copy(update=_runtime_fields(job_request))
     cached = reusable_local_subtitle_job(request, resolved_body)
@@ -108,7 +109,8 @@ def post_youtube_subtitle_job(
             plugin_paths=settings.plugin_paths,
             created_by="api",
             execute_inline=settings.execute_runs_inline,
-        )
+        ),
+        validate_provider_auth=False,
     )
     resolved_body = body.model_copy(update=_runtime_fields(job_request))
     cached = reusable_youtube_subtitle_job(request, resolved_body)

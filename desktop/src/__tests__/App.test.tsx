@@ -134,7 +134,7 @@ function createTestClient(
     async getRuntimeModels() {
       return [
         {
-          provider: "faster_whisper",
+          provider: "faster-whisper",
           model: "base",
           cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
           present: false,

@@ -176,7 +176,7 @@ default_model = "base"
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
-    assert payload["models"][0]["provider"] == "faster_whisper"
+    assert payload["models"][0]["provider"] == "faster-whisper"
     assert payload["models"][0]["model"] == "base"
 
 

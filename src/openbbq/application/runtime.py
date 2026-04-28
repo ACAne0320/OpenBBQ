@@ -121,8 +121,13 @@ def faster_whisper_set(request: FasterWhisperSetRequest) -> RuntimeSettingsSetRe
         "models.faster_whisper.default_compute_type",
     )
     settings = load_runtime_settings()
+    cache_dir = _resolve_cache_dir_within_root(
+        request.cache_dir,
+        settings.cache.root,
+        "models.faster_whisper.cache_dir",
+    )
     faster_whisper = FasterWhisperSettings(
-        cache_dir=request.cache_dir.expanduser().resolve(),
+        cache_dir=cache_dir,
         default_model=request.default_model,
         default_device=request.default_device,
         default_compute_type=request.default_compute_type,
@@ -217,3 +222,16 @@ def _default_provider_sqlite_reference(name: str) -> str:
 def _require_non_empty_string(value: str, field_path: str) -> None:
     if not value.strip():
         raise ValidationError(f"{field_path} must be a non-empty string.")
+
+
+def _resolve_cache_dir_within_root(path: Path, cache_root: Path, field_path: str) -> Path:
+    resolved_root = cache_root.expanduser().resolve()
+    expanded = path.expanduser()
+    resolved = (
+        expanded.resolve() if expanded.is_absolute() else (resolved_root / expanded).resolve()
+    )
+    try:
+        resolved.relative_to(resolved_root)
+    except ValueError as exc:
+        raise ValidationError(f"{field_path} must be inside cache.root: {resolved_root}.") from exc
+    return resolved

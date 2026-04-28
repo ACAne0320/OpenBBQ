@@ -20,7 +20,7 @@ def faster_whisper_model_status(settings: RuntimeSettings) -> ModelAssetStatus:
     model = model_settings.default_model
     present = cache_dir.exists()
     return ModelAssetStatus(
-        provider="faster_whisper",
+        provider="faster-whisper",
         model=model,
         cache_dir=cache_dir,
         present=present,
