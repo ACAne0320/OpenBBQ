@@ -227,6 +227,10 @@ class FasterWhisperSettingsSetRequest(OpenBBQModel):
     default_compute_type: str
 
 
+class FasterWhisperDownloadRequest(OpenBBQModel):
+    model: str
+
+
 class ProviderAuthSetRequest(OpenBBQModel):
     type: str = "openai_compatible"
     base_url: str | None = None
@@ -247,6 +251,10 @@ class SecretSetRequest(OpenBBQModel):
 
 class ModelListData(OpenBBQModel):
     models: tuple[ModelAssetStatus, ...]
+
+
+class FasterWhisperDownloadData(OpenBBQModel):
+    model: ModelAssetStatus
 
 
 class DoctorData(OpenBBQModel):

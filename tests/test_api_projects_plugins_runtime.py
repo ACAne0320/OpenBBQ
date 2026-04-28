@@ -1,4 +1,7 @@
+from pathlib import Path
 import sqlite3
+import sys
+import types
 
 from fastapi.testclient import TestClient
 import pytest
@@ -19,6 +22,20 @@ from openbbq.storage.models import QuickstartTaskRecord, RunRecord
 from openbbq.storage.project_store import ProjectStore
 from openbbq.storage.runs import write_run
 from tests.helpers import authed_client, write_project_fixture
+
+FASTER_WHISPER_PAYLOAD_FILES = {
+    "model.bin": b"base",
+    "config.json": b"{}",
+    "tokenizer.json": b"tokenizer",
+}
+FASTER_WHISPER_PAYLOAD_SIZE = sum(len(content) for content in FASTER_WHISPER_PAYLOAD_FILES.values())
+
+
+def _write_faster_whisper_payload(path: Path) -> int:
+    path.mkdir(parents=True, exist_ok=True)
+    for filename, content in FASTER_WHISPER_PAYLOAD_FILES.items():
+        (path / filename).write_bytes(content)
+    return FASTER_WHISPER_PAYLOAD_SIZE
 
 
 def _patch_valid_quickstart_runtime(monkeypatch, tmp_path):
@@ -162,6 +179,182 @@ def test_runtime_defaults_and_faster_whisper_routes(tmp_path, monkeypatch):
     )
     assert models.json()["data"]["models"][0]["model"] == "small"
     assert models.json()["data"]["models"][0]["cache_dir"] == str(cache_dir.resolve())
+
+
+def test_runtime_models_lists_supported_faster_whisper_sizes(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    cache_root = tmp_path / "cache"
+    cache_dir = cache_root / "models" / "faster-whisper"
+    hf_cache_dir = cache_dir / "models--Systran--faster-whisper-base"
+    (hf_cache_dir / "refs").mkdir(parents=True)
+    (hf_cache_dir / "refs" / "main").write_text("abc123", encoding="utf-8")
+    payload_size = _write_faster_whisper_payload(hf_cache_dir / "snapshots" / "abc123")
+    (hf_cache_dir / "blobs").mkdir()
+    (hf_cache_dir / "blobs" / "unrelated").write_bytes(b"x" * 100)
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
+    client, headers = authed_client(project)
+
+    response = client.get("/runtime/models", headers=headers)
+
+    assert response.status_code == 200
+    models = response.json()["data"]["models"]
+    assert [model["model"] for model in models] == ["base", "tiny", "small", "medium", "large-v3"]
+    base = models[0]
+    assert base["provider"] == "faster-whisper"
+    assert base["cache_dir"] == str(cache_dir.resolve())
+    assert base["present"] is True
+    assert base["size_bytes"] == payload_size
+    assert all(model["provider"] == "faster-whisper" for model in models)
+
+
+def test_runtime_models_ignore_incomplete_faster_whisper_cache(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    cache_root = tmp_path / "cache"
+    cache_dir = cache_root / "models" / "faster-whisper"
+    payload_size = _write_faster_whisper_payload(cache_dir / "models--Systran--faster-whisper-base")
+    small_dir = cache_dir / "models--Systran--faster-whisper-small"
+    small_dir.mkdir(parents=True)
+    (small_dir / "model.bin").write_bytes(b"partial")
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
+    client, headers = authed_client(project)
+
+    response = client.get("/runtime/models", headers=headers)
+
+    assert response.status_code == 200
+    models_by_name = {model["model"]: model for model in response.json()["data"]["models"]}
+    assert models_by_name["base"]["present"] is True
+    assert models_by_name["base"]["size_bytes"] == payload_size
+    assert models_by_name["small"]["present"] is False
+    assert models_by_name["small"]["size_bytes"] == 0
+
+
+def test_runtime_downloads_faster_whisper_model_with_fake_adapter(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    cache_root = tmp_path / "cache"
+    cache_dir = cache_root / "models" / "faster-whisper"
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
+    calls = []
+
+    def fake_download(model, *, cache_dir, device, compute_type):
+        calls.append(
+            {
+                "model": model,
+                "cache_dir": cache_dir,
+                "device": device,
+                "compute_type": compute_type,
+            }
+        )
+        model_dir = cache_dir / f"models--Systran--faster-whisper-{model}"
+        _write_faster_whisper_payload(model_dir)
+
+    monkeypatch.setattr("openbbq.application.runtime.download_faster_whisper_model", fake_download)
+    client, headers = authed_client(project)
+
+    response = client.post(
+        "/runtime/models/faster-whisper/download",
+        headers=headers,
+        json={"model": "small"},
+    )
+
+    assert response.status_code == 200
+    assert calls == [
+        {
+            "model": "small",
+            "cache_dir": cache_dir.resolve(),
+            "device": "cpu",
+            "compute_type": "int8",
+        }
+    ]
+    assert response.json()["data"]["model"] == {
+        "provider": "faster-whisper",
+        "model": "small",
+        "cache_dir": str(cache_dir.resolve()),
+        "present": True,
+        "size_bytes": FASTER_WHISPER_PAYLOAD_SIZE,
+        "error": None,
+    }
+
+
+def test_faster_whisper_download_adapter_uses_download_utility(tmp_path, monkeypatch):
+    from openbbq.runtime.models_assets import download_faster_whisper_model
+
+    faster_whisper_module = types.ModuleType("faster_whisper")
+    faster_whisper_module.__path__ = []
+    utils_module = types.ModuleType("faster_whisper.utils")
+    calls = []
+
+    def fake_download_model(size_or_id, **kwargs):
+        calls.append({"size_or_id": size_or_id, **kwargs})
+
+    utils_module.download_model = fake_download_model
+    monkeypatch.setitem(sys.modules, "faster_whisper", faster_whisper_module)
+    monkeypatch.setitem(sys.modules, "faster_whisper.utils", utils_module)
+    cache_dir = tmp_path / "model-cache"
+
+    download_faster_whisper_model(
+        "small",
+        cache_dir=cache_dir,
+        device="cuda",
+        compute_type="float16",
+    )
+
+    assert cache_dir.is_dir()
+    assert calls == [{"size_or_id": "small", "cache_dir": str(cache_dir)}]
+
+
+def test_runtime_download_rejects_unsupported_faster_whisper_model(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
+    client, headers = authed_client(project, raise_server_exceptions=False)
+
+    response = client.post(
+        "/runtime/models/faster-whisper/download",
+        headers=headers,
+        json={"model": "unknown-size"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    assert "unknown-size" in response.json()["error"]["message"]
+
+
+def test_runtime_faster_whisper_rejects_unsupported_default_model(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
+    client, headers = authed_client(project)
+    valid_body = {
+        "cache_dir": str(cache_root / "models" / "faster-whisper"),
+        "default_model": "small",
+        "default_device": "cpu",
+        "default_compute_type": "int8",
+    }
+    valid = client.put(
+        "/runtime/models/faster-whisper",
+        headers=headers,
+        json=valid_body,
+    )
+
+    rejected = client.put(
+        "/runtime/models/faster-whisper",
+        headers=headers,
+        json=valid_body | {"default_model": "unknown-size"},
+    )
+    settings = client.get("/runtime/settings", headers=headers)
+
+    assert valid.status_code == 200
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "validation_error"
+    assert "unknown-size" in rejected.json()["error"]["message"]
+    assert (
+        settings.json()["data"]["settings"]["models"]["faster_whisper"]["default_model"] == "small"
+    )
 
 
 @pytest.mark.parametrize(

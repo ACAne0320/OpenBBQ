@@ -6,6 +6,8 @@ from openbbq.api.context import active_project_settings
 from openbbq.api.schemas import (
     ApiSuccess,
     DoctorData,
+    FasterWhisperDownloadData,
+    FasterWhisperDownloadRequest,
     FasterWhisperSettingsSetRequest,
     ModelListData,
     ProviderAuthSetRequest,
@@ -25,12 +27,16 @@ from openbbq.application.runtime import (
     auth_check,
     auth_set,
     defaults_set,
+    faster_whisper_download,
     faster_whisper_set,
     model_list,
     provider_set,
     secret_check,
     secret_set,
     settings_show,
+)
+from openbbq.application.runtime import (
+    FasterWhisperDownloadRequest as ApplicationFasterWhisperDownloadRequest,
 )
 from openbbq.application.runtime import (
     FasterWhisperSetRequest as ApplicationFasterWhisperSetRequest,
@@ -119,6 +125,17 @@ def put_faster_whisper_settings(
     return ApiSuccess(
         data=RuntimeSettingsSetData(settings=result.settings, config_path=result.config_path)
     )
+
+
+@router.post(
+    "/runtime/models/faster-whisper/download",
+    response_model=ApiSuccess[FasterWhisperDownloadData],
+)
+def post_faster_whisper_model_download(
+    body: FasterWhisperDownloadRequest,
+) -> ApiSuccess[FasterWhisperDownloadData]:
+    result = faster_whisper_download(ApplicationFasterWhisperDownloadRequest(model=body.model))
+    return ApiSuccess(data=FasterWhisperDownloadData(model=result.model))
 
 
 @router.get("/runtime/models", response_model=ApiSuccess[ModelListData])

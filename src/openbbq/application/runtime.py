@@ -14,7 +14,12 @@ from openbbq.runtime.models import (
     RuntimeSettings,
     SecretCheck,
 )
-from openbbq.runtime.models_assets import faster_whisper_model_status
+from openbbq.runtime.models_assets import (
+    download_faster_whisper_model,
+    faster_whisper_model_status,
+    faster_whisper_model_statuses,
+    require_supported_faster_whisper_model,
+)
 from openbbq.runtime.secrets import SecretResolver
 from openbbq.runtime.settings import (
     load_runtime_settings,
@@ -45,6 +50,10 @@ class FasterWhisperSetRequest(OpenBBQModel):
     default_model: str
     default_device: str
     default_compute_type: str
+
+
+class FasterWhisperDownloadRequest(OpenBBQModel):
+    model: str
 
 
 class ProviderSetRequest(OpenBBQModel):
@@ -95,6 +104,10 @@ class ModelListResult(OpenBBQModel):
     models: tuple[ModelAssetStatus, ...]
 
 
+class FasterWhisperDownloadResult(OpenBBQModel):
+    model: ModelAssetStatus
+
+
 def settings_show() -> SettingsShowResult:
     return SettingsShowResult(settings=load_runtime_settings())
 
@@ -120,6 +133,7 @@ def faster_whisper_set(request: FasterWhisperSetRequest) -> RuntimeSettingsSetRe
         request.default_compute_type,
         "models.faster_whisper.default_compute_type",
     )
+    require_supported_faster_whisper_model(request.default_model)
     settings = load_runtime_settings()
     cache_dir = _resolve_cache_dir_within_root(
         request.cache_dir,
@@ -212,7 +226,34 @@ def secret_set(request: SecretSetRequest) -> SecretCheckResult:
 
 
 def model_list() -> ModelListResult:
-    return ModelListResult(models=(faster_whisper_model_status(load_runtime_settings()),))
+    return ModelListResult(models=faster_whisper_model_statuses(load_runtime_settings()))
+
+
+def faster_whisper_download(
+    request: FasterWhisperDownloadRequest,
+) -> FasterWhisperDownloadResult:
+    _require_non_empty_string(request.model, "model")
+    settings = load_runtime_settings()
+    require_supported_faster_whisper_model(request.model)
+    faster_whisper = (
+        settings.models.faster_whisper
+        if settings.models is not None
+        else FasterWhisperSettings(
+            cache_dir=settings.cache.root / "models" / "faster-whisper",
+            default_model="base",
+            default_device="cpu",
+            default_compute_type="int8",
+        )
+    )
+    download_faster_whisper_model(
+        request.model,
+        cache_dir=faster_whisper.cache_dir,
+        device=faster_whisper.default_device,
+        compute_type=faster_whisper.default_compute_type,
+    )
+    return FasterWhisperDownloadResult(
+        model=faster_whisper_model_status(settings, model=request.model)
+    )
 
 
 def _default_provider_sqlite_reference(name: str) -> str:
