@@ -65,6 +65,87 @@ function createTestClient(
     async getReview() {
       return reviewModel;
     },
+    async getRuntimeSettings() {
+      return {
+        configPath: "C:/Users/alex/.openbbq/config.toml",
+        cacheRoot: "C:/Users/alex/.cache/openbbq",
+        defaults: { llmProvider: "openai-compatible", asrProvider: "faster-whisper" },
+        llmProviders: [
+          {
+            name: "openai-compatible",
+            type: "openai_compatible",
+            baseUrl: null,
+            apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
+            defaultChatModel: "gpt-4o-mini",
+            displayName: "OpenAI-compatible"
+          }
+        ],
+        fasterWhisper: {
+          cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+          defaultModel: "base",
+          defaultDevice: "cpu",
+          defaultComputeType: "int8"
+        }
+      };
+    },
+    async saveRuntimeDefaults(input) {
+      return {
+        configPath: "C:/Users/alex/.openbbq/config.toml",
+        cacheRoot: "C:/Users/alex/.cache/openbbq",
+        defaults: input,
+        llmProviders: [],
+        fasterWhisper: {
+          cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+          defaultModel: "base",
+          defaultDevice: "cpu",
+          defaultComputeType: "int8"
+        }
+      };
+    },
+    async saveLlmProvider(input) {
+      return {
+        name: input.name,
+        type: input.type,
+        baseUrl: input.baseUrl,
+        apiKeyRef: input.apiKeyRef,
+        defaultChatModel: input.defaultChatModel,
+        displayName: input.displayName
+      };
+    },
+    async checkLlmProvider(name) {
+      const envName = name.toUpperCase().replace(/-/g, "_");
+      return {
+        reference: `env:${envName}_API_KEY`,
+        resolved: true,
+        display: `env:${envName}_API_KEY`,
+        valuePreview: "configured",
+        error: null
+      };
+    },
+    async saveFasterWhisperDefaults(input) {
+      return {
+        configPath: "C:/Users/alex/.openbbq/config.toml",
+        cacheRoot: "C:/Users/alex/.cache/openbbq",
+        defaults: { llmProvider: "openai-compatible", asrProvider: "faster-whisper" },
+        llmProviders: [],
+        fasterWhisper: input
+      };
+    },
+    async getRuntimeModels() {
+      return [
+        {
+          provider: "faster_whisper",
+          model: "base",
+          cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+          present: false,
+          sizeBytes: 0,
+          error: null
+        }
+      ];
+    },
+    async getDiagnostics() {
+      return [{ id: "cache.root_writable", status: "passed", severity: "error", message: "Runtime cache root is writable." }];
+    },
     async updateSegmentText() {
       return undefined;
     },
