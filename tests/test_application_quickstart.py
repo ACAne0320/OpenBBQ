@@ -255,6 +255,7 @@ def test_local_subtitle_job_imports_video_and_starts_run(tmp_path, monkeypatch):
         "openbbq.application.quickstart.load_runtime_settings",
         lambda: _runtime_settings(tmp_path, llm_provider="openai"),
     )
+    monkeypatch.setattr("openbbq.application.quickstart_workflows._new_run_id", lambda: "r")
 
     def fake_create_run(request, *, execute_inline=False):
         captured["request"] = request

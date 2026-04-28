@@ -20,7 +20,7 @@ def test_parse_args_accepts_sidecar_options():
     )
 
     assert args == ServerArgs(
-        project=Path("/tmp/project"),
+        project=Path("/tmp/project").expanduser().resolve(),
         config=None,
         plugins=(),
         host="127.0.0.1",

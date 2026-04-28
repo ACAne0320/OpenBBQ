@@ -261,9 +261,7 @@ def _runtime_defaults_for_request(
     if profile is None:
         raise ValidationError(f"Default LLM provider '{provider_name}' is not configured.")
     if profile.api_key is None:
-        raise ValidationError(
-            f"Default LLM provider '{provider_name}' does not define an API key."
-        )
+        raise ValidationError(f"Default LLM provider '{provider_name}' does not define an API key.")
     resolved_secret = SecretResolver().resolve(profile.api_key)
     if not resolved_secret.resolved:
         raise ValidationError(

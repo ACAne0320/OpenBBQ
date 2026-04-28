@@ -34,7 +34,7 @@ def test_api_success_envelope_validates_payload():
         "data": {
             "version": "0.1.0",
             "pid": 123,
-            "project_root": "/tmp/project",
+            "project_root": str(Path("/tmp/project")),
         },
     }
 

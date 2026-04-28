@@ -152,19 +152,13 @@ def test_runtime_defaults_and_faster_whisper_routes(tmp_path, monkeypatch):
     models = client.get("/runtime/models", headers=headers)
 
     assert defaults.status_code == 200
-    assert (
-        defaults.json()["data"]["settings"]["defaults"]["llm_provider"]
-        == "openai-compatible"
-    )
+    assert defaults.json()["data"]["settings"]["defaults"]["llm_provider"] == "openai-compatible"
     assert asr.status_code == 200
     assert (
-        settings.json()["data"]["settings"]["models"]["faster_whisper"]["default_model"]
-        == "small"
+        settings.json()["data"]["settings"]["models"]["faster_whisper"]["default_model"] == "small"
     )
     assert models.json()["data"]["models"][0]["model"] == "small"
-    assert models.json()["data"]["models"][0]["cache_dir"] == str(
-        (tmp_path / "fw-cache").resolve()
-    )
+    assert models.json()["data"]["models"][0]["cache_dir"] == str((tmp_path / "fw-cache").resolve())
 
 
 @pytest.mark.parametrize(
@@ -175,9 +169,7 @@ def test_runtime_defaults_and_faster_whisper_routes(tmp_path, monkeypatch):
         ("default_compute_type", "\t"),
     ),
 )
-def test_runtime_faster_whisper_rejects_blank_settings(
-    tmp_path, monkeypatch, field, value
-):
+def test_runtime_faster_whisper_rejects_blank_settings(tmp_path, monkeypatch, field, value):
     project = write_project_fixture(tmp_path, "text-basic")
     monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
     client, headers = authed_client(project)
@@ -205,14 +197,11 @@ def test_runtime_faster_whisper_rejects_blank_settings(
     assert rejected.json()["error"]["code"] == "validation_error"
     assert settings.status_code == 200
     assert (
-        settings.json()["data"]["settings"]["models"]["faster_whisper"][field]
-        == valid_body[field]
+        settings.json()["data"]["settings"]["models"]["faster_whisper"][field] == valid_body[field]
     )
 
 
-def test_runtime_defaults_invalid_provider_name_returns_validation_error(
-    tmp_path, monkeypatch
-):
+def test_runtime_defaults_invalid_provider_name_returns_validation_error(tmp_path, monkeypatch):
     project = write_project_fixture(tmp_path, "text-basic")
     monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
     client, headers = authed_client(project, raise_server_exceptions=False)
