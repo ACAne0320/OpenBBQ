@@ -19,6 +19,7 @@ export type SettingsProps = {
   loadSettings(): Promise<RuntimeSettingsModel>;
   loadModels(): Promise<RuntimeModelStatus[]>;
   downloadFasterWhisperModel(input: DownloadFasterWhisperModelInput): Promise<RuntimeModelDownloadJob>;
+  getFasterWhisperModelDownload(jobId: string): Promise<RuntimeModelDownloadJob>;
   loadDiagnostics(): Promise<DiagnosticCheck[]>;
   saveRuntimeDefaults(input: { llmProvider: string; asrProvider: string }): Promise<RuntimeSettingsModel>;
   saveLlmProvider(input: {
@@ -174,6 +175,7 @@ function upsertModelStatus(models: RuntimeModelStatus[], saved: RuntimeModelStat
 export function Settings({
   checkLlmProvider,
   downloadFasterWhisperModel,
+  getFasterWhisperModelDownload,
   loadDiagnostics,
   loadModels,
   loadSettings,
@@ -260,6 +262,7 @@ export function Settings({
         {section === "asr" ? (
           <AsrSection
             downloadFasterWhisperModel={downloadFasterWhisperModel}
+            getFasterWhisperModelDownload={getFasterWhisperModelDownload}
             loadModels={loadModels}
             models={models}
             onModelsChange={setModels}
@@ -489,6 +492,7 @@ function LlmProviderSection({
 
 function AsrSection({
   downloadFasterWhisperModel,
+  getFasterWhisperModelDownload,
   loadModels,
   models,
   onModelsChange,
@@ -500,6 +504,7 @@ function AsrSection({
   models: RuntimeModelStatus[];
   loadModels: SettingsProps["loadModels"];
   downloadFasterWhisperModel: NonNullable<SettingsProps["downloadFasterWhisperModel"]>;
+  getFasterWhisperModelDownload: SettingsProps["getFasterWhisperModelDownload"];
   onModelsChange(models: RuntimeModelStatus[]): void;
   onSettingsChange(settings: RuntimeSettingsModel): void;
   saveFasterWhisperDefaults: SettingsProps["saveFasterWhisperDefaults"];
@@ -509,7 +514,23 @@ function AsrSection({
   const modelOptions = useMemo(() => fasterWhisperModelOptions(statuses, draft.defaultModel), [draft.defaultModel, statuses]);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const [downloadingModel, setDownloadingModel] = useState<string | null>(null);
+  const [downloadJobs, setDownloadJobs] = useState<Record<string, RuntimeModelDownloadJob>>({});
+
+  useEffect(() => {
+    const activeJobs = Object.values(downloadJobs).filter(isActiveModelDownloadJob);
+
+    if (activeJobs.length === 0) {
+      return undefined;
+    }
+
+    const interval = window.setInterval(() => {
+      for (const job of activeJobs) {
+        void pollDownloadJob(job.jobId);
+      }
+    }, 750);
+
+    return () => window.clearInterval(interval);
+  }, [downloadJobs]);
 
   async function saveDefaults() {
     setFeedback(null);
@@ -539,30 +560,49 @@ function AsrSection({
   async function downloadModel(model: string) {
     setFeedback(null);
     setMutationError(null);
-    setDownloadingModel(model);
 
     try {
       const downloadJob = await downloadFasterWhisperModel({ model });
-      const downloaded = downloadJob.modelStatus ?? null;
-      if (downloaded) {
-        onModelsChange(upsertModelStatus(models, downloaded));
-      }
-      setFeedback("Model downloaded.");
-
-      try {
-        const refreshed = await loadModels();
-        const hasDownloadedStatus =
-          downloaded !== null &&
-          refreshed.some((status) => status.provider === downloaded.provider && status.model === downloaded.model);
-
-        onModelsChange(hasDownloadedStatus || downloaded === null ? refreshed : upsertModelStatus(refreshed, downloaded));
-      } catch (error) {
-        setMutationError(errorMessage(error, "Model status could not be refreshed."));
-      }
+      setDownloadJobs((current) => ({ ...current, [downloadJob.model]: downloadJob }));
+      await applyDownloadJob(downloadJob);
     } catch (error) {
       setMutationError(errorMessage(error, "Model could not be downloaded."));
-    } finally {
-      setDownloadingModel(null);
+    }
+  }
+
+  async function pollDownloadJob(jobId: string) {
+    try {
+      const nextJob = await getFasterWhisperModelDownload(jobId);
+      setDownloadJobs((current) => ({ ...current, [nextJob.model]: nextJob }));
+      await applyDownloadJob(nextJob);
+    } catch (error) {
+      setMutationError(errorMessage(error, "Model download status could not be refreshed."));
+    }
+  }
+
+  async function applyDownloadJob(job: RuntimeModelDownloadJob) {
+    if (job.status === "failed") {
+      setMutationError(job.error ?? "Model download failed.");
+      return;
+    }
+
+    if (job.status !== "completed" || !job.modelStatus) {
+      return;
+    }
+
+    const downloaded = job.modelStatus;
+    onModelsChange(upsertModelStatus(models, downloaded));
+    setFeedback("Model downloaded.");
+
+    try {
+      const refreshed = await loadModels();
+      const hasDownloadedStatus = refreshed.some(
+        (status) => status.provider === downloaded.provider && status.model === downloaded.model && status.present
+      );
+
+      onModelsChange(hasDownloadedStatus ? refreshed : upsertModelStatus(refreshed, downloaded));
+    } catch (error) {
+      setMutationError(errorMessage(error, "Model status could not be refreshed."));
     }
   }
 
@@ -608,7 +648,8 @@ function AsrSection({
           {statuses.map((status) => {
             const size = formatBytes(status.sizeBytes);
             const unavailable = modelStatusUnavailable(status);
-            const busy = downloadingModel !== null;
+            const job = downloadJobs[status.model];
+            const busy = job ? isActiveModelDownloadJob(job) : false;
             return (
               <div
                 key={status.model}
@@ -621,6 +662,7 @@ function AsrSection({
                     {size ? <span className="text-muted">{size}</span> : null}
                   </div>
                   <p className="mt-1 break-all text-xs text-muted">{status.cacheDir || draft.cacheDir}</p>
+                  {job ? <ModelDownloadProgress job={job} /> : null}
                 </div>
                 <Button
                   variant="secondary"
@@ -628,7 +670,7 @@ function AsrSection({
                   disabled={status.present || unavailable || busy}
                   onClick={() => void downloadModel(status.model)}
                 >
-                  {downloadingModel === status.model ? "Downloading" : "Download"}
+                  {busy ? "Downloading" : "Download"}
                 </Button>
               </div>
             );
@@ -648,6 +690,40 @@ function AsrSection({
         </div>
       </section>
     </section>
+  );
+}
+
+function isActiveModelDownloadJob(job: RuntimeModelDownloadJob): boolean {
+  return job.status === "queued" || job.status === "running";
+}
+
+function modelDownloadPercent(job: RuntimeModelDownloadJob): number {
+  if (!Number.isFinite(job.percent)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, job.percent));
+}
+
+function ModelDownloadProgress({ job }: { job: RuntimeModelDownloadJob }) {
+  const percent = modelDownloadPercent(job);
+  const roundedPercent = Math.round(percent);
+
+  return (
+    <div className="mt-2 grid gap-1">
+      <div
+        role="progressbar"
+        aria-label={`${job.model} download progress`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={roundedPercent}
+        className="h-2 overflow-hidden rounded-full bg-[#d8c8ae]"
+      >
+        <div className="h-full rounded-full bg-ready" style={{ width: `${percent}%` }} />
+      </div>
+      <p className="text-xs font-bold text-ink-brown">{roundedPercent}%</p>
+      {job.error ? <p className="text-xs font-semibold text-[#8a3f25]">{job.error}</p> : null}
+    </div>
   );
 }
 

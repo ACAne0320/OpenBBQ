@@ -120,6 +120,7 @@ function renderSettings(overrides: Partial<SettingsProps> = {}) {
       fasterWhisper: input
     })),
     downloadFasterWhisperModel: vi.fn().mockResolvedValue(completedDownloadJob(clone(models[1]))),
+    getFasterWhisperModelDownload: vi.fn().mockResolvedValue(completedDownloadJob(clone(models[1]))),
     ...overrides
   };
 
@@ -466,6 +467,61 @@ describe("Settings", () => {
 
     expect(downloadFasterWhisperModel).toHaveBeenCalledWith({ model: "base" });
     expect(loadModels).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText("Model downloaded.")).toBeInTheDocument();
+    expect(screen.getAllByText("Downloaded").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("shows real percentage progress for a faster-whisper model download", async () => {
+    const user = userEvent.setup();
+    const downloadedModel: RuntimeModelStatus = {
+      provider: "faster-whisper",
+      model: "base",
+      cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+      present: true,
+      sizeBytes: 10,
+      error: null
+    };
+    const downloadFasterWhisperModel = vi.fn().mockResolvedValue({
+      jobId: "job-base",
+      provider: "faster-whisper",
+      model: "base",
+      status: "running",
+      percent: 35,
+      currentBytes: 35,
+      totalBytes: 100,
+      error: null,
+      startedAt: "2026-04-28T10:00:00.000Z",
+      completedAt: null,
+      modelStatus: null
+    } satisfies RuntimeModelDownloadJob);
+    const getFasterWhisperModelDownload = vi.fn().mockResolvedValue({
+      jobId: "job-base",
+      provider: "faster-whisper",
+      model: "base",
+      status: "completed",
+      percent: 100,
+      currentBytes: 100,
+      totalBytes: 100,
+      error: null,
+      startedAt: "2026-04-28T10:00:00.000Z",
+      completedAt: "2026-04-28T10:01:00.000Z",
+      modelStatus: downloadedModel
+    } satisfies RuntimeModelDownloadJob);
+
+    renderSettings({
+      downloadFasterWhisperModel,
+      getFasterWhisperModelDownload
+    });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    await user.click(screen.getByRole("button", { name: "Download base" }));
+
+    expect(await screen.findByText("35%")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "base download progress" })).toHaveAttribute("aria-valuenow", "35");
+    expect(screen.getByRole("button", { name: "Download base" })).toBeDisabled();
+    expect(await screen.findByText("100%")).toBeInTheDocument();
+    expect(getFasterWhisperModelDownload).toHaveBeenCalledWith("job-base");
     expect(await screen.findByText("Model downloaded.")).toBeInTheDocument();
     expect(screen.getAllByText("Downloaded").length).toBeGreaterThanOrEqual(2);
   });

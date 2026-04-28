@@ -381,6 +381,7 @@ export function App({ client: providedClient }: AppProps = {}) {
         <Settings
           checkLlmProvider={client.checkLlmProvider}
           downloadFasterWhisperModel={client.downloadFasterWhisperModel}
+          getFasterWhisperModelDownload={client.getFasterWhisperModelDownload}
           loadDiagnostics={client.getDiagnostics}
           loadModels={client.getRuntimeModels}
           loadSettings={client.getRuntimeSettings}
