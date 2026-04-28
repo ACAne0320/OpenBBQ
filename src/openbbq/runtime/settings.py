@@ -102,10 +102,7 @@ def with_runtime_defaults(
     settings: RuntimeSettings,
     defaults: RuntimeDefaults,
 ) -> RuntimeSettings:
-    update: dict[str, object] = {"defaults": defaults}
-    if settings.models is None:
-        update["models"] = _default_models_settings(settings)
-    return settings.model_copy(update=update)
+    return settings.model_copy(update={"defaults": defaults})
 
 
 def with_faster_whisper_settings(
@@ -113,14 +110,6 @@ def with_faster_whisper_settings(
     faster_whisper: FasterWhisperSettings,
 ) -> RuntimeSettings:
     return settings.model_copy(update={"models": ModelsSettings(faster_whisper=faster_whisper)})
-
-
-def _default_models_settings(settings: RuntimeSettings) -> ModelsSettings:
-    return ModelsSettings(
-        faster_whisper=FasterWhisperSettings(
-            cache_dir=settings.cache.root / "models" / "faster-whisper",
-        )
-    )
 
 
 def _escape_toml(value: str) -> str:

@@ -322,7 +322,7 @@ def test_runtime_settings_copy_helpers_are_immutable(tmp_path):
     assert settings.defaults.llm_provider == "openai-compatible"
     assert with_defaults.defaults.llm_provider == "local-gateway"
     assert with_asr.models.faster_whisper.default_model == "medium"
-    assert with_defaults.models.faster_whisper.default_model == "base"
+    assert with_defaults.models is None
 
 
 def test_runtime_settings_to_toml_round_trips_provider(tmp_path):
