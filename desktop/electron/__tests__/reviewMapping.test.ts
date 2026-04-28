@@ -69,4 +69,90 @@ describe("toReviewModel", () => {
   it("throws a typed error when no readable segment artifact exists", () => {
     expect(() => toReviewModel("run_1", [], new Map())).toThrow(ReviewUnavailableError);
   });
+
+  it("combines video, translation, subtitle segment, and SRT artifacts into a real review model", () => {
+    const videoArtifact: ApiArtifactRecord = {
+      ...artifact,
+      id: "art_video",
+      type: "video",
+      name: "download.video",
+      current_version_id: "av_video"
+    };
+    const sourceArtifact: ApiArtifactRecord = {
+      ...artifact,
+      id: "art_source_segments",
+      type: "subtitle_segments",
+      name: "segment.subtitle_segments",
+      current_version_id: "av_source"
+    };
+    const translationArtifact: ApiArtifactRecord = {
+      ...artifact,
+      id: "art_translation",
+      type: "translation",
+      name: "translate.translation",
+      current_version_id: "av_translation"
+    };
+    const subtitleArtifact: ApiArtifactRecord = {
+      ...artifact,
+      id: "art_subtitle",
+      type: "subtitle",
+      name: "subtitle.subtitle",
+      current_version_id: "av_subtitle"
+    };
+    const previews = new Map<string, ApiArtifactPreviewData>([
+      [
+        "av_video",
+        {
+          ...preview,
+          version: {
+            ...preview.version,
+            id: "av_video",
+            artifact_id: "art_video",
+            content_path: "/workspace/.openbbq/artifacts/video/content",
+            content_encoding: "file"
+          },
+          content: null,
+          content_encoding: "file"
+        }
+      ],
+      [
+        "av_source",
+        {
+          ...preview,
+          version: { ...preview.version, id: "av_source", artifact_id: "art_source_segments" },
+          content: [{ start: 1, end: 2, text: "Source text" }]
+        }
+      ],
+      [
+        "av_translation",
+        {
+          ...preview,
+          version: { ...preview.version, id: "av_translation", artifact_id: "art_translation" },
+          content: [{ start: 1, end: 2, source_text: "Source from translation", text: "Translated text" }]
+        }
+      ],
+      [
+        "av_subtitle",
+        {
+          ...preview,
+          version: { ...preview.version, id: "av_subtitle", artifact_id: "art_subtitle", content_encoding: "text" },
+          content: "1\n00:00:01,000 --> 00:00:02,000\nTranslated text\n",
+          content_encoding: "text"
+        }
+      ]
+    ]);
+
+    const model = toReviewModel(
+      "run_1",
+      [videoArtifact, sourceArtifact, translationArtifact, subtitleArtifact],
+      previews
+    );
+
+    expect(model.videoSrc).toMatch(/^openbbq-file:\/\/artifact\//);
+    expect(model.subtitleText).toBe("1\n00:00:01,000 --> 00:00:02,000\nTranslated text\n");
+    expect(model.segments[0]).toMatchObject({
+      transcript: "Source text",
+      translation: "Translated text"
+    });
+  });
 });

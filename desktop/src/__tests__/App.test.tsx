@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import type { OpenBBQClient } from "../lib/apiClient";
 import { failedTask, reviewModel, workflowSteps } from "../lib/mockData";
-import type { TaskMonitorModel, WorkflowStep } from "../lib/types";
+import type { TaskMonitorModel, TaskSummary, WorkflowStep } from "../lib/types";
 
 const workflowEditorRender = vi.hoisted(() => vi.fn());
 
@@ -56,6 +56,9 @@ function createTestClient(
     async startSubtitleTask() {
       return { runId: "run_sample" };
     },
+    async listTasks() {
+      return [];
+    },
     async getTaskMonitor() {
       return failedTask;
     },
@@ -100,6 +103,15 @@ const runningTask: TaskMonitorModel = {
       message: "Retry accepted from checkpoint translate."
     }
   ]
+};
+
+const persistedTask: TaskSummary = {
+  id: "run_persisted",
+  title: "Demo video",
+  workflowName: "Remote video -> translated SRT",
+  sourceSummary: "https://www.youtube.com/watch?v=demo",
+  status: "failed",
+  updatedAt: "2026-04-28T00:05:00+00:00"
 };
 
 describe("App workflow flow", () => {
@@ -165,15 +177,77 @@ describe("App workflow flow", () => {
     expect(getTaskMonitor).toHaveBeenCalledWith("run_test");
   });
 
-  it("keeps the current screen when Tasks is selected before a task exists", async () => {
+  it("shows task history when Tasks is selected before a task exists", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      listTasks: vi.fn().mockResolvedValue([])
+    });
+    render(<App client={client} />);
 
     await user.click(screen.getByRole("button", { name: "Tasks" }));
 
-    expect(screen.getByRole("heading", { name: "Choose a source" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "New" })).toHaveAttribute("aria-current", "page");
+    expect(await screen.findByRole("heading", { name: "Tasks" })).toBeInTheDocument();
+    expect(screen.getByText("No tasks yet")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tasks" })).toHaveAttribute("aria-current", "page");
     expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
+  it("opens a persisted task from history without re-entering the source", async () => {
+    const user = userEvent.setup();
+    const listTasks = vi.fn().mockResolvedValue([persistedTask]);
+    const getTaskMonitor = vi.fn().mockResolvedValue({
+      ...failedTask,
+      id: persistedTask.id,
+      title: persistedTask.title,
+      workflowName: persistedTask.workflowName
+    });
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      listTasks,
+      getTaskMonitor
+    });
+
+    render(<App client={client} />);
+
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    await user.click(await screen.findByRole("button", { name: /open demo video/i }));
+
+    expect(listTasks).toHaveBeenCalledTimes(1);
+    expect(getTaskMonitor).toHaveBeenCalledWith("run_persisted");
+    expect(await screen.findByText("Task monitor")).toBeInTheDocument();
+    expect(screen.getByText("Demo video")).toBeInTheDocument();
+  });
+
+  it("opens real review results automatically when a task completes", async () => {
+    const user = userEvent.setup();
+    const completedTask: TaskMonitorModel = {
+      ...failedTask,
+      id: "run_test",
+      status: "completed",
+      errorMessage: undefined,
+      progress: failedTask.progress.map((step) => ({ ...step, status: "done" }))
+    };
+    const getReview = vi.fn().mockResolvedValue({
+      ...reviewModel,
+      title: "run_test results",
+      videoSrc: "openbbq-file://artifact/video",
+      subtitleText: "1\n00:00:00,000 --> 00:00:01,000\n真实字幕\n"
+    });
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      startSubtitleTask: vi.fn().mockResolvedValue({ runId: "run_test" }),
+      getTaskMonitor: vi.fn().mockResolvedValue(completedTask),
+      getReview
+    });
+
+    render(<App client={client} />);
+
+    await user.type(screen.getByLabelText(/video link/i), "https://example.com/video.mp4");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByRole("heading", { name: "Arrange workflow" });
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("Review results")).toBeInTheDocument();
+    expect(getReview).toHaveBeenCalledWith("run_test");
+    expect(screen.getByText("run_test results")).toBeInTheDocument();
   });
 
   it("opens results from navigation using the loaded task run id", async () => {

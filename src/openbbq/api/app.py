@@ -25,6 +25,7 @@ class ApiAppSettings(OpenBBQModel):
     project_root: Path | None = None
     config_path: Path | None = None
     plugin_paths: tuple[Path, ...] = ()
+    user_db_path: Path | None = None
     token: str | None = None
     allow_dev_cors: bool = False
     execute_runs_inline: bool = False

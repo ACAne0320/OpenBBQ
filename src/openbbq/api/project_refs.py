@@ -5,9 +5,10 @@ from pathlib import Path
 from fastapi import Request
 
 from openbbq.api.context import active_project_settings
+from openbbq.api.user_database import user_runtime_database
 from openbbq.application.runs import get_run
 from openbbq.domain.base import OpenBBQModel
-from openbbq.errors import RunNotFoundError
+from openbbq.errors import OpenBBQError, RunNotFoundError
 from openbbq.storage.models import RunRecord
 
 _RUN_PROJECT_REFS_KEY = "openbbq_run_project_refs"
@@ -70,7 +71,11 @@ def register_run_record(request: Request, run: RunRecord) -> None:
 
 
 def known_project_references(request: Request) -> tuple[ApiProjectReference, ...]:
-    references = [active_project_reference(request), *_run_project_refs(request).values()]
+    references = [
+        *_run_project_refs(request).values(),
+        *_quickstart_history_project_references(request),
+        active_project_reference(request),
+    ]
     seen: set[tuple[Path, Path | None]] = set()
     unique: list[ApiProjectReference] = []
     for reference in references:
@@ -93,7 +98,7 @@ def find_run_project(request: Request, run_id: str) -> tuple[RunRecord, ApiProje
                 config_path=reference.config_path,
                 run_id=run_id,
             )
-        except RunNotFoundError:
+        except OpenBBQError:
             continue
         run_reference = ApiProjectReference(
             project_root=run.project_root,
@@ -109,3 +114,15 @@ def _run_project_refs(request: Request) -> dict[str, ApiProjectReference]:
     if not hasattr(request.app.state, _RUN_PROJECT_REFS_KEY):
         setattr(request.app.state, _RUN_PROJECT_REFS_KEY, {})
     return getattr(request.app.state, _RUN_PROJECT_REFS_KEY)
+
+
+def _quickstart_history_project_references(request: Request) -> tuple[ApiProjectReference, ...]:
+    database = user_runtime_database(request)
+    return tuple(
+        ApiProjectReference(
+            project_root=task.generated_project_root,
+            config_path=task.generated_config_path,
+            plugin_paths=task.plugin_paths,
+        )
+        for task in database.list_quickstart_tasks()
+    )

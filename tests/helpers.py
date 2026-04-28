@@ -44,6 +44,7 @@ def authed_client(
 
     from openbbq.api.app import ApiAppSettings, create_app
 
+    settings_overrides.setdefault("user_db_path", project.parent / "openbbq-user.db")
     settings = ApiAppSettings(
         project_root=project,
         token=token,

@@ -1,6 +1,6 @@
 import { clsx } from "clsx";
-import { Download, Play } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Download } from "lucide-react";
+import { type SyntheticEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { formatRange, formatTimestamp } from "../lib/format";
 import type { ReviewModel, Segment } from "../lib/types";
@@ -62,14 +62,34 @@ function segmentStatus(segment: DraftSegment): string {
   return "Saved";
 }
 
+function clampPlaybackTime(timeMs: number, durationMs: number): number {
+  if (!Number.isFinite(timeMs)) {
+    return 0;
+  }
+
+  return Math.min(Math.max(0, durationMs), Math.max(0, timeMs));
+}
+
+function timelinePixelsPerSecond(input: string): number {
+  const value = Number(input);
+  if (!Number.isFinite(value)) {
+    return 32;
+  }
+
+  return Math.min(96, Math.max(16, value));
+}
+
 export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
   const [segments, setSegments] = useState<DraftSegment[]>(() => toDraftSegments(model.segments));
   const [activeSegmentId, setActiveSegmentId] = useState(model.activeSegmentId);
+  const [currentMs, setCurrentMs] = useState(model.currentMs);
+  const [timelineZoomInput, setTimelineZoomInput] = useState("32");
   const cardRefs = useRef<Record<string, HTMLElement | null>>({});
   const mountedRef = useRef(false);
   const onSegmentChangeRef = useRef(onSegmentChange);
   const saveTimerRef = useRef<number | undefined>(undefined);
   const segmentsRef = useRef<DraftSegment[]>(segments);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   onSegmentChangeRef.current = onSegmentChange;
   segmentsRef.current = segments;
@@ -78,6 +98,7 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
     const cleanupSaveCallback = onSegmentChange;
     setSegments(toDraftSegments(model.segments));
     setActiveSegmentId(model.activeSegmentId);
+    setCurrentMs(model.currentMs);
 
     return () => {
       flushPendingDirtySegments(false, cleanupSaveCallback);
@@ -89,17 +110,62 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
     [activeSegmentId, segments]
   );
   const status = saveStatus(segments);
-  const previewTime = activeSegment?.startMs ?? model.currentMs;
+  const previewTime = currentMs;
+  const pixelsPerSecond = timelinePixelsPerSecond(timelineZoomInput);
 
-  function selectSegment(segmentId: string, scrollCard = false) {
+  function segmentAtTime(timeMs: number): DraftSegment | undefined {
+    const sortedSegments = [...segmentsRef.current].sort((left, right) => left.startMs - right.startMs);
+    const directMatch = sortedSegments.find((segment) => {
+      const startMs = Math.min(segment.startMs, segment.endMs);
+      const endMs = Math.max(segment.startMs, segment.endMs);
+      return timeMs >= startMs && timeMs <= endMs;
+    });
+
+    if (directMatch) {
+      return directMatch;
+    }
+
+    return [...sortedSegments].reverse().find((segment) => timeMs >= Math.min(segment.startMs, segment.endMs)) ?? sortedSegments[0];
+  }
+
+  function syncPlaybackTime(timeMs: number, scrollCard = false) {
+    const nextTimeMs = clampPlaybackTime(timeMs, model.durationMs);
+    const matchingSegment = segmentAtTime(nextTimeMs);
+    setCurrentMs(nextTimeMs);
+
+    if (matchingSegment) {
+      setActiveSegmentId(matchingSegment.id);
+      if (scrollCard) {
+        cardRefs.current[matchingSegment.id]?.scrollIntoView?.({ block: "nearest" });
+      }
+    }
+  }
+
+  function seekToMs(timeMs: number, scrollCard = false) {
+    const nextTimeMs = clampPlaybackTime(timeMs, model.durationMs);
+    if (videoRef.current) {
+      videoRef.current.currentTime = nextTimeMs / 1000;
+    }
+    syncPlaybackTime(nextTimeMs, scrollCard);
+  }
+
+  function selectSegment(segmentId: string, scrollCard = false, seekPlayback = true) {
+    const selectedSegment = segmentsRef.current.find((segment) => segment.id === segmentId);
     setActiveSegmentId(segmentId);
+    if (selectedSegment) {
+      if (seekPlayback) {
+        seekToMs(selectedSegment.startMs, scrollCard);
+      } else {
+        setCurrentMs(selectedSegment.startMs);
+      }
+    }
     if (scrollCard) {
       cardRefs.current[segmentId]?.scrollIntoView?.({ block: "nearest" });
     }
   }
 
   function updateSegment(segmentId: string, patch: Partial<Pick<Segment, "transcript" | "translation">>) {
-    selectSegment(segmentId);
+    setActiveSegmentId(segmentId);
     setSegments((current) =>
       current.map((segment) =>
         segment.id === segmentId
@@ -113,6 +179,14 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
           : segment
       )
     );
+  }
+
+  function handleVideoTimeUpdate(event: SyntheticEvent<HTMLVideoElement>) {
+    syncPlaybackTime(event.currentTarget.currentTime * 1000, true);
+  }
+
+  function handleTimelineZoomChange(value: string) {
+    setTimelineZoomInput(value.replace(/[^\d.]/g, ""));
   }
 
   function pendingDirtySegments() {
@@ -236,47 +310,73 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
 
       <section
         aria-label="Results review layout"
-        className="grid min-h-0 grid-cols-1 gap-[18px] xl:grid-cols-[minmax(420px,1.06fr)_minmax(360px,0.94fr)]"
+        className="grid min-h-0 grid-cols-1 gap-[18px] xl:h-[calc(100vh-176px)] xl:grid-cols-[minmax(420px,1.06fr)_minmax(360px,0.94fr)]"
       >
         <div className="grid min-h-0 min-w-0 content-start gap-3.5">
-          <section className="rounded-lg bg-paper-muted p-4 shadow-control" aria-label="Video preview panel">
+          <section className="min-w-0 rounded-lg bg-paper-muted p-4 shadow-control" aria-label="Video preview panel">
             <div
               aria-label="Video preview"
-              className="relative aspect-video overflow-hidden rounded-lg bg-log-bg shadow-inner"
+              className="relative aspect-video min-w-0 overflow-hidden rounded-lg bg-log-bg shadow-inner"
             >
-              <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,250,240,0.08),rgba(182,99,47,0.18)_55%,rgba(45,36,29,0.2))]" />
-              <div className="absolute left-5 top-[18px] rounded-sm bg-black/35 px-2 py-1 font-mono text-xs text-[#d7c4a7]">
+              {model.videoSrc ? (
+                <video
+                  ref={videoRef}
+                  aria-label="Media playback"
+                  className="absolute inset-0 h-full w-full bg-black object-contain"
+                  controls
+                  onSeeked={handleVideoTimeUpdate}
+                  onTimeUpdate={handleVideoTimeUpdate}
+                  src={model.videoSrc}
+                />
+              ) : (
+                <div
+                  className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,250,240,0.08),rgba(182,99,47,0.18)_55%,rgba(45,36,29,0.2))]"
+                />
+              )}
+              <div className="pointer-events-none absolute left-5 top-[18px] rounded-sm bg-black/35 px-2 py-1 font-mono text-xs text-[#d7c4a7]">
                 {formatTimestamp(previewTime)} / {formatTimestamp(model.durationMs)}
               </div>
-              <div className="absolute left-5 top-14 text-xs uppercase text-[#d7c4a7]">Preview</div>
-              <button
-                type="button"
-                aria-label="Play preview"
-                className="absolute bottom-[18px] left-[18px] flex h-10 w-10 items-center justify-center rounded-full bg-[#fff8ea] text-log-bg shadow-control transition-transform duration-150 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              <div className="pointer-events-none absolute left-5 top-14 text-xs uppercase text-[#d7c4a7]">Preview</div>
+              <div
+                data-testid="preview-subtitle-overlay"
+                className="pointer-events-none absolute inset-x-12 bottom-16 rounded-md bg-black/70 px-3 py-2 text-center text-[15px] leading-snug text-[#fff8ea] shadow-control"
               >
-                <Play className="ml-0.5 h-4 w-4" aria-hidden="true" />
-              </button>
-              <div className="absolute inset-x-12 bottom-8 rounded-md bg-black/70 px-3 py-2 text-center text-[15px] leading-snug text-[#fff8ea] shadow-control">
                 {activeSegment?.translation}
               </div>
             </div>
           </section>
 
-          <section className="rounded-lg bg-paper-muted px-4 py-3.5 shadow-control" aria-label="Audio loudness panel">
+          <section className="min-w-0 rounded-lg bg-paper-muted px-4 py-3.5 shadow-control" aria-label="Timeline panel">
             <div className="mb-2.5 flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase text-muted">Audio loudness</p>
-                <p className="mt-1 text-xs text-muted">Subtitle regions are aligned to the editable cards.</p>
+                <p className="text-xs uppercase text-muted">Timeline</p>
+                <p className="mt-1 text-xs text-muted">Subtitle regions follow playback and align to audio loudness.</p>
               </div>
-              <span className="rounded-sm bg-paper-selected px-2 py-1 text-xs font-semibold text-[#8c4d29]">
-                Segment {activeSegment?.index}
-              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-[#8c4d29]">
+                  <span>Zoom</span>
+                  <input
+                    aria-label="Timeline zoom"
+                    inputMode="numeric"
+                    value={timelineZoomInput}
+                    onChange={(event) => handleTimelineZoomChange(event.target.value)}
+                    className="h-7 w-14 rounded-sm bg-paper px-2 text-right font-mono text-xs text-ink shadow-inner focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  />
+                  <span>px/s</span>
+                </label>
+                <span className="rounded-sm bg-paper-selected px-2 py-1 text-xs font-semibold text-[#8c4d29]">
+                  Segment {activeSegment?.index}
+                </span>
+              </div>
             </div>
             <Waveform
               activeSegmentId={activeSegmentId}
+              currentMs={currentMs}
               durationMs={model.durationMs}
+              pixelsPerSecond={pixelsPerSecond}
               segments={segments.map(toSegment)}
               waveform={model.waveform}
+              onSeekMs={(timeMs) => seekToMs(timeMs, true)}
               onSelectSegment={(segmentId) => selectSegment(segmentId, true)}
             />
           </section>
@@ -299,7 +399,7 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
             </span>
           </div>
 
-          <div className="grid min-h-0 content-start gap-2.5 overflow-y-auto pr-1">
+          <div aria-label="Segment list" className="grid min-h-0 content-start gap-2.5 overflow-y-auto pr-1">
             {segments.map((segment) => {
               const active = segment.id === activeSegmentId;
               const transcriptId = `${segment.id}-transcript`;

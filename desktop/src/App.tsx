@@ -4,14 +4,15 @@ import { AppShell } from "./components/AppShell";
 import type { NavItem } from "./components/AppShell";
 import { ResultsReview } from "./components/ResultsReview";
 import { SourceImport } from "./components/SourceImport";
+import { TaskHistory } from "./components/TaskHistory";
 import { TaskMonitor } from "./components/TaskMonitor";
 import { WorkflowEditor } from "./components/WorkflowEditor";
 import type { OpenBBQClient } from "./lib/apiClient";
 import { createDefaultClient } from "./lib/clientFactory";
 import { workflowSteps } from "./lib/mockData";
-import type { ReviewModel, Segment, SourceDraft, TaskMonitorModel, WorkflowStep } from "./lib/types";
+import type { ReviewModel, Segment, SourceDraft, TaskMonitorModel, TaskSummary, WorkflowStep } from "./lib/types";
 
-type Screen = "source" | "workflow" | "monitor" | "results";
+type Screen = "source" | "workflow" | "tasks" | "monitor" | "results";
 
 type AppProps = {
   client?: OpenBBQClient;
@@ -22,12 +23,17 @@ export function App({ client: providedClient }: AppProps = {}) {
   const client = providedClient ?? defaultClient;
   const templateRequestId = useRef(0);
   const taskRequestId = useRef(0);
+  const taskListRequestId = useRef(0);
   const reviewRequestId = useRef(0);
+  const autoOpenedReviewRunId = useRef<string | null>(null);
   const retryRequestId = useRef(0);
   const retryInFlight = useRef(false);
   const [screen, setScreen] = useState<Screen>("source");
   const [source, setSource] = useState<SourceDraft | null>(null);
   const [steps, setSteps] = useState<WorkflowStep[]>(workflowSteps);
+  const [tasks, setTasks] = useState<TaskSummary[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState<string | null>(null);
   const [task, setTask] = useState<TaskMonitorModel | null>(null);
   const [review, setReview] = useState<ReviewModel | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -46,6 +52,10 @@ export function App({ client: providedClient }: AppProps = {}) {
 
   function invalidateTaskRequest() {
     taskRequestId.current += 1;
+  }
+
+  function invalidateTaskListRequest() {
+    taskListRequestId.current += 1;
   }
 
   function cancelRetryState() {
@@ -86,16 +96,73 @@ export function App({ client: providedClient }: AppProps = {}) {
   function handleBackToSource() {
     invalidateTemplateRequest();
     invalidateTaskRequest();
+    invalidateTaskListRequest();
     invalidateReviewRequest();
     cancelRetryState();
     setSource(null);
     setSteps(workflowSteps);
     setTask(null);
+    autoOpenedReviewRunId.current = null;
+    setTasksError(null);
+    setTasksLoading(false);
     setReview(null);
     setRetryError(null);
     setRetryPending(false);
     setLoadError(null);
     setScreen("source");
+  }
+
+  async function loadTaskHistory() {
+    const requestId = taskListRequestId.current + 1;
+    taskListRequestId.current = requestId;
+    invalidateTemplateRequest();
+    invalidateReviewRequest();
+    setTasksError(null);
+    setTasksLoading(true);
+    setScreen("tasks");
+    try {
+      const nextTasks = await client.listTasks();
+      if (requestId !== taskListRequestId.current) {
+        return;
+      }
+
+      setTasks(nextTasks);
+    } catch (error) {
+      if (requestId !== taskListRequestId.current) {
+        return;
+      }
+
+      setTasksError(formatLoadError("Could not load tasks", error));
+    } finally {
+      if (requestId === taskListRequestId.current) {
+        setTasksLoading(false);
+      }
+    }
+  }
+
+  async function openTaskMonitor(runId: string) {
+    const requestId = taskRequestId.current + 1;
+    taskRequestId.current = requestId;
+    invalidateTemplateRequest();
+    invalidateReviewRequest();
+    cancelRetryState();
+    setLoadError(null);
+    try {
+      const nextTask = await client.getTaskMonitor(runId);
+      if (requestId !== taskRequestId.current) {
+        return;
+      }
+
+      setTask(nextTask);
+      setScreen("monitor");
+    } catch (error) {
+      if (requestId !== taskRequestId.current) {
+        return;
+      }
+
+      setTasksError(formatLoadError("Could not open task", error));
+      setScreen("tasks");
+    }
   }
 
   async function handleWorkflowContinue(nextSteps: WorkflowStep[]) {
@@ -125,6 +192,9 @@ export function App({ client: providedClient }: AppProps = {}) {
 
       setTask(nextTask);
       setScreen("monitor");
+      if (nextTask.status === "completed") {
+        void openReview(nextTask.id);
+      }
     } catch (error) {
       if (requestId !== taskRequestId.current) {
         return;
@@ -204,7 +274,9 @@ export function App({ client: providedClient }: AppProps = {}) {
       invalidateReviewRequest();
       if (task) {
         setScreen("monitor");
+        return;
       }
+      void loadTaskHistory();
       return;
     }
 
@@ -243,7 +315,18 @@ export function App({ client: providedClient }: AppProps = {}) {
     return () => window.clearInterval(interval);
   }, [client, screen, task]);
 
-  const activeNav = screen === "monitor" ? "Tasks" : screen === "results" ? "Results" : "New";
+  useEffect(() => {
+    if (screen !== "monitor" || task?.status !== "completed") {
+      return;
+    }
+    if (autoOpenedReviewRunId.current === task.id) {
+      return;
+    }
+    autoOpenedReviewRunId.current = task.id;
+    void openReview(task.id);
+  }, [screen, task]);
+
+  const activeNav = screen === "tasks" || screen === "monitor" ? "Tasks" : screen === "results" ? "Results" : "New";
 
   return (
     <AppShell active={activeNav} footerLabel={source ? "Source" : "Workspace"} footerValue={footerValue} onNavigate={handleNavigate}>
@@ -258,6 +341,15 @@ export function App({ client: providedClient }: AppProps = {}) {
           initialSteps={steps}
           onBack={handleBackToSource}
           onContinue={handleWorkflowContinue}
+        />
+      ) : null}
+      {screen === "tasks" ? (
+        <TaskHistory
+          error={tasksError}
+          loading={tasksLoading}
+          onOpenTask={openTaskMonitor}
+          onRefresh={loadTaskHistory}
+          tasks={tasks}
         />
       ) : null}
       {screen === "monitor" && task ? (

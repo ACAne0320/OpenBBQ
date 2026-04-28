@@ -63,6 +63,7 @@ export type StartSidecarOptions = {
   token?: string;
   allowDevCors: boolean;
   startupTimeoutMs?: number;
+  logOutput?: (stream: "stdout" | "stderr", text: string) => void;
 };
 
 type StartSidecarDeps = {
@@ -180,7 +181,9 @@ export function startSidecar(options: StartSidecarOptions, deps: StartSidecarDep
     }, timeoutMs);
 
     child.stderr.on("data", (chunk) => {
-      stderr = appendTail(stderr, chunk.toString());
+      const text = chunk.toString();
+      stderr = appendTail(stderr, text);
+      options.logOutput?.("stderr", text);
     });
 
     child.stdout.on("data", (chunk) => {
@@ -197,6 +200,7 @@ export function startSidecar(options: StartSidecarOptions, deps: StartSidecarDep
         try {
           parsed = parseStartupLine(line);
         } catch {
+          options.logOutput?.("stdout", `${line}\n`);
           continue;
         }
 

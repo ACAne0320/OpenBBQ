@@ -103,6 +103,44 @@ def test_execution_module_preserves_plugin_error_redaction(tmp_path):
     assert exc.value.message == "Plugin 'boom' tool 'explode' failed: [REDACTED] failure"
 
 
+def test_execution_module_includes_underlying_exception_cause(tmp_path):
+    discovery = importlib.import_module("openbbq.plugins.discovery")
+    execution = importlib.import_module("openbbq.plugins.execution")
+    plugin_dir = _write_plugin(
+        tmp_path / "boom",
+        _manifest_text("boom", "explode"),
+        """
+        def run(request):
+            try:
+                raise TimeoutError("read timed out")
+            except TimeoutError as exc:
+                raise RuntimeError("Connection error.") from exc
+        """,
+    )
+    registry = discovery.discover_plugins([plugin_dir])
+    plugin = registry.plugins["boom"]
+    tool = registry.tools["boom.explode"]
+    request = PluginRequest(
+        project_root=str(tmp_path),
+        workflow_id="workflow",
+        step_id="step",
+        attempt=1,
+        tool_name=tool.name,
+        parameters={},
+        inputs={},
+        runtime={},
+        work_dir=str(tmp_path / "work"),
+    )
+
+    with pytest.raises(PluginError) as exc:
+        execution.execute_plugin_tool(plugin, tool, request)
+
+    assert exc.value.message == (
+        "Plugin 'boom' tool 'explode' failed: Connection error. "
+        "(caused by TimeoutError: read timed out)"
+    )
+
+
 def _manifest(plugin_name: str, tool_name: str) -> dict[str, object]:
     return {
         "name": plugin_name,

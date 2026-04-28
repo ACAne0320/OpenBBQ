@@ -51,6 +51,38 @@ export type ApiSubtitleJobData = {
   source_artifact_id?: string | null;
 };
 
+export type ApiQuickstartTaskRecord = {
+  id: string;
+  run_id: string;
+  workflow_id: string;
+  workspace_root: string;
+  generated_project_root: string;
+  generated_config_path: string;
+  plugin_paths: string[];
+  source_kind: "local_file" | "remote_url";
+  source_uri: string;
+  source_summary?: string | null;
+  source_lang: string;
+  target_lang: string;
+  provider: string;
+  model?: string | null;
+  asr_model?: string | null;
+  asr_device?: string | null;
+  asr_compute_type?: string | null;
+  quality?: string | null;
+  auth?: string | null;
+  browser?: string | null;
+  browser_profile?: string | null;
+  output_path?: string | null;
+  source_artifact_id?: string | null;
+  cache_key: string;
+  status: "queued" | "running" | "paused" | "completed" | "failed" | "aborted";
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  error?: { code: string; message: string } | null;
+};
+
 export type ApiArtifactRecord = {
   id: string;
   type: string;

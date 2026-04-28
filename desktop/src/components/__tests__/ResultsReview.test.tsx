@@ -16,8 +16,9 @@ describe("ResultsReview", () => {
     render(<ResultsReview model={reviewModel} onSegmentChange={vi.fn()} />);
 
     expect(screen.getByLabelText("Video preview")).toBeInTheDocument();
-    expect(screen.getByText("Audio loudness")).toBeInTheDocument();
+    expect(screen.getByText("Timeline")).toBeInTheDocument();
     expect(screen.getByText("Editable segments")).toBeInTheDocument();
+    expect(screen.queryByText("Generated subtitle")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("waveform-bar")).toHaveLength(reviewModel.waveform.length);
     expect(screen.getAllByTestId("waveform-segment-overlay")).toHaveLength(reviewModel.segments.length);
 
@@ -193,9 +194,42 @@ describe("ResultsReview", () => {
     render(<ResultsReview model={reviewModel} onSegmentChange={vi.fn()} />);
 
     const layout = screen.getByLabelText("Results review layout");
-    expect(layout).toHaveClass("grid-cols-1", "xl:grid-cols-[minmax(420px,1.06fr)_minmax(360px,0.94fr)]");
+    expect(layout).toHaveClass("grid-cols-1", "xl:grid-cols-[minmax(420px,1.06fr)_minmax(360px,0.94fr)]", "xl:h-[calc(100vh-176px)]");
+    expect(screen.getByLabelText("Segment list")).toHaveClass("overflow-y-auto");
     expect(screen.queryByRole("button", { name: /save changes/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/edited cards mark the result as unsaved/i)).not.toBeInTheDocument();
+  });
+
+  it("syncs active subtitle and cards from video playback time", () => {
+    render(<ResultsReview model={{ ...reviewModel, videoSrc: "openbbq-file://artifact/video" }} onSegmentChange={vi.fn()} />);
+
+    const video = screen.getByLabelText("Media playback") as HTMLVideoElement;
+    fireEvent.timeUpdate(video, { target: { currentTime: 17.4 } });
+
+    expect(screen.getByLabelText("Video preview")).toHaveTextContent("Export the final SRT after the result is reviewed.");
+    expect(screen.getByRole("article", { name: "Segment 4" })).toHaveAttribute("data-active", "true");
+    expect(screen.getByRole("button", { name: /waveform segment 4/i })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("renders native video controls without pointer-blocking subtitle overlays", () => {
+    render(<ResultsReview model={{ ...reviewModel, videoSrc: "openbbq-file://artifact/video" }} onSegmentChange={vi.fn()} />);
+
+    const video = screen.getByLabelText("Media playback") as HTMLVideoElement;
+    expect(video.controls).toBe(true);
+    expect(screen.getByTestId("preview-subtitle-overlay")).toHaveClass("pointer-events-none");
+  });
+
+  it("zooms the timeline and keeps only a local time window visible by default", async () => {
+    const user = userEvent.setup();
+    render(<ResultsReview model={reviewModel} onSegmentChange={vi.fn()} />);
+
+    expect(screen.getByLabelText("Timeline zoom")).toHaveValue("32");
+    expect(screen.getByTestId("timeline-track")).toHaveStyle({ minWidth: "7309px" });
+
+    await user.clear(screen.getByLabelText("Timeline zoom"));
+    await user.type(screen.getByLabelText("Timeline zoom"), "48");
+
+    expect(screen.getByTestId("timeline-track")).toHaveStyle({ minWidth: "10964px" });
   });
 });
 
@@ -204,8 +238,11 @@ describe("Waveform", () => {
     render(
       <Waveform
         activeSegmentId={segments[0]?.id ?? ""}
+        currentMs={segments[0]?.startMs ?? 0}
         durationMs={durationMs}
+        pixelsPerSecond={32}
         onSelectSegment={vi.fn()}
+        onSeekMs={vi.fn()}
         segments={segments}
         waveform={[{ id: "bar-01", level: 50 }]}
       />
@@ -244,9 +281,9 @@ describe("Waveform", () => {
     ]);
 
     const overlays = screen.getAllByTestId("waveform-segment-overlay");
-    expect(overlays[0]).toHaveStyle({ left: "90%", width: "10%" });
-    expect(overlays[1]).toHaveStyle({ left: "60%", width: "20%" });
-    expect(overlays[2]).toHaveStyle({ left: "0%", width: "10%" });
+    expect(overlays[0]).toHaveStyle({ left: "28.8px", width: "3.2px" });
+    expect(overlays[1]).toHaveStyle({ left: "19.2px", width: "6.4px" });
+    expect(overlays[2]).toHaveStyle({ left: "0px", width: "3.2px" });
     for (const overlay of overlays) {
       expect(overlay).not.toHaveClass("min-w-10");
     }
@@ -268,6 +305,6 @@ describe("Waveform", () => {
       0
     );
 
-    expect(screen.getByTestId("waveform-segment-overlay")).toHaveStyle({ left: "0%", width: "0%" });
+    expect(screen.getByTestId("waveform-segment-overlay")).toHaveStyle({ left: "0px", width: "0px" });
   });
 });

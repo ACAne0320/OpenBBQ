@@ -1,9 +1,10 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, net, protocol } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createDesktopRuntimeConfig } from "./config.js";
 import { registerOpenBBQIpc } from "./ipc.js";
+import { artifactFileScheme, resolveArtifactFileUrl } from "./mediaUrls.js";
 import { startSidecar, type ManagedSidecar } from "./sidecar.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -11,6 +12,32 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let sidecar: ManagedSidecar | null = null;
 let sidecarError: Error | null = null;
 let unregisterIpc: (() => void) | null = null;
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: artifactFileScheme,
+    privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true }
+  }
+]);
+
+function logSidecarOutput(stream: "stdout" | "stderr", text: string) {
+  const target = stream === "stderr" ? process.stderr : process.stdout;
+  target.write(`[openbbq sidecar:${stream}] ${text}`);
+}
+
+function registerArtifactFileProtocol() {
+  protocol.handle(artifactFileScheme, async (request) => {
+    const resolved = resolveArtifactFileUrl(request.url);
+    if (!resolved) {
+      return new Response("Artifact file is not available.", { status: 404 });
+    }
+    const response = await net.fetch(resolved.fileUrl);
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "Content-Type": resolved.mediaType }
+    });
+  });
+}
 
 async function createWindow() {
   const config = createDesktopRuntimeConfig();
@@ -23,7 +50,7 @@ async function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, "preload.js")
+      preload: path.join(__dirname, "preload.cjs")
     }
   });
 
@@ -33,7 +60,8 @@ async function createWindow() {
       args: config.sidecarArgs,
       cwd: config.repoRoot,
       workspaceRoot: config.workspaceRoot,
-      allowDevCors: config.allowDevCors
+      allowDevCors: config.allowDevCors,
+      logOutput: logSidecarOutput
     });
   } catch (error) {
     sidecarError = error instanceof Error ? error : new Error(String(error));
@@ -67,4 +95,7 @@ app.on("before-quit", () => {
   void sidecar?.stop();
 });
 
-void app.whenReady().then(createWindow);
+void app.whenReady().then(() => {
+  registerArtifactFileProtocol();
+  return createWindow();
+});

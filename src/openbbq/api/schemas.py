@@ -12,6 +12,7 @@ from openbbq.runtime.models import DoctorCheck, ModelAssetStatus, ProviderProfil
 from openbbq.storage.models import (
     ArtifactRecord,
     ArtifactVersionRecord,
+    QuickstartTaskRecord,
     WorkflowEvent,
     WorkflowState,
 )
@@ -136,6 +137,10 @@ class RunRecord(OpenBBQModel):
 
 class RunListData(OpenBBQModel):
     runs: tuple[RunRecord, ...]
+
+
+class QuickstartTaskListData(OpenBBQModel):
+    tasks: tuple[QuickstartTaskRecord, ...]
 
 
 class ArtifactVersionData(OpenBBQModel):

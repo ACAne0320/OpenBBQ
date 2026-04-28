@@ -6,6 +6,7 @@ import type {
   StartSubtitleTaskInput,
   StartSubtitleTaskResult,
   StepParameter,
+  TaskSummary,
   TaskMonitorModel,
   WorkflowStep
 } from "./types";
@@ -14,6 +15,7 @@ export type OpenBBQClient = {
   chooseLocalMedia?(): Promise<LocalMediaSelection | null>;
   getWorkflowTemplate(source: SourceDraft): Promise<WorkflowStep[]>;
   startSubtitleTask(input: StartSubtitleTaskInput): Promise<StartSubtitleTaskResult>;
+  listTasks(): Promise<TaskSummary[]>;
   getTaskMonitor(runId: string): Promise<TaskMonitorModel>;
   getReview(runId: string): Promise<ReviewModel>;
   updateSegmentText(input: {
@@ -58,6 +60,18 @@ export function createMockClient(): OpenBBQClient {
     },
     async startSubtitleTask() {
       return { runId: "run_sample" };
+    },
+    async listTasks() {
+      return [
+        {
+          id: "run_sample",
+          title: "Sample task",
+          workflowName: "Remote video -> translated SRT",
+          sourceSummary: "Sample task",
+          status: "failed",
+          updatedAt: "2026-04-27T03:17:12.000Z"
+        }
+      ];
     },
     async getTaskMonitor() {
       return cloneModel(failedTask);

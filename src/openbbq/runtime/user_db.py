@@ -9,9 +9,18 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from openbbq.runtime.models import ProviderProfile
+from openbbq.storage.database_records import (
+    dump_json,
+    dump_nullable_json,
+    model_from_optional_row,
+    model_from_row,
+    record_payload,
+    upsert_row,
+)
 from openbbq.storage.database import create_sqlite_engine
 from openbbq.storage.migration_runner import run_schema_migrations
-from openbbq.storage.orm import UserCredentialRow, UserProviderRow
+from openbbq.storage.models import QuickstartTaskRecord
+from openbbq.storage.orm import QuickstartTaskRow, UserCredentialRow, UserProviderRow
 
 
 DEFAULT_USER_DB_PATH = Path("~/.openbbq/openbbq.db")
@@ -80,3 +89,65 @@ class UserRuntimeDatabase:
         with self.session_factory.begin() as session:
             row = session.get(UserCredentialRow, reference)
             return row.value if row is not None else None
+
+    def upsert_quickstart_task(self, task: QuickstartTaskRecord) -> QuickstartTaskRecord:
+        payload = record_payload(task)
+        with self.session_factory.begin() as session:
+            row = upsert_row(session, QuickstartTaskRow, task.id)
+            row.run_id = task.run_id
+            row.workflow_id = task.workflow_id
+            row.workspace_root = str(task.workspace_root)
+            row.generated_project_root = str(task.generated_project_root)
+            row.generated_config_path = str(task.generated_config_path)
+            row.plugin_paths_json = dump_json(payload["plugin_paths"])
+            row.source_kind = task.source_kind
+            row.source_uri = task.source_uri
+            row.source_summary = task.source_summary
+            row.source_lang = task.source_lang
+            row.target_lang = task.target_lang
+            row.provider = task.provider
+            row.model = task.model
+            row.asr_model = task.asr_model
+            row.asr_device = task.asr_device
+            row.asr_compute_type = task.asr_compute_type
+            row.quality = task.quality
+            row.auth = task.auth
+            row.browser = task.browser
+            row.browser_profile = task.browser_profile
+            row.output_path = str(task.output_path) if task.output_path is not None else None
+            row.source_artifact_id = task.source_artifact_id
+            row.cache_key = task.cache_key
+            row.status = task.status
+            row.created_at = task.created_at
+            row.updated_at = task.updated_at
+            row.completed_at = task.completed_at
+            row.error_json = dump_nullable_json(payload.get("error"))
+            row.record_json = dump_json(payload)
+        return task
+
+    def read_quickstart_task(self, run_id: str) -> QuickstartTaskRecord | None:
+        with self.session_factory.begin() as session:
+            row = session.scalar(
+                select(QuickstartTaskRow).where(QuickstartTaskRow.run_id == run_id)
+            )
+            return model_from_optional_row(QuickstartTaskRecord, row)
+
+    def list_quickstart_tasks(self) -> tuple[QuickstartTaskRecord, ...]:
+        with self.session_factory.begin() as session:
+            rows = session.scalars(
+                select(QuickstartTaskRow).order_by(
+                    QuickstartTaskRow.updated_at.desc(), QuickstartTaskRow.id.desc()
+                )
+            ).all()
+            return tuple(model_from_row(QuickstartTaskRecord, row) for row in rows)
+
+    def find_quickstart_tasks_by_cache_key(
+        self, cache_key: str
+    ) -> tuple[QuickstartTaskRecord, ...]:
+        with self.session_factory.begin() as session:
+            rows = session.scalars(
+                select(QuickstartTaskRow)
+                .where(QuickstartTaskRow.cache_key == cache_key)
+                .order_by(QuickstartTaskRow.updated_at.desc(), QuickstartTaskRow.id.desc())
+            ).all()
+            return tuple(model_from_row(QuickstartTaskRecord, row) for row in rows)

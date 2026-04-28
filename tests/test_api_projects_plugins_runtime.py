@@ -5,7 +5,8 @@ from fastapi.testclient import TestClient
 from openbbq.api.app import ApiAppSettings, create_app
 from openbbq.application.quickstart import SubtitleJobResult
 from openbbq.config.loader import load_project_config
-from openbbq.storage.models import RunRecord
+from openbbq.runtime.user_db import UserRuntimeDatabase
+from openbbq.storage.models import QuickstartTaskRecord, RunRecord
 from openbbq.storage.project_store import ProjectStore
 from openbbq.storage.runs import write_run
 from tests.helpers import authed_client, write_project_fixture
@@ -175,6 +176,218 @@ def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monk
     assert youtube.json()["data"]["workflow_id"] == "youtube-to-srt"
 
 
+def test_quickstart_subtitle_route_persists_task_history(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    generated_project = write_project_fixture(
+        tmp_path,
+        "text-basic",
+        project_dir_name="generated-project",
+    )
+    generated_config = load_project_config(generated_project)
+    write_run(
+        generated_config.storage.state,
+        RunRecord(
+            id="run_generated",
+            workflow_id="text-demo",
+            mode="start",
+            status="queued",
+            project_root=generated_project,
+            config_path=generated_config.config_path,
+            created_by="api",
+        ),
+    )
+
+    def fake_youtube_job(request):
+        return SubtitleJobResult(
+            generated_project_root=generated_project,
+            generated_config_path=generated_config.config_path,
+            workflow_id="text-demo",
+            run_id="run_generated",
+            output_path=request.output_path,
+            source_artifact_id=None,
+        )
+
+    monkeypatch.setattr(
+        "openbbq.api.routes.quickstart.create_youtube_subtitle_job", fake_youtube_job
+    )
+    user_db_path = tmp_path / "user.db"
+    client = TestClient(
+        create_app(ApiAppSettings(project_root=project, token="token", user_db_path=user_db_path))
+    )
+    headers = {"Authorization": "Bearer token"}
+
+    response = client.post(
+        "/quickstart/subtitle/youtube",
+        headers=headers,
+        json={
+            "url": "https://www.youtube.com/watch?v=demo",
+            "source_lang": "en",
+            "target_lang": "zh",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "asr_model": "base",
+            "asr_device": "cpu",
+            "asr_compute_type": "int8",
+            "quality": "best",
+        },
+    )
+    history = UserRuntimeDatabase(user_db_path).read_quickstart_task("run_generated")
+
+    assert response.status_code == 200
+    assert history is not None
+    assert history.source_kind == "remote_url"
+    assert history.source_uri == "https://www.youtube.com/watch?v=demo"
+    assert history.generated_project_root == generated_project
+    assert history.generated_config_path == generated_config.config_path
+    assert history.status == "queued"
+
+
+def test_quickstart_history_resolves_run_after_app_restart(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    generated_project = write_project_fixture(
+        tmp_path,
+        "text-basic",
+        project_dir_name="generated-project",
+    )
+    generated_config = load_project_config(generated_project)
+    generated_store = ProjectStore(
+        generated_config.storage.root,
+        artifacts_root=generated_config.storage.artifacts,
+        state_root=generated_config.storage.state,
+    )
+    generated_store.append_event(
+        "text-demo",
+        {"type": "workflow.completed", "message": "Generated workflow completed."},
+    )
+    write_run(
+        generated_config.storage.state,
+        RunRecord(
+            id="run_generated",
+            workflow_id="text-demo",
+            mode="start",
+            status="completed",
+            project_root=generated_project,
+            config_path=generated_config.config_path,
+            latest_event_sequence=1,
+            created_by="api",
+        ),
+    )
+    user_db_path = tmp_path / "user.db"
+    UserRuntimeDatabase(user_db_path).upsert_quickstart_task(
+        QuickstartTaskRecord(
+            id="task_run_generated",
+            run_id="run_generated",
+            workflow_id="text-demo",
+            workspace_root=workspace,
+            generated_project_root=generated_project,
+            generated_config_path=generated_config.config_path,
+            plugin_paths=(),
+            source_kind="remote_url",
+            source_uri="https://www.youtube.com/watch?v=demo",
+            source_summary="https://www.youtube.com/watch?v=demo",
+            source_lang="en",
+            target_lang="zh",
+            provider="openai",
+            model="gpt-4o-mini",
+            asr_model="base",
+            asr_device="cpu",
+            asr_compute_type="int8",
+            quality="best",
+            auth="auto",
+            browser=None,
+            browser_profile=None,
+            output_path=None,
+            source_artifact_id=None,
+            cache_key="cache-1",
+            status="queued",
+            created_at="2026-04-28T00:00:00+00:00",
+            updated_at="2026-04-28T00:00:00+00:00",
+        )
+    )
+    client = TestClient(
+        create_app(
+            ApiAppSettings(project_root=workspace, token="token", user_db_path=user_db_path)
+        ),
+        raise_server_exceptions=False,
+    )
+    headers = {"Authorization": "Bearer token"}
+
+    run = client.get("/runs/run_generated", headers=headers)
+    events = client.get("/runs/run_generated/events", headers=headers)
+    tasks = client.get("/quickstart/tasks", headers=headers)
+
+    assert run.status_code == 200
+    assert run.json()["data"]["project_root"] == str(generated_project)
+    assert events.status_code == 200
+    assert events.json()["data"]["events"][0]["type"] == "workflow.completed"
+    assert tasks.status_code == 200
+    assert tasks.json()["data"]["tasks"][0]["run_id"] == "run_generated"
+    assert tasks.json()["data"]["tasks"][0]["status"] == "completed"
+
+
+def test_quickstart_subtitle_route_reuses_existing_cached_task(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    generated_project = write_project_fixture(
+        tmp_path,
+        "text-basic",
+        project_dir_name="generated-project",
+    )
+    generated_config = load_project_config(generated_project)
+    write_run(
+        generated_config.storage.state,
+        RunRecord(
+            id="run_generated",
+            workflow_id="text-demo",
+            mode="start",
+            status="completed",
+            project_root=generated_project,
+            config_path=generated_config.config_path,
+            created_by="api",
+        ),
+    )
+    calls = []
+
+    def fake_youtube_job(request):
+        calls.append(request)
+        return SubtitleJobResult(
+            generated_project_root=generated_project,
+            generated_config_path=generated_config.config_path,
+            workflow_id="text-demo",
+            run_id="run_generated",
+            output_path=request.output_path,
+            source_artifact_id=None,
+        )
+
+    monkeypatch.setattr(
+        "openbbq.api.routes.quickstart.create_youtube_subtitle_job", fake_youtube_job
+    )
+    user_db_path = tmp_path / "user.db"
+    client = TestClient(
+        create_app(ApiAppSettings(project_root=project, token="token", user_db_path=user_db_path))
+    )
+    headers = {"Authorization": "Bearer token"}
+    body = {
+        "url": "https://www.youtube.com/watch?v=demo",
+        "source_lang": "en",
+        "target_lang": "zh",
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "asr_model": "base",
+        "asr_device": "cpu",
+        "asr_compute_type": "int8",
+        "quality": "best",
+    }
+
+    first = client.post("/quickstart/subtitle/youtube", headers=headers, json=body)
+    second = client.post("/quickstart/subtitle/youtube", headers=headers, json=body)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["data"]["run_id"] == "run_generated"
+    assert len(calls) == 1
+
+
 def test_quickstart_job_run_events_and_artifacts_are_trackable(tmp_path, monkeypatch):
     project = write_project_fixture(tmp_path, "text-basic")
     generated_project = write_project_fixture(
@@ -250,3 +463,78 @@ def test_quickstart_job_run_events_and_artifacts_are_trackable(tmp_path, monkeyp
     assert artifacts.json()["data"]["artifacts"][0]["id"] == artifact.id
     assert preview.status_code == 200
     assert preview.json()["data"]["content"] == "generated artifact"
+
+
+def test_quickstart_generated_run_is_trackable_from_uninitialized_workspace(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    generated_project = write_project_fixture(
+        tmp_path,
+        "text-basic",
+        project_dir_name="generated-project",
+    )
+    generated_config = load_project_config(generated_project)
+    ProjectStore(
+        generated_config.storage.root,
+        artifacts_root=generated_config.storage.artifacts,
+        state_root=generated_config.storage.state,
+    ).append_event(
+        "text-demo",
+        {"type": "workflow.completed", "message": "Generated workflow completed."},
+    )
+    write_run(
+        generated_config.storage.state,
+        RunRecord(
+            id="run_generated",
+            workflow_id="text-demo",
+            mode="start",
+            status="completed",
+            project_root=generated_project,
+            config_path=generated_config.config_path,
+            latest_event_sequence=1,
+            created_by="api",
+        ),
+    )
+
+    def fake_youtube_job(request):
+        return SubtitleJobResult(
+            generated_project_root=generated_project,
+            generated_config_path=generated_config.config_path,
+            workflow_id="text-demo",
+            run_id="run_generated",
+            output_path=request.output_path,
+            source_artifact_id=None,
+        )
+
+    monkeypatch.setattr(
+        "openbbq.api.routes.quickstart.create_youtube_subtitle_job", fake_youtube_job
+    )
+    client = TestClient(
+        create_app(
+            ApiAppSettings(
+                project_root=workspace,
+                token="token",
+                user_db_path=tmp_path / "user.db",
+            )
+        ),
+        raise_server_exceptions=False,
+    )
+    headers = {"Authorization": "Bearer token"}
+
+    job = client.post(
+        "/quickstart/subtitle/youtube",
+        headers=headers,
+        json={
+            "url": "https://www.youtube.com/watch?v=demo",
+            "source_lang": "en",
+            "target_lang": "zh",
+        },
+    )
+    run = client.get("/runs/run_generated", headers=headers)
+    events = client.get("/runs/run_generated/events", headers=headers)
+
+    assert job.status_code == 200
+    assert run.status_code == 200
+    assert run.json()["data"]["project_root"] == str(generated_project)
+    assert events.status_code == 200
+    assert events.json()["data"]["events"][0]["type"] == "workflow.completed"

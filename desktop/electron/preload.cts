@@ -4,6 +4,7 @@ const api = {
   chooseLocalMedia: () => ipcRenderer.invoke("openbbq:choose-local-media"),
   getWorkflowTemplate: (source: unknown) => ipcRenderer.invoke("openbbq:get-workflow-template", source),
   startSubtitleTask: (input: unknown) => ipcRenderer.invoke("openbbq:start-subtitle-task", input),
+  listTasks: () => ipcRenderer.invoke("openbbq:list-tasks"),
   getTaskMonitor: (runId: string) => ipcRenderer.invoke("openbbq:get-task-monitor", runId),
   getReview: (runId: string) => ipcRenderer.invoke("openbbq:get-review", runId),
   updateSegmentText: (input: unknown) => ipcRenderer.invoke("openbbq:update-segment-text", input),

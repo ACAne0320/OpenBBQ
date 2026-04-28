@@ -161,7 +161,10 @@ def test_alembic_revision_is_packaged_with_storage_models() -> None:
         if path.name != "__init__.py"
     )
 
-    assert [revision.name for revision in revisions] == ["0001_initial_sqlalchemy_schema.py"]
+    assert [revision.name for revision in revisions] == [
+        "0001_initial_sqlalchemy_schema.py",
+        "0002_user_quickstart_tasks.py",
+    ]
 
 
 def test_alembic_initial_revision_applies_to_sqlite_database(tmp_path) -> None:

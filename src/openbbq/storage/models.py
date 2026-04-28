@@ -22,6 +22,7 @@ RunStatus: TypeAlias = Literal["queued", "running", "paused", "completed", "fail
 RunMode: TypeAlias = Literal["start", "resume", "step_rerun", "force_rerun"]
 RunCreator: TypeAlias = Literal["api", "cli", "desktop"]
 ArtifactContent: TypeAlias = JsonValue | bytes
+QuickstartSourceKind: TypeAlias = Literal["local_file", "remote_url"]
 
 
 class RecordModel(OpenBBQModel):
@@ -99,6 +100,38 @@ class RunRecord(RecordModel):
     latest_event_sequence: int = 0
     error: RunErrorRecord | None = None
     created_by: RunCreator = "api"
+
+
+class QuickstartTaskRecord(RecordModel):
+    id: str
+    run_id: str
+    workflow_id: str
+    workspace_root: Path
+    generated_project_root: Path
+    generated_config_path: Path
+    plugin_paths: tuple[Path, ...] = ()
+    source_kind: QuickstartSourceKind
+    source_uri: str
+    source_summary: str | None = None
+    source_lang: str
+    target_lang: str
+    provider: str
+    model: str | None = None
+    asr_model: str | None = None
+    asr_device: str | None = None
+    asr_compute_type: str | None = None
+    quality: str | None = None
+    auth: str | None = None
+    browser: str | None = None
+    browser_profile: str | None = None
+    output_path: Path | None = None
+    source_artifact_id: str | None = None
+    cache_key: str
+    status: RunStatus
+    created_at: str
+    updated_at: str
+    completed_at: str | None = None
+    error: RunErrorRecord | None = None
 
 
 class ArtifactRecord(RecordModel):

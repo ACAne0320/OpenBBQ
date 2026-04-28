@@ -1,5 +1,6 @@
 import type { ReviewModel, Segment, WaveformBar } from "../src/lib/types.js";
 import type { ApiArtifactPreviewData, ApiArtifactRecord } from "./apiTypes.js";
+import { artifactFileUrl } from "./mediaUrls.js";
 
 export class ReviewUnavailableError extends Error {
   code = "review_unavailable";
@@ -16,6 +17,7 @@ type RawSegment = {
   start_ms?: number;
   end_ms?: number;
   text?: string;
+  source_text?: string;
   transcript?: string;
   translation?: string;
 };
@@ -23,6 +25,22 @@ type RawSegment = {
 function isSegmentArtifact(artifact: ApiArtifactRecord): boolean {
   const value = `${artifact.type} ${artifact.name}`.toLowerCase();
   return value.includes("segment") || value.includes("translation") || value.includes("subtitle");
+}
+
+function isSourceSegmentArtifact(artifact: ApiArtifactRecord): boolean {
+  return artifact.type === "subtitle_segments" || artifact.type === "asr_transcript";
+}
+
+function isTranslationArtifact(artifact: ApiArtifactRecord): boolean {
+  return artifact.type === "translation" || artifact.name.toLowerCase().includes("translate.");
+}
+
+function isSubtitleArtifact(artifact: ApiArtifactRecord): boolean {
+  return artifact.type === "subtitle";
+}
+
+function isVideoArtifact(artifact: ApiArtifactRecord): boolean {
+  return artifact.type === "video";
 }
 
 function asRawSegments(content: unknown): RawSegment[] {
@@ -51,16 +69,30 @@ function timeMs(raw: RawSegment, keyMs: "start_ms" | "end_ms", keySeconds: "star
   return 0;
 }
 
-function toSegments(rawSegments: RawSegment[]): Segment[] {
-  return rawSegments.map((raw, index) => ({
+function rawText(raw: RawSegment | undefined): string {
+  return raw?.transcript ?? raw?.source_text ?? raw?.text ?? "";
+}
+
+function translatedText(raw: RawSegment | undefined): string {
+  return raw?.translation ?? raw?.text ?? "";
+}
+
+function toSegments(rawSegments: RawSegment[], translatedSegments: RawSegment[] = []): Segment[] {
+  const count = Math.max(rawSegments.length, translatedSegments.length);
+  return Array.from({ length: count }, (_, index) => {
+    const raw = rawSegments[index];
+    const translated = translatedSegments[index];
+    const timing = translated ?? raw ?? {};
+    return {
     id: `seg-${index + 1}`,
     index: index + 1,
-    startMs: timeMs(raw, "start_ms", "start"),
-    endMs: timeMs(raw, "end_ms", "end"),
-    transcript: raw.transcript ?? raw.text ?? "",
-    translation: raw.translation ?? raw.text ?? "",
+    startMs: timeMs(timing, "start_ms", "start"),
+    endMs: timeMs(timing, "end_ms", "end"),
+    transcript: rawText(raw) || rawText(translated),
+    translation: translatedText(translated) || translatedText(raw),
     savedState: "saved"
-  }));
+    };
+  });
 }
 
 function waveform(): WaveformBar[] {
@@ -76,32 +108,69 @@ export function toReviewModel(
   artifacts: ApiArtifactRecord[],
   previewsByVersionId: Map<string, ApiArtifactPreviewData>
 ): ReviewModel {
-  for (const artifact of artifacts.filter(isSegmentArtifact)) {
+  const sourcePreview = firstPreview(artifacts, previewsByVersionId, isSourceSegmentArtifact);
+  const translationPreview = firstPreview(artifacts, previewsByVersionId, isTranslationArtifact);
+  const fallbackPreview = firstPreview(artifacts, previewsByVersionId, isSegmentArtifact);
+  const rawSegments = asRawSegments(sourcePreview?.content);
+  const translatedSegments = asRawSegments(translationPreview?.content);
+  const segments = toSegments(
+    rawSegments.length > 0 ? rawSegments : asRawSegments(fallbackPreview?.content),
+    translatedSegments
+  ).filter((segment) => segment.endMs >= segment.startMs);
+  if (segments.length === 0) {
+    throw new ReviewUnavailableError();
+  }
+
+  const durationMs = Math.max(...segments.map((segment) => segment.endMs), 1);
+  return {
+    title: `${runId} results`,
+    durationMs,
+    currentMs: segments[0]?.startMs ?? 0,
+    activeSegmentId: segments[0]?.id ?? "",
+    videoSrc: videoSrc(artifacts, previewsByVersionId),
+    subtitleText: subtitleText(artifacts, previewsByVersionId),
+    waveform: waveform(),
+    segments
+  };
+}
+
+function firstPreview(
+  artifacts: ApiArtifactRecord[],
+  previewsByVersionId: Map<string, ApiArtifactPreviewData>,
+  predicate: (artifact: ApiArtifactRecord) => boolean
+): ApiArtifactPreviewData | undefined {
+  for (const artifact of artifacts.filter(predicate)) {
     const versionId = artifact.current_version_id;
     if (!versionId) {
       continue;
     }
-
     const preview = previewsByVersionId.get(versionId);
-    if (!preview || preview.truncated) {
-      continue;
+    if (preview && !preview.truncated) {
+      return preview;
     }
-
-    const segments = toSegments(asRawSegments(preview.content)).filter((segment) => segment.endMs >= segment.startMs);
-    if (segments.length === 0) {
-      continue;
-    }
-
-    const durationMs = Math.max(...segments.map((segment) => segment.endMs), 1);
-    return {
-      title: `${runId} results`,
-      durationMs,
-      currentMs: segments[0]?.startMs ?? 0,
-      activeSegmentId: segments[0]?.id ?? "",
-      waveform: waveform(),
-      segments
-    };
   }
+  return undefined;
+}
 
-  throw new ReviewUnavailableError();
+function videoSrc(
+  artifacts: ApiArtifactRecord[],
+  previewsByVersionId: Map<string, ApiArtifactPreviewData>
+): string | undefined {
+  const preview = firstPreview(artifacts, previewsByVersionId, isVideoArtifact);
+  if (!preview) {
+    return undefined;
+  }
+  const contentPath = preview.version.content_path;
+  if (!contentPath || preview.version.content_encoding !== "file") {
+    return undefined;
+  }
+  return artifactFileUrl(contentPath, "video/mp4");
+}
+
+function subtitleText(
+  artifacts: ApiArtifactRecord[],
+  previewsByVersionId: Map<string, ApiArtifactPreviewData>
+): string | undefined {
+  const preview = firstPreview(artifacts, previewsByVersionId, isSubtitleArtifact);
+  return typeof preview?.content === "string" ? preview.content : undefined;
 }

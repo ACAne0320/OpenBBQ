@@ -128,3 +128,43 @@ class UserCredentialRow(UserBase):
     reference: Mapped[str] = mapped_column(Text, primary_key=True)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class QuickstartTaskRow(UserBase):
+    __tablename__ = "quickstart_tasks"
+    __table_args__ = (
+        UniqueConstraint("run_id", name="uq_quickstart_tasks_run_id"),
+        Index("idx_quickstart_tasks_cache_key", "cache_key"),
+        Index("idx_quickstart_tasks_updated_at", "updated_at"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    run_id: Mapped[str] = mapped_column(Text, nullable=False)
+    workflow_id: Mapped[str] = mapped_column(Text, nullable=False)
+    workspace_root: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_project_root: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_config_path: Mapped[str] = mapped_column(Text, nullable=False)
+    plugin_paths_json: Mapped[str] = mapped_column(Text, nullable=False)
+    source_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    source_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    source_summary: Mapped[str | None] = mapped_column(Text)
+    source_lang: Mapped[str] = mapped_column(Text, nullable=False)
+    target_lang: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str | None] = mapped_column(Text)
+    asr_model: Mapped[str | None] = mapped_column(Text)
+    asr_device: Mapped[str | None] = mapped_column(Text)
+    asr_compute_type: Mapped[str | None] = mapped_column(Text)
+    quality: Mapped[str | None] = mapped_column(Text)
+    auth: Mapped[str | None] = mapped_column(Text)
+    browser: Mapped[str | None] = mapped_column(Text)
+    browser_profile: Mapped[str | None] = mapped_column(Text)
+    output_path: Mapped[str | None] = mapped_column(Text)
+    source_artifact_id: Mapped[str | None] = mapped_column(Text)
+    cache_key: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+    completed_at: Mapped[str | None] = mapped_column(Text)
+    error_json: Mapped[str | None] = mapped_column(Text)
+    record_json: Mapped[str] = mapped_column(Text, nullable=False)

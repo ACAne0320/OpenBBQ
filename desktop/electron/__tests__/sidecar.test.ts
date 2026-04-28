@@ -127,4 +127,58 @@ describe("startSidecar", () => {
     });
     await expect(started).rejects.toBeInstanceOf(SidecarStartupError);
   });
+
+  it("forwards sidecar stderr to the configured log sink", async () => {
+    const child = new FakeChildProcess();
+    const spawn = vi.fn(() => child as never);
+    const logOutput = vi.fn();
+    const started = startSidecar(
+      {
+        command: "uv",
+        args: ["run", "openbbq", "api", "serve"],
+        cwd: "/tmp/github-repo/OpenBBQ",
+        workspaceRoot: "/tmp/openbbq-workspace",
+        token: "secret",
+        allowDevCors: false,
+        startupTimeoutMs: 1000,
+        logOutput
+      },
+      { spawn, healthCheck: vi.fn().mockResolvedValue(undefined) }
+    );
+
+    child.stderr.push("Unexpected API error\n");
+    child.stdout.push('{"ok":true,"host":"127.0.0.1","port":53124,"pid":12345}\n');
+    await started;
+
+    expect(logOutput).toHaveBeenCalledWith("stderr", "Unexpected API error\n");
+  });
+
+  it("forwards non-startup stdout lines without logging the startup JSON", async () => {
+    const child = new FakeChildProcess();
+    const spawn = vi.fn(() => child as never);
+    const logOutput = vi.fn();
+    const started = startSidecar(
+      {
+        command: "uv",
+        args: ["run", "openbbq", "api", "serve"],
+        cwd: "/tmp/github-repo/OpenBBQ",
+        workspaceRoot: "/tmp/openbbq-workspace",
+        token: "secret",
+        allowDevCors: false,
+        startupTimeoutMs: 1000,
+        logOutput
+      },
+      { spawn, healthCheck: vi.fn().mockResolvedValue(undefined) }
+    );
+
+    child.stdout.push("INFO: waiting for application startup\n");
+    child.stdout.push('{"ok":true,"host":"127.0.0.1","port":53124,"pid":12345}\n');
+    await started;
+
+    expect(logOutput).toHaveBeenCalledWith("stdout", "INFO: waiting for application startup\n");
+    expect(logOutput).not.toHaveBeenCalledWith(
+      "stdout",
+      '{"ok":true,"host":"127.0.0.1","port":53124,"pid":12345}\n'
+    );
+  });
 });

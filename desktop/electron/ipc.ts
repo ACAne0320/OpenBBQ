@@ -1,10 +1,17 @@
 import { dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 
-import type { ApiArtifactPreviewData, ApiArtifactRecord, ApiRunRecord, ApiSubtitleJobData, ApiWorkflowEvent } from "./apiTypes.js";
+import type {
+  ApiArtifactPreviewData,
+  ApiArtifactRecord,
+  ApiQuickstartTaskRecord,
+  ApiRunRecord,
+  ApiSubtitleJobData,
+  ApiWorkflowEvent
+} from "./apiTypes.js";
 import { requestJson } from "./http.js";
 import { toReviewModel } from "./reviewMapping.js";
 import type { ManagedSidecar } from "./sidecar.js";
-import { toTaskMonitorModel } from "./taskMapping.js";
+import { toTaskMonitorModel, toTaskSummaryModel } from "./taskMapping.js";
 import { buildQuickstartRequest, workflowTemplateForSource } from "./workflowMapping.js";
 import type { SourceDraft, StartSubtitleTaskInput } from "../src/lib/types.js";
 
@@ -20,6 +27,7 @@ export function registerOpenBBQIpc(context: IpcContext): () => void {
     ["openbbq:choose-local-media", async () => chooseLocalMedia(context.window)],
     ["openbbq:get-workflow-template", async (_event, source) => workflowTemplateForSource(source as SourceDraft)],
     ["openbbq:start-subtitle-task", async (_event, input) => startSubtitleTask(context.getSidecar(), input as StartSubtitleTaskInput)],
+    ["openbbq:list-tasks", async () => listTasks(context.getSidecar())],
     ["openbbq:get-task-monitor", async (_event, runId) => getTaskMonitor(context.getSidecar(), String(runId))],
     ["openbbq:get-review", async (_event, runId) => getReview(context.getSidecar(), String(runId))],
     [
@@ -30,9 +38,7 @@ export function registerOpenBBQIpc(context: IpcContext): () => void {
     ],
     [
       "openbbq:retry-checkpoint",
-      async () => {
-        throw new Error("Checkpoint retry is not available in the real desktop client yet.");
-      }
+      async (_event, runId) => retryCheckpoint(context.getSidecar(), String(runId))
     ]
   ];
 
@@ -73,6 +79,14 @@ async function startSubtitleTask(sidecar: ManagedSidecar, input: StartSubtitleTa
   return { runId: data.run_id };
 }
 
+export async function listTasks(sidecar: ManagedSidecar) {
+  const data = await requestJson<{ tasks: ApiQuickstartTaskRecord[] }>(
+    sidecar.connection,
+    "/quickstart/tasks"
+  );
+  return data.tasks.map(toTaskSummaryModel);
+}
+
 async function getTaskMonitor(sidecar: ManagedSidecar, runId: string) {
   const encodedRunId = encodeURIComponent(runId);
   const run = await requestJson<ApiRunRecord>(sidecar.connection, `/runs/${encodedRunId}`);
@@ -81,6 +95,12 @@ async function getTaskMonitor(sidecar: ManagedSidecar, runId: string) {
     `/runs/${encodedRunId}/events`
   );
   return toTaskMonitorModel(run, eventData.events);
+}
+
+export async function retryCheckpoint(sidecar: ManagedSidecar, runId: string) {
+  await requestJson<ApiRunRecord>(sidecar.connection, `/runs/${encodeURIComponent(runId)}/resume`, {
+    method: "POST"
+  });
 }
 
 async function getReview(sidecar: ManagedSidecar, runId: string) {

@@ -34,6 +34,15 @@ export type StepParameter =
 
 export type TaskStatus = "queued" | "running" | "paused" | "failed" | "completed" | "aborted";
 
+export type TaskSummary = {
+  id: string;
+  title: string;
+  workflowName: string;
+  sourceSummary: string;
+  status: TaskStatus;
+  updatedAt: string;
+};
+
 export type ProgressStep = {
   id: string;
   label: string;
@@ -77,6 +86,8 @@ export type ReviewModel = {
   durationMs: number;
   currentMs: number;
   activeSegmentId: string;
+  videoSrc?: string;
+  subtitleText?: string;
   waveform: WaveformBar[];
   segments: Segment[];
 };

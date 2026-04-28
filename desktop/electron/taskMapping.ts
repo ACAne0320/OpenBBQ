@@ -1,5 +1,5 @@
-import type { ProgressStep, RuntimeLogLine, TaskMonitorModel } from "../src/lib/types.js";
-import type { ApiRunRecord, ApiWorkflowEvent } from "./apiTypes.js";
+import type { ProgressStep, RuntimeLogLine, TaskMonitorModel, TaskSummary } from "../src/lib/types.js";
+import type { ApiQuickstartTaskRecord, ApiRunRecord, ApiWorkflowEvent } from "./apiTypes.js";
 
 const knownSteps: Array<{ id: string; label: string }> = [
   { id: "extract_audio", label: "Extract" },
@@ -15,6 +15,10 @@ const workflowNames: Record<string, string> = {
   "local-to-srt": "Local video -> translated SRT",
   "youtube-to-srt": "Remote video -> translated SRT"
 };
+
+function workflowDisplayName(workflowId: string): string {
+  return workflowNames[workflowId] ?? workflowId;
+}
 
 function stepsForWorkflow(workflowId: string): Array<{ id: string; label: string }> {
   if (workflowId === "youtube-to-srt") {
@@ -83,10 +87,22 @@ export function toTaskMonitorModel(run: ApiRunRecord, events: ApiWorkflowEvent[]
   return {
     id: run.id,
     title: run.workflow_id,
-    workflowName: workflowNames[run.workflow_id] ?? run.workflow_id,
+    workflowName: workflowDisplayName(run.workflow_id),
     status: run.status,
     progress,
     logs: toLogs(events),
     errorMessage: run.status === "failed" ? run.error?.message ?? undefined : undefined
+  };
+}
+
+export function toTaskSummaryModel(task: ApiQuickstartTaskRecord): TaskSummary {
+  const sourceSummary = task.source_summary ?? task.source_uri;
+  return {
+    id: task.run_id,
+    title: sourceSummary,
+    workflowName: workflowDisplayName(task.workflow_id),
+    sourceSummary,
+    status: task.status,
+    updatedAt: task.updated_at
   };
 }

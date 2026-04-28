@@ -31,6 +31,7 @@ def load_runtime_settings(
     *,
     env: Mapping[str, str] | None = None,
 ) -> RuntimeSettings:
+    merge_default_user_db = env is None
     env = os.environ if env is None else env
     path = (
         Path(config_path).expanduser().resolve()
@@ -39,9 +40,10 @@ def load_runtime_settings(
     )
     settings = parse_runtime_settings(load_toml_mapping(path), config_path=path, env=env)
     providers = dict(settings.providers)
-    providers.update(
-        {provider.name: provider for provider in UserRuntimeDatabase(env=env).list_providers()}
-    )
+    if merge_default_user_db or "OPENBBQ_USER_DB" in env or "OPENBBQ_USER_CONFIG" in env:
+        providers.update(
+            {provider.name: provider for provider in UserRuntimeDatabase(env=env).list_providers()}
+        )
     return settings.model_copy(update={"providers": providers})
 
 

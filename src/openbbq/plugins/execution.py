@@ -36,7 +36,7 @@ def execute_plugin_tool(
     try:
         response = entrypoint(request.model_dump(mode="json"))
     except Exception as exc:
-        message = f"Plugin '{plugin.name}' tool '{tool.name}' failed: {exc}"
+        message = f"Plugin '{plugin.name}' tool '{tool.name}' failed: {_exception_message(exc)}"
         if redactor is not None:
             message = redactor(message)
         raise PluginError(message) from exc
@@ -89,3 +89,11 @@ def _builtin_module_name(module_path: Path) -> str | None:
     except ValueError:
         return None
     return "openbbq.builtin_plugins." + ".".join(relative_module.parts)
+
+
+def _exception_message(exc: Exception) -> str:
+    message = str(exc)
+    cause = exc.__cause__ or exc.__context__
+    if cause is None:
+        return message
+    return f"{message} (caused by {cause.__class__.__name__}: {cause})"

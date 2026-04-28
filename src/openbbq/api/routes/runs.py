@@ -20,6 +20,7 @@ from openbbq.api.schemas import (
     WorkflowEventsData,
 )
 from openbbq.api.routes.events import event_stream, streaming_response
+from openbbq.api.task_history import sync_quickstart_task_for_run
 from openbbq.application.artifacts import list_artifacts
 from openbbq.application.runs import RunCreateRequest as ApplicationRunCreateRequest
 from openbbq.application.runs import abort_run, create_run, list_project_runs, resume_run
@@ -68,6 +69,7 @@ def list_runs_route(request: Request) -> ApiSuccess[RunListData]:
             project_root=reference.project_root,
             config_path=reference.config_path,
         ):
+            sync_quickstart_task_for_run(request, run)
             runs_by_id[run.id] = run
     runs = tuple(runs_by_id.values())
     return ApiSuccess(data=RunListData(runs=api_models(RunRecord, runs)))
@@ -76,6 +78,7 @@ def list_runs_route(request: Request) -> ApiSuccess[RunListData]:
 @router.get("/runs/{run_id}", response_model=ApiSuccess[RunRecord])
 def get_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
     run, _reference = find_run_project(request, run_id)
+    sync_quickstart_task_for_run(request, run)
     return ApiSuccess(data=api_model(RunRecord, run))
 
 
@@ -90,6 +93,7 @@ def resume_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
         execute_inline=settings.execute_runs_inline,
     )
     register_run_record(request, run)
+    sync_quickstart_task_for_run(request, run)
     return ApiSuccess(data=api_model(RunRecord, run))
 
 
@@ -100,6 +104,7 @@ def abort_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
         project_root=reference.project_root, config_path=reference.config_path, run_id=run_id
     )
     register_run_record(request, run)
+    sync_quickstart_task_for_run(request, run)
     return ApiSuccess(data=api_model(RunRecord, run))
 
 
