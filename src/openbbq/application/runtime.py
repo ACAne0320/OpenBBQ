@@ -100,10 +100,13 @@ def settings_show() -> SettingsShowResult:
 
 
 def defaults_set(request: RuntimeDefaultsSetRequest) -> RuntimeSettingsSetResult:
-    defaults = RuntimeDefaults(
-        llm_provider=request.llm_provider,
-        asr_provider=request.asr_provider,
-    )
+    try:
+        defaults = RuntimeDefaults(
+            llm_provider=request.llm_provider,
+            asr_provider=request.asr_provider,
+        )
+    except PydanticValidationError as exc:
+        raise ValidationError(format_pydantic_error("defaults", exc)) from exc
     settings = load_runtime_settings()
     updated = with_runtime_defaults(settings, defaults)
     write_runtime_settings(updated)
@@ -111,6 +114,16 @@ def defaults_set(request: RuntimeDefaultsSetRequest) -> RuntimeSettingsSetResult
 
 
 def faster_whisper_set(request: FasterWhisperSetRequest) -> RuntimeSettingsSetResult:
+    _require_non_empty_string(
+        request.default_model, "models.faster_whisper.default_model"
+    )
+    _require_non_empty_string(
+        request.default_device, "models.faster_whisper.default_device"
+    )
+    _require_non_empty_string(
+        request.default_compute_type,
+        "models.faster_whisper.default_compute_type",
+    )
     settings = load_runtime_settings()
     faster_whisper = FasterWhisperSettings(
         cache_dir=request.cache_dir.expanduser().resolve(),
@@ -203,3 +216,8 @@ def model_list() -> ModelListResult:
 
 def _default_provider_sqlite_reference(name: str) -> str:
     return f"sqlite:openbbq/providers/{name}/api_key"
+
+
+def _require_non_empty_string(value: str, field_path: str) -> None:
+    if not value.strip():
+        raise ValidationError(f"{field_path} must be a non-empty string.")

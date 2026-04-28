@@ -1,6 +1,7 @@
 import sqlite3
 
 from fastapi.testclient import TestClient
+import pytest
 
 from openbbq.api.app import ApiAppSettings, create_app
 from openbbq.application.quickstart import SubtitleJobResult
@@ -127,6 +128,66 @@ def test_runtime_defaults_and_faster_whisper_routes(tmp_path, monkeypatch):
     assert models.json()["data"]["models"][0]["cache_dir"] == str(
         (tmp_path / "fw-cache").resolve()
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("default_model", ""),
+        ("default_device", "   "),
+        ("default_compute_type", "\t"),
+    ),
+)
+def test_runtime_faster_whisper_rejects_blank_settings(
+    tmp_path, monkeypatch, field, value
+):
+    project = write_project_fixture(tmp_path, "text-basic")
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    client, headers = authed_client(project)
+    valid_body = {
+        "cache_dir": str(tmp_path / "fw-cache"),
+        "default_model": "small",
+        "default_device": "cpu",
+        "default_compute_type": "int8",
+    }
+    valid = client.put(
+        "/runtime/models/faster-whisper",
+        headers=headers,
+        json=valid_body,
+    )
+
+    rejected = client.put(
+        "/runtime/models/faster-whisper",
+        headers=headers,
+        json=valid_body | {field: value},
+    )
+    settings = client.get("/runtime/settings", headers=headers)
+
+    assert valid.status_code == 200
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "validation_error"
+    assert settings.status_code == 200
+    assert (
+        settings.json()["data"]["settings"]["models"]["faster_whisper"][field]
+        == valid_body[field]
+    )
+
+
+def test_runtime_defaults_invalid_provider_name_returns_validation_error(
+    tmp_path, monkeypatch
+):
+    project = write_project_fixture(tmp_path, "text-basic")
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    client, headers = authed_client(project, raise_server_exceptions=False)
+
+    response = client.put(
+        "/runtime/defaults",
+        headers=headers,
+        json={"llm_provider": "not valid", "asr_provider": "faster-whisper"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 def test_runtime_auth_route_stores_user_secret_in_sqlite(tmp_path, monkeypatch):
