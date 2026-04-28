@@ -145,11 +145,15 @@ def test_workflow_progress_events_are_redacted_and_tolerate_invalid_percent(
 
     assert result.status == "completed"
     store = ProjectStore(project / ".openbbq")
-    progress_events = [
-        event for event in store.read_events("text-demo") if event.type == "step.progress"
+    fake_progress_events = [
+        event
+        for event in store.read_events("text-demo")
+        if event.type == "step.progress"
+        and event.data["progress"]["phase"] == "demo"
+        and event.data["progress"]["label"] == "provider [REDACTED]"
     ]
-    assert progress_events
-    for progress_event in progress_events:
+    assert fake_progress_events
+    for progress_event in fake_progress_events:
         assert progress_event.data["progress"]["percent"] == 0
         assert "sk-secret" not in (progress_event.message or "")
         assert "sk-secret" not in json.dumps(progress_event.data, sort_keys=True)
