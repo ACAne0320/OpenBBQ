@@ -22,6 +22,52 @@ body {
   background: oklch(94% 0.025 82);
 }
 
+* {
+  scrollbar-color: #b6632f #eee1cc;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #eee1cc;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #b6632f;
+  border: 2px solid #eee1cc;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #8c4d29;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.scrollbar-log {
+  scrollbar-color: #c7aa7a #2d241d;
+}
+
+.scrollbar-log::-webkit-scrollbar-track {
+  background: #2d241d;
+}
+
+.scrollbar-log::-webkit-scrollbar-thumb {
+  background: #c7aa7a;
+  border-color: #2d241d;
+}
+
+.scrollbar-log::-webkit-scrollbar-thumb:hover {
+  background: #ffd08f;
+}
+
 button,
 input,
 textarea,

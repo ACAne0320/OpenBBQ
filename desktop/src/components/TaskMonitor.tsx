@@ -275,7 +275,7 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
         <div
           ref={runtimeLogRef}
           data-testid="runtime-log-scroll"
-          className="h-[420px] min-h-0 overflow-y-auto overflow-x-hidden rounded-lg bg-log-bg p-3.5 font-mono text-xs leading-relaxed text-[#f8ead2] shadow-inner xl:h-[520px]"
+          className="scrollbar-log h-[420px] min-h-0 overflow-y-auto overflow-x-hidden rounded-lg bg-log-bg p-3.5 font-mono text-xs leading-relaxed text-[#f8ead2] shadow-inner xl:h-[520px]"
         >
           {runtimeRows.map((row) => {
             if (row.kind === "text") {

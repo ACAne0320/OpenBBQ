@@ -162,6 +162,7 @@ describe("TaskMonitor", () => {
       const viewport = screen.getByTestId("runtime-log-scroll");
       expect(viewport).toHaveClass("overflow-y-auto");
       expect(viewport).toHaveClass("overflow-x-hidden");
+      expect(viewport).toHaveClass("scrollbar-log");
       expect(viewport.scrollTop).toBe(1200);
     } finally {
       if (scrollHeight) {
