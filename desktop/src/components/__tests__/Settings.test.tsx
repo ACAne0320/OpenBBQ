@@ -83,11 +83,13 @@ function clone<T>(value: T): T {
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((nextResolve) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((nextResolve, nextReject) => {
     resolve = nextResolve;
+    reject = nextReject;
   });
 
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 async function waitForDownloadPoll(milliseconds = 800) {
@@ -796,6 +798,55 @@ describe("Settings", () => {
     expect(screen.getByRole("button", { name: "Download tiny" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Download base" })).toBeEnabled();
     expect(screen.queryByText(cacheA)).not.toBeInTheDocument();
+  });
+
+  it("ignores stale model refresh failures after ASR defaults reset", async () => {
+    const user = userEvent.setup();
+    const cacheA = "C:/Users/alex/.cache/openbbq/models/faster-whisper";
+    const cacheB = "D:/openbbq-cache/faster-whisper";
+    const staleRefresh = createDeferred<RuntimeModelStatus[]>();
+    const baseA = downloadedFasterWhisperModel("base", cacheA);
+    const baseMissingB = missingFasterWhisperModel("base", cacheB);
+    const loadModels = vi
+      .fn()
+      .mockResolvedValueOnce([missingFasterWhisperModel("base", cacheA)])
+      .mockReturnValueOnce(staleRefresh.promise)
+      .mockResolvedValueOnce([baseMissingB]);
+    const saveFasterWhisperDefaults = vi.fn().mockResolvedValue({
+      ...clone(settings),
+      fasterWhisper: {
+        ...settings.fasterWhisper,
+        cacheDir: cacheB
+      }
+    });
+
+    renderSettings({
+      downloadFasterWhisperModel: vi.fn().mockResolvedValue(completedDownloadJob(baseA)),
+      loadModels,
+      saveFasterWhisperDefaults
+    });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    await user.click(screen.getByRole("button", { name: "Download base" }));
+    expect(await screen.findByText("Model downloaded.")).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Cache directory"));
+    await user.type(screen.getByLabelText("Cache directory"), cacheB);
+    await user.click(screen.getByRole("button", { name: "Save ASR defaults" }));
+    expect(await screen.findByText("ASR defaults saved.")).toBeInTheDocument();
+
+    await act(async () => {
+      staleRefresh.reject(new Error("Stale refresh failed."));
+      try {
+        await staleRefresh.promise;
+      } catch {
+        // Expected rejection; the component should ignore it after reset.
+      }
+    });
+
+    expect(screen.queryByText("Stale refresh failed.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Model status could not be refreshed.")).not.toBeInTheDocument();
   });
 
   it("keeps downloaded model status when refresh fails after download succeeds", async () => {

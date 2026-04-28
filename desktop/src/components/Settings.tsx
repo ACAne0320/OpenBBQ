@@ -272,7 +272,9 @@ export function Settings({
           )
         );
       } catch (refreshError) {
-        setAsrMutationError(errorMessage(refreshError, "Model status could not be refreshed."));
+        if (generation === downloadStateGeneration.current) {
+          setAsrMutationError(errorMessage(refreshError, "Model status could not be refreshed."));
+        }
       }
     },
     [loadModels]
