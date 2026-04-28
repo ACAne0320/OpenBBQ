@@ -27,7 +27,7 @@ function defaultWorkspaceRoot(): string {
 }
 
 function uvCommand(): string {
-  return process.platform === "win32" ? "uv.cmd" : "uv";
+  return "uv";
 }
 
 export function createDesktopRuntimeConfig(): DesktopRuntimeConfig {
