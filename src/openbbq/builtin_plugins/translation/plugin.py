@@ -35,6 +35,8 @@ WHITESPACE_RE = re.compile(r"\s+")
 def run(request: dict, client_factory=None, progress=None) -> dict:
     tool_name = request.get("tool_name")
     if tool_name == "translate":
+        if progress is None:
+            return run_translate(request, client_factory=client_factory)
         return run_translate(request, client_factory=client_factory, progress=progress)
     if tool_name == "qa":
         return run_qa(request)
