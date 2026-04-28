@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useRef } from "react";
 import { AlertTriangle, Check, Copy, Minus, X } from "lucide-react";
 
 import type { ProgressStep, TaskMonitorModel, TaskProgressLogLine } from "../lib/types";
@@ -13,6 +14,11 @@ type TaskMonitorProps = {
 
 const fallbackFailureMessage = "Task failed before OpenBBQ received detailed error information.";
 const cancelableStatuses = new Set<TaskMonitorModel["status"]>(["queued", "running", "paused"]);
+
+type RuntimeTextLogLine = TaskMonitorModel["logs"][number];
+type RuntimeLogRow =
+  | { kind: "progress"; sequence: number; line: TaskProgressLogLine }
+  | { kind: "text"; sequence: number; line: RuntimeTextLogLine };
 
 function stepSummary(task: TaskMonitorModel, progress: ProgressStep[]): string {
   if (task.status === "failed") {
@@ -140,12 +146,43 @@ function clampedPercent(percent: number): number {
   return Math.min(100, Math.max(0, percent));
 }
 
+function runtimeLogRows(task: TaskMonitorModel): RuntimeLogRow[] {
+  const progressSequences = new Set(task.progressLogs.map((line) => line.sequence));
+  return [
+    ...task.progressLogs.map((line) => ({ kind: "progress" as const, sequence: line.sequence, line })),
+    ...task.logs
+      .filter((line) => !progressSequences.has(line.sequence))
+      .map((line) => ({ kind: "text" as const, sequence: line.sequence, line }))
+  ].sort((left, right) => left.sequence - right.sequence);
+}
+
+function runtimeLogRowText(row: RuntimeLogRow): string {
+  if (row.kind === "text") {
+    return `${row.line.timestamp} ${row.line.level} ${row.line.message}`;
+  }
+
+  const percent = roundedPercent(clampedPercent(row.line.percent));
+  const detail = progressDetail(row.line);
+  return `${row.line.timestamp} progress ${row.line.label} ${percent}%${detail ? ` ${detail}` : ""}`;
+}
+
 export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = false, task }: TaskMonitorProps) {
   const failed = task.status === "failed";
   const progress = normalizedProgress(task);
   const counts = progressCounts(progress);
-  const logText = task.logs.map((line) => `${line.timestamp} ${line.level} ${line.message}`).join("\n");
+  const runtimeRows = useMemo(() => runtimeLogRows(task), [task]);
+  const runtimeLogRef = useRef<HTMLDivElement>(null);
+  const logText = runtimeRows.map(runtimeLogRowText).join("\n");
   const showCancel = Boolean(onCancel) && cancelableStatuses.has(task.status);
+
+  useEffect(() => {
+    const viewport = runtimeLogRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    viewport.scrollTop = viewport.scrollHeight;
+  }, [runtimeRows]);
 
   function copyLog() {
     if (!navigator.clipboard) {
@@ -204,7 +241,7 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
         </div>
       </section>
 
-      <section aria-label="Runtime log" className="grid min-h-[520px] grid-rows-[auto_auto_minmax(0,1fr)] rounded-lg bg-paper-muted p-4 shadow-control">
+      <section aria-label="Runtime log" className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-lg bg-paper-muted p-4 shadow-control">
         <div className="mb-3 flex items-center justify-between gap-4">
           <div>
             <p className="text-xs uppercase text-muted">Runtime log</p>
@@ -235,21 +272,43 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
           </div>
         ) : null}
 
-        <div className="min-h-0 overflow-auto rounded-lg bg-log-bg p-3.5 font-mono text-xs leading-relaxed text-[#f8ead2] shadow-inner">
-          {task.progressLogs.map((line) => {
+        <div
+          ref={runtimeLogRef}
+          data-testid="runtime-log-scroll"
+          className="h-[420px] min-h-0 overflow-y-auto overflow-x-hidden rounded-lg bg-log-bg p-3.5 font-mono text-xs leading-relaxed text-[#f8ead2] shadow-inner xl:h-[520px]"
+        >
+          {runtimeRows.map((row) => {
+            if (row.kind === "text") {
+              const line = row.line;
+              return (
+                <div key={`text-${line.sequence}`} className="grid grid-cols-[132px_72px_minmax(0,1fr)] gap-2 py-0.5 md:grid-cols-[176px_72px_minmax(0,1fr)]">
+                  <span className="min-w-0 truncate text-[#c7aa7a]">{line.timestamp}</span>
+                  <span className={`rounded-sm px-1.5 text-center text-[10px] uppercase leading-5 ${logLevelClass(line.level)}`}>
+                    {line.level}
+                  </span>
+                  <span
+                    className={`min-w-0 whitespace-pre-wrap break-words ${line.level === "error" ? "text-[#ffbd96]" : line.level === "warning" ? "text-[#ffd08f]" : ""}`}
+                  >
+                    {line.message}
+                  </span>
+                </div>
+              );
+            }
+
+            const line = row.line;
             const detail = progressDetail(line);
-            const percentText = roundedPercent(line.percent);
             const visualPercent = clampedPercent(line.percent);
+            const percentText = roundedPercent(visualPercent);
 
             return (
-              <div key={`progress-${line.sequence}`} className="grid grid-cols-[176px_112px_minmax(0,1fr)] gap-2 py-1">
-                <span className="text-[#c7aa7a]">{line.timestamp}</span>
+              <div key={`progress-${line.sequence}`} className="grid grid-cols-[132px_88px_minmax(0,1fr)] gap-2 py-1.5 md:grid-cols-[176px_112px_minmax(0,1fr)]">
+                <span className="min-w-0 truncate text-[#c7aa7a]">{line.timestamp}</span>
                 <span className="rounded-sm bg-[#403329] px-1.5 text-center text-[10px] uppercase leading-5 text-[#d9c4a2]">
                   progress
                 </span>
                 <div aria-label={`${line.label} progress`} className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="min-w-[96px] text-[#f8ead2]">{line.label}</span>
+                  <p className="min-w-0 truncate font-semibold text-[#f8ead2]">{line.label}</p>
+                  <div className="mt-1 flex items-center gap-2">
                     <div
                       aria-hidden="true"
                       className="h-2 flex-1 overflow-hidden rounded-full bg-[#5a4627]"
@@ -263,17 +322,6 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
               </div>
             );
           })}
-          {task.logs.map((line) => (
-            <div key={line.sequence} className="grid grid-cols-[176px_72px_minmax(0,1fr)] gap-2 py-0.5">
-              <span className="text-[#c7aa7a]">{line.timestamp}</span>
-              <span className={`rounded-sm px-1.5 text-center text-[10px] uppercase leading-5 ${logLevelClass(line.level)}`}>
-                {line.level}
-              </span>
-              <span className={line.level === "error" ? "text-[#ffbd96]" : line.level === "warning" ? "text-[#ffd08f]" : ""}>
-                {line.message}
-              </span>
-            </div>
-          ))}
         </div>
       </section>
     </section>

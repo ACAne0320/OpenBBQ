@@ -47,7 +47,7 @@ describe("TaskMonitor", () => {
     expect(progress).toHaveClass("py-3");
 
     const log = screen.getByLabelText("Runtime log");
-    expect(log).toHaveClass("min-h-[520px]");
+    expect(screen.getByTestId("runtime-log-scroll")).toHaveClass("h-[420px]");
     expect(within(log).getByText(/provider returned rate limit/i)).toBeInTheDocument();
     expect(within(log).getByText("error")).toBeInTheDocument();
   });
@@ -80,6 +80,94 @@ describe("TaskMonitor", () => {
     expect(screen.getByLabelText("ASR parsing progress")).toBeInTheDocument();
     expect(screen.getByText("42%")).toBeInTheDocument();
     expect(screen.getByText("84 / 200 seconds")).toBeInTheDocument();
+  });
+
+  it("renders progress events once in the merged terminal log", () => {
+    render(
+      <TaskMonitor
+        task={{
+          ...failedTask,
+          status: "running",
+          progressLogs: [
+            {
+              sequence: 2,
+              timestamp: "2026-04-28T10:00:00.000Z",
+              stepId: "download",
+              attempt: 1,
+              phase: "video_download",
+              label: "Download video",
+              percent: 3,
+              current: 920624,
+              total: 27371136,
+              unit: "bytes"
+            }
+          ],
+          logs: [
+            {
+              sequence: 1,
+              timestamp: "2026-04-28T09:59:59.000Z",
+              level: "info",
+              message: "Workflow started."
+            },
+            {
+              sequence: 2,
+              timestamp: "2026-04-28T10:00:00.000Z",
+              level: "info",
+              message: "Download video 3%"
+            },
+            {
+              sequence: 3,
+              timestamp: "2026-04-28T10:00:01.000Z",
+              level: "info",
+              message: "Resolving output."
+            }
+          ]
+        }}
+        onRetry={vi.fn()}
+      />
+    );
+
+    const log = screen.getByLabelText("Runtime log");
+    expect(within(log).getByLabelText("Download video progress")).toBeInTheDocument();
+    expect(within(log).getByText("3%")).toBeInTheDocument();
+    expect(within(log).getByText("920624 / 27371136 bytes")).toBeInTheDocument();
+    expect(within(log).getByText("Workflow started.")).toBeInTheDocument();
+    expect(within(log).getByText("Resolving output.")).toBeInTheDocument();
+    expect(within(log).queryByText("Download video 3%")).not.toBeInTheDocument();
+  });
+
+  it("keeps runtime logs in a fixed internal viewport pinned to the latest row", () => {
+    const scrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get: () => 1200
+    });
+
+    try {
+      render(
+        <TaskMonitor
+          task={{
+            ...failedTask,
+            logs: Array.from({ length: 40 }, (_, index) => ({
+              sequence: index + 1,
+              timestamp: `2026-04-28T10:00:${String(index).padStart(2, "0")}.000Z`,
+              level: "info" as const,
+              message: `Log line ${index + 1}`
+            }))
+          }}
+          onRetry={vi.fn()}
+        />
+      );
+
+      const viewport = screen.getByTestId("runtime-log-scroll");
+      expect(viewport).toHaveClass("overflow-y-auto");
+      expect(viewport).toHaveClass("overflow-x-hidden");
+      expect(viewport.scrollTop).toBe(1200);
+    } finally {
+      if (scrollHeight) {
+        Object.defineProperty(HTMLElement.prototype, "scrollHeight", scrollHeight);
+      }
+    }
   });
 
   it("shows the error banner and Retry checkpoint together for failed tasks", () => {
