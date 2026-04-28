@@ -52,6 +52,36 @@ describe("TaskMonitor", () => {
     expect(within(log).getByText("error")).toBeInTheDocument();
   });
 
+  it("renders workflow progress rows inside the runtime log", () => {
+    render(
+      <TaskMonitor
+        task={{
+          ...failedTask,
+          status: "running",
+          progressLogs: [
+            {
+              sequence: 6,
+              timestamp: "2026-04-28T10:00:00.000Z",
+              stepId: "transcribe",
+              attempt: 1,
+              phase: "asr_parse",
+              label: "ASR parsing",
+              percent: 42,
+              current: 84,
+              total: 200,
+              unit: "seconds"
+            }
+          ]
+        }}
+        onRetry={vi.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText("ASR parsing progress")).toBeInTheDocument();
+    expect(screen.getByText("42%")).toBeInTheDocument();
+    expect(screen.getByText("84 / 200 seconds")).toBeInTheDocument();
+  });
+
   it("shows the error banner and Retry checkpoint together for failed tasks", () => {
     render(<TaskMonitor task={failedTask} onRetry={vi.fn()} />);
 

@@ -1,6 +1,6 @@
 import { AlertTriangle, Check, Copy, Minus, X } from "lucide-react";
 
-import type { ProgressStep, TaskMonitorModel } from "../lib/types";
+import type { ProgressStep, TaskMonitorModel, TaskProgressLogLine } from "../lib/types";
 import { Button } from "./Button";
 
 type TaskMonitorProps = {
@@ -120,6 +120,26 @@ function logLevelClass(level: TaskMonitorModel["logs"][number]["level"]): string
   return "bg-[#403329] text-[#d9c4a2]";
 }
 
+function progressDetail(line: TaskProgressLogLine): string | null {
+  if (line.current == null || line.total == null || !line.unit) {
+    return null;
+  }
+
+  return `${Math.round(line.current)} / ${Math.round(line.total)} ${line.unit}`;
+}
+
+function roundedPercent(percent: number): number {
+  return Number.isFinite(percent) ? Math.round(percent) : 0;
+}
+
+function clampedPercent(percent: number): number {
+  if (!Number.isFinite(percent)) {
+    return 0;
+  }
+
+  return Math.min(100, Math.max(0, percent));
+}
+
 export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = false, task }: TaskMonitorProps) {
   const failed = task.status === "failed";
   const progress = normalizedProgress(task);
@@ -216,6 +236,33 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
         ) : null}
 
         <div className="min-h-0 overflow-auto rounded-lg bg-log-bg p-3.5 font-mono text-xs leading-relaxed text-[#f8ead2] shadow-inner">
+          {task.progressLogs.map((line) => {
+            const detail = progressDetail(line);
+            const percentText = roundedPercent(line.percent);
+            const visualPercent = clampedPercent(line.percent);
+
+            return (
+              <div key={`progress-${line.sequence}`} className="grid grid-cols-[176px_112px_minmax(0,1fr)] gap-2 py-1">
+                <span className="text-[#c7aa7a]">{line.timestamp}</span>
+                <span className="rounded-sm bg-[#403329] px-1.5 text-center text-[10px] uppercase leading-5 text-[#d9c4a2]">
+                  progress
+                </span>
+                <div aria-label={`${line.label} progress`} className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-[96px] text-[#f8ead2]">{line.label}</span>
+                    <div
+                      aria-hidden="true"
+                      className="h-2 flex-1 overflow-hidden rounded-full bg-[#5a4627]"
+                    >
+                      <div className="h-full rounded-full bg-[#ffd08f]" style={{ width: `${visualPercent}%` }} />
+                    </div>
+                    <span className="w-10 text-right font-bold text-[#ffd08f]">{percentText}%</span>
+                  </div>
+                  {detail ? <p className="mt-1 text-[#c7aa7a]">{detail}</p> : null}
+                </div>
+              </div>
+            );
+          })}
           {task.logs.map((line) => (
             <div key={line.sequence} className="grid grid-cols-[176px_72px_minmax(0,1fr)] gap-2 py-0.5">
               <span className="text-[#c7aa7a]">{line.timestamp}</span>
