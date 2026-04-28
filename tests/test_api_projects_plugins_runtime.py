@@ -230,6 +230,25 @@ def test_runtime_models_ignore_incomplete_faster_whisper_cache(tmp_path, monkeyp
     assert models_by_name["small"]["size_bytes"] == 0
 
 
+def test_runtime_models_ignore_file_faster_whisper_cache_candidate(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    cache_root = tmp_path / "cache"
+    cache_dir = cache_root / "models" / "faster-whisper"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "base").write_bytes(b"stray")
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
+    client, headers = authed_client(project)
+
+    response = client.get("/runtime/models", headers=headers)
+
+    assert response.status_code == 200
+    base = response.json()["data"]["models"][0]
+    assert base["model"] == "base"
+    assert base["present"] is False
+    assert base["size_bytes"] == 0
+
+
 def test_runtime_downloads_faster_whisper_model_with_fake_adapter(tmp_path, monkeypatch):
     project = write_project_fixture(tmp_path, "text-basic")
     cache_root = tmp_path / "cache"

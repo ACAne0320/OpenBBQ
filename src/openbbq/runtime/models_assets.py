@@ -102,8 +102,6 @@ def _faster_whisper_cache_candidates(cache_dir: Path, model: str) -> tuple[Path,
 
 
 def _candidate_size(path: Path) -> int | None:
-    if path.is_file():
-        return path.stat().st_size
     if not path.is_dir():
         return None
     snapshot_size = _hugging_face_snapshot_size(path)
