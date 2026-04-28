@@ -302,6 +302,54 @@ def test_runtime_downloads_faster_whisper_model_with_fake_adapter(tmp_path, monk
     }
 
 
+def test_runtime_download_returns_completed_job_when_faster_whisper_model_present(
+    tmp_path, monkeypatch
+):
+    project = write_project_fixture(tmp_path, "text-basic")
+    cache_root = tmp_path / "cache"
+    cache_dir = cache_root / "models" / "faster-whisper"
+    model_dir = cache_dir / "models--Systran--faster-whisper-small"
+    payload_size = _write_faster_whisper_payload(model_dir)
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
+    calls = []
+
+    def fake_download(model, *, cache_dir, device, compute_type, progress=None):
+        calls.append(
+            {
+                "model": model,
+                "cache_dir": cache_dir,
+                "device": device,
+                "compute_type": compute_type,
+                "progress": progress,
+            }
+        )
+        raise AssertionError("download should not be invoked for a present model")
+
+    monkeypatch.setattr("openbbq.application.runtime.download_faster_whisper_model", fake_download)
+    client, headers = authed_client(project)
+
+    response = client.post(
+        "/runtime/models/faster-whisper/download",
+        headers=headers,
+        json={"model": "small"},
+    )
+
+    assert response.status_code == 200
+    job = response.json()["data"]["job"]
+    assert job["status"] == "completed"
+    assert job["percent"] == 100
+    assert job["current_bytes"] == payload_size
+    assert job["total_bytes"] == payload_size
+    assert job["model_status"]["present"] is True
+    assert job["model_status"]["size_bytes"] == payload_size
+    assert calls == []
+
+    poll = _poll_download_job(client, headers, job["job_id"])
+    assert poll.json()["data"]["job"]["status"] == "completed"
+    assert poll.json()["data"]["job"]["percent"] == 100
+
+
 def test_model_download_job_manager_reports_queued_before_worker_starts(tmp_path):
     from openbbq.runtime.model_download_jobs import ModelDownloadJobManager
     from openbbq.runtime.models import ModelAssetStatus

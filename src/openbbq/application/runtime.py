@@ -251,6 +251,14 @@ def faster_whisper_download(
             default_compute_type="int8",
         )
     )
+    model_status = faster_whisper_model_status(settings, model=request.model)
+    if model_status.present:
+        job = model_download_jobs.completed(
+            provider="faster-whisper",
+            model=request.model,
+            model_status=model_status,
+        )
+        return FasterWhisperDownloadResult(job=job)
 
     def worker(progress):
         download_faster_whisper_model(

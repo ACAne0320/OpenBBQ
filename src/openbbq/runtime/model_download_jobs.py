@@ -51,6 +51,31 @@ class ModelDownloadJobManager:
         self._executor.submit(self._run, job.job_id, worker)
         return self.get(job.job_id)
 
+    def completed(
+        self,
+        *,
+        provider: str,
+        model: str,
+        model_status: ModelAssetStatus,
+    ) -> ModelDownloadJob:
+        timestamp = _now()
+        size_bytes = model_status.size_bytes
+        job = ModelDownloadJob(
+            job_id=uuid4().hex,
+            provider=provider,
+            model=model,
+            status="completed",
+            percent=100,
+            current_bytes=size_bytes,
+            total_bytes=size_bytes,
+            started_at=timestamp,
+            completed_at=timestamp,
+            model_status=model_status,
+        )
+        with self._lock:
+            self._jobs[job.job_id] = job
+        return job.model_copy(deep=True)
+
     def get(self, job_id: str) -> ModelDownloadJob:
         with self._lock:
             job = self._jobs.get(job_id)
