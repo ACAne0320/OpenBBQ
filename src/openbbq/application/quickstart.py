@@ -19,6 +19,8 @@ from openbbq.application.quickstart_workflows import (
 )
 from openbbq.application.runs import RunCreateRequest, create_run
 from openbbq.domain.base import OpenBBQModel
+from openbbq.errors import ValidationError
+from openbbq.runtime.secrets import SecretResolver
 from openbbq.runtime.settings import load_runtime_settings
 
 __all__ = (
@@ -49,6 +51,11 @@ class SubtitleJobResult(OpenBBQModel):
     run_id: str
     output_path: Path | None = None
     source_artifact_id: str | None = None
+    provider: str
+    model: str | None = None
+    asr_model: str
+    asr_device: str
+    asr_compute_type: str
 
 
 class LocalSubtitleJobRequest(OpenBBQModel):
@@ -56,7 +63,7 @@ class LocalSubtitleJobRequest(OpenBBQModel):
     input_path: Path
     source_lang: str
     target_lang: str
-    provider: str = "openai"
+    provider: str | None = None
     model: str | None = None
     asr_model: str | None = None
     asr_device: str | None = None
@@ -72,7 +79,7 @@ class YouTubeSubtitleJobRequest(OpenBBQModel):
     url: str
     source_lang: str
     target_lang: str
-    provider: str = "openai"
+    provider: str | None = None
     model: str | None = None
     asr_model: str | None = None
     asr_device: str | None = None
@@ -88,17 +95,23 @@ class YouTubeSubtitleJobRequest(OpenBBQModel):
 
 
 def create_local_subtitle_job(request: LocalSubtitleJobRequest) -> SubtitleJobResult:
-    defaults = _faster_whisper_defaults()
+    defaults = _runtime_defaults_for_request(
+        provider=request.provider,
+        model=request.model,
+        asr_model=request.asr_model,
+        asr_device=request.asr_device,
+        asr_compute_type=request.asr_compute_type,
+    )
     generated = write_local_subtitle_workflow(
         workspace_root=request.workspace_root,
         video_selector="project.art_source_video",
         source_lang=request.source_lang,
         target_lang=request.target_lang,
-        provider=request.provider,
-        model=request.model,
-        asr_model=request.asr_model or defaults.default_model,
-        asr_device=request.asr_device or defaults.default_device,
-        asr_compute_type=request.asr_compute_type or defaults.default_compute_type,
+        provider=defaults.provider,
+        model=defaults.model,
+        asr_model=defaults.asr_model,
+        asr_device=defaults.asr_device,
+        asr_compute_type=defaults.asr_compute_type,
     )
     imported = import_artifact(
         ArtifactImportRequest(
@@ -114,11 +127,11 @@ def create_local_subtitle_job(request: LocalSubtitleJobRequest) -> SubtitleJobRe
         video_selector=f"project.{imported.artifact.id}",
         source_lang=request.source_lang,
         target_lang=request.target_lang,
-        provider=request.provider,
-        model=request.model,
-        asr_model=request.asr_model or defaults.default_model,
-        asr_device=request.asr_device or defaults.default_device,
-        asr_compute_type=request.asr_compute_type or defaults.default_compute_type,
+        provider=defaults.provider,
+        model=defaults.model,
+        asr_model=defaults.asr_model,
+        asr_device=defaults.asr_device,
+        asr_compute_type=defaults.asr_compute_type,
         run_id=generated.run_id,
     )
     run = create_run(
@@ -138,21 +151,32 @@ def create_local_subtitle_job(request: LocalSubtitleJobRequest) -> SubtitleJobRe
         run_id=run.id,
         output_path=request.output_path,
         source_artifact_id=imported.artifact.id,
+        provider=defaults.provider,
+        model=defaults.model,
+        asr_model=defaults.asr_model,
+        asr_device=defaults.asr_device,
+        asr_compute_type=defaults.asr_compute_type,
     )
 
 
 def create_youtube_subtitle_job(request: YouTubeSubtitleJobRequest) -> SubtitleJobResult:
-    defaults = _faster_whisper_defaults()
+    defaults = _runtime_defaults_for_request(
+        provider=request.provider,
+        model=request.model,
+        asr_model=request.asr_model,
+        asr_device=request.asr_device,
+        asr_compute_type=request.asr_compute_type,
+    )
     generated = write_youtube_subtitle_workflow(
         workspace_root=request.workspace_root,
         url=request.url,
         source_lang=request.source_lang,
         target_lang=request.target_lang,
-        provider=request.provider,
-        model=request.model,
-        asr_model=request.asr_model or defaults.default_model,
-        asr_device=request.asr_device or defaults.default_device,
-        asr_compute_type=request.asr_compute_type or defaults.default_compute_type,
+        provider=defaults.provider,
+        model=defaults.model,
+        asr_model=defaults.asr_model,
+        asr_device=defaults.asr_device,
+        asr_compute_type=defaults.asr_compute_type,
         quality=request.quality,
         auth=request.auth,
         browser=request.browser,
@@ -175,9 +199,56 @@ def create_youtube_subtitle_job(request: YouTubeSubtitleJobRequest) -> SubtitleJ
         run_id=run.id,
         output_path=request.output_path,
         source_artifact_id=None,
+        provider=defaults.provider,
+        model=defaults.model,
+        asr_model=defaults.asr_model,
+        asr_device=defaults.asr_device,
+        asr_compute_type=defaults.asr_compute_type,
     )
 
 
-def _faster_whisper_defaults():
+class _ResolvedQuickstartDefaults(OpenBBQModel):
+    provider: str
+    model: str | None
+    asr_model: str
+    asr_device: str
+    asr_compute_type: str
+
+
+def _runtime_defaults_for_request(
+    *,
+    provider: str | None,
+    model: str | None,
+    asr_model: str | None,
+    asr_device: str | None,
+    asr_compute_type: str | None,
+) -> _ResolvedQuickstartDefaults:
     settings = load_runtime_settings()
-    return settings.models.faster_whisper
+    provider_name = provider or settings.defaults.llm_provider
+    profile = settings.providers.get(provider_name)
+    if profile is None:
+        raise ValidationError(f"Default LLM provider '{provider_name}' is not configured.")
+    if profile.api_key is None:
+        raise ValidationError(
+            f"Default LLM provider '{provider_name}' does not define an API key."
+        )
+    resolved_secret = SecretResolver().resolve(profile.api_key)
+    if not resolved_secret.resolved:
+        raise ValidationError(
+            resolved_secret.public.error
+            or f"Default LLM provider '{provider_name}' API key is not resolved."
+        )
+    if settings.defaults.asr_provider != "faster-whisper":
+        raise ValidationError(
+            f"Default ASR provider '{settings.defaults.asr_provider}' is not supported by this quickstart."
+        )
+    if settings.models is None:
+        raise ValidationError("Faster Whisper runtime settings are not configured.")
+    faster_whisper = settings.models.faster_whisper
+    return _ResolvedQuickstartDefaults(
+        provider=provider_name,
+        model=model or profile.default_chat_model,
+        asr_model=asr_model or faster_whisper.default_model,
+        asr_device=asr_device or faster_whisper.default_device,
+        asr_compute_type=asr_compute_type or faster_whisper.default_compute_type,
+    )

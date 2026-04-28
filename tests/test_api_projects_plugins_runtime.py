@@ -6,6 +6,14 @@ import pytest
 from openbbq.api.app import ApiAppSettings, create_app
 from openbbq.application.quickstart import SubtitleJobResult
 from openbbq.config.loader import load_project_config
+from openbbq.runtime.models import (
+    CacheSettings,
+    FasterWhisperSettings,
+    ModelsSettings,
+    ProviderProfile,
+    RuntimeDefaults,
+    RuntimeSettings,
+)
 from openbbq.runtime.user_db import UserRuntimeDatabase
 from openbbq.storage.models import QuickstartTaskRecord, RunRecord
 from openbbq.storage.project_store import ProjectStore
@@ -229,6 +237,11 @@ def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monk
             run_id="run_local",
             output_path=request.output_path,
             source_artifact_id="art_source",
+            provider=request.provider or "openai",
+            model=request.model,
+            asr_model=request.asr_model or "base",
+            asr_device=request.asr_device or "cpu",
+            asr_compute_type=request.asr_compute_type or "int8",
         )
 
     def fake_youtube_job(request):
@@ -239,6 +252,11 @@ def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monk
             run_id="run_youtube",
             output_path=request.output_path,
             source_artifact_id=None,
+            provider=request.provider or "openai",
+            model=request.model,
+            asr_model=request.asr_model or "base",
+            asr_device=request.asr_device or "cpu",
+            asr_compute_type=request.asr_compute_type or "int8",
         )
 
     monkeypatch.setattr("openbbq.api.routes.quickstart.create_local_subtitle_job", fake_local_job)
@@ -305,6 +323,11 @@ def test_quickstart_subtitle_route_persists_task_history(tmp_path, monkeypatch):
             run_id="run_generated",
             output_path=request.output_path,
             source_artifact_id=None,
+            provider=request.provider or "openai",
+            model=request.model,
+            asr_model=request.asr_model or "base",
+            asr_device=request.asr_device or "cpu",
+            asr_compute_type=request.asr_compute_type or "int8",
         )
 
     monkeypatch.setattr(
@@ -340,6 +363,79 @@ def test_quickstart_subtitle_route_persists_task_history(tmp_path, monkeypatch):
     assert history.generated_project_root == generated_project
     assert history.generated_config_path == generated_config.config_path
     assert history.status == "queued"
+
+
+def test_quickstart_task_history_records_resolved_runtime_defaults(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    user_db_path = tmp_path / "user.db"
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-test")
+    monkeypatch.setattr(
+        "openbbq.application.quickstart.load_runtime_settings",
+        lambda: RuntimeSettings(
+            version=1,
+            config_path=tmp_path / "config.toml",
+            cache=CacheSettings(root=tmp_path / "cache"),
+            defaults=RuntimeDefaults(
+                llm_provider="openai-compatible",
+                asr_provider="faster-whisper",
+            ),
+            providers={
+                "openai-compatible": ProviderProfile(
+                    name="openai-compatible",
+                    type="openai_compatible",
+                    api_key="env:OPENBBQ_LLM_API_KEY",
+                    default_chat_model="gpt-4o-mini",
+                )
+            },
+            models=ModelsSettings(
+                faster_whisper=FasterWhisperSettings(
+                    cache_dir=tmp_path / "fw-cache",
+                    default_model="small",
+                    default_device="cpu",
+                    default_compute_type="int8",
+                )
+            ),
+        ),
+    )
+    client = TestClient(
+        create_app(ApiAppSettings(project_root=project, token="token", user_db_path=user_db_path))
+    )
+    headers = {"Authorization": "Bearer token"}
+
+    body = {
+        "url": "https://www.youtube.com/watch?v=demo",
+        "source_lang": "en",
+        "target_lang": "zh",
+        "quality": "best",
+    }
+
+    response = client.post(
+        "/quickstart/subtitle/youtube",
+        headers=headers,
+        json=body,
+    )
+    data = response.json()["data"]
+    history = UserRuntimeDatabase(user_db_path).read_quickstart_task(data["run_id"])
+    cached = client.post(
+        "/quickstart/subtitle/youtube",
+        headers=headers,
+        json=body,
+    )
+
+    assert response.status_code == 200
+    assert data["provider"] == "openai-compatible"
+    assert data["model"] == "gpt-4o-mini"
+    assert data["asr_model"] == "small"
+    assert data["asr_device"] == "cpu"
+    assert data["asr_compute_type"] == "int8"
+    assert history is not None
+    assert history.provider == "openai-compatible"
+    assert history.model == "gpt-4o-mini"
+    assert history.asr_model == "small"
+    assert history.asr_device == "cpu"
+    assert history.asr_compute_type == "int8"
+    assert cached.status_code == 200
+    assert cached.json()["data"] == data
 
 
 def test_quickstart_history_resolves_run_after_app_restart(tmp_path):
@@ -457,6 +553,11 @@ def test_quickstart_subtitle_route_reuses_existing_cached_task(tmp_path, monkeyp
             run_id="run_generated",
             output_path=request.output_path,
             source_artifact_id=None,
+            provider=request.provider or "openai",
+            model=request.model,
+            asr_model=request.asr_model or "base",
+            asr_device=request.asr_device or "cpu",
+            asr_compute_type=request.asr_compute_type or "int8",
         )
 
     monkeypatch.setattr(
@@ -535,6 +636,11 @@ def test_quickstart_job_run_events_and_artifacts_are_trackable(tmp_path, monkeyp
             run_id="run_generated",
             output_path=request.output_path,
             source_artifact_id="art_source",
+            provider=request.provider or "openai",
+            model=request.model,
+            asr_model=request.asr_model or "base",
+            asr_device=request.asr_device or "cpu",
+            asr_compute_type=request.asr_compute_type or "int8",
         )
 
     monkeypatch.setattr("openbbq.api.routes.quickstart.create_local_subtitle_job", fake_local_job)
@@ -604,6 +710,11 @@ def test_quickstart_generated_run_is_trackable_from_uninitialized_workspace(tmp_
             run_id="run_generated",
             output_path=request.output_path,
             source_artifact_id=None,
+            provider=request.provider or "openai",
+            model=request.model,
+            asr_model=request.asr_model or "base",
+            asr_device=request.asr_device or "cpu",
+            asr_compute_type=request.asr_compute_type or "int8",
         )
 
     monkeypatch.setattr(

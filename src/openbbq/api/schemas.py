@@ -258,7 +258,7 @@ class SubtitleLocalJobRequest(OpenBBQModel):
     input_path: Path
     source_lang: str
     target_lang: str
-    provider: str = "openai"
+    provider: str | None = None
     model: str | None = None
     asr_model: str | None = None
     asr_device: str | None = None
@@ -270,7 +270,7 @@ class SubtitleYouTubeJobRequest(OpenBBQModel):
     url: str
     source_lang: str
     target_lang: str
-    provider: str = "openai"
+    provider: str | None = None
     model: str | None = None
     asr_model: str | None = None
     asr_device: str | None = None
@@ -289,6 +289,11 @@ class SubtitleJobData(OpenBBQModel):
     run_id: str
     output_path: Path | None = None
     source_artifact_id: str | None = None
+    provider: str
+    model: str | None = None
+    asr_model: str
+    asr_device: str
+    asr_compute_type: str
 
 
 class EventStreamItem(OpenBBQModel):

@@ -1,5 +1,6 @@
 from importlib import resources
 
+import pytest
 import yaml
 
 from openbbq.application.quickstart import (
@@ -13,6 +14,15 @@ from openbbq.application.quickstart import (
 from openbbq.application.quickstart_workflows import (
     write_local_subtitle_workflow as write_local_subtitle_workflow_direct,
     write_youtube_subtitle_workflow as write_youtube_subtitle_workflow_direct,
+)
+from openbbq.errors import ValidationError
+from openbbq.runtime.models import (
+    CacheSettings,
+    FasterWhisperSettings,
+    ModelsSettings,
+    ProviderProfile,
+    RuntimeDefaults,
+    RuntimeSettings,
 )
 from openbbq.storage.models import RunRecord
 
@@ -146,6 +156,34 @@ def _workflow_steps(config, workflow_id):
     return {step["id"]: step for step in config["workflows"][workflow_id]["steps"]}
 
 
+def _runtime_settings(tmp_path, *, llm_provider="openai-compatible"):
+    return RuntimeSettings(
+        version=1,
+        config_path=tmp_path / "config.toml",
+        cache=CacheSettings(root=tmp_path / "cache"),
+        defaults=RuntimeDefaults(
+            llm_provider=llm_provider,
+            asr_provider="faster-whisper",
+        ),
+        providers={
+            llm_provider: ProviderProfile(
+                name=llm_provider,
+                type="openai_compatible",
+                api_key="env:OPENBBQ_LLM_API_KEY",
+                default_chat_model="gpt-4o-mini",
+            )
+        },
+        models=ModelsSettings(
+            faster_whisper=FasterWhisperSettings(
+                cache_dir=tmp_path / "fw-cache",
+                default_model="small",
+                default_device="cpu",
+                default_compute_type="int8",
+            )
+        ),
+    )
+
+
 def test_youtube_workflow_generation_can_create_isolated_jobs(tmp_path):
     first = write_youtube_subtitle_workflow(
         workspace_root=tmp_path,
@@ -212,6 +250,11 @@ def test_local_subtitle_job_imports_video_and_starts_run(tmp_path, monkeypatch):
     video = tmp_path / "source.mp4"
     video.write_bytes(b"fake-video")
     captured = {}
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-test")
+    monkeypatch.setattr(
+        "openbbq.application.quickstart.load_runtime_settings",
+        lambda: _runtime_settings(tmp_path, llm_provider="openai"),
+    )
 
     def fake_create_run(request, *, execute_inline=False):
         captured["request"] = request
@@ -251,6 +294,12 @@ def test_local_subtitle_job_imports_video_and_starts_run(tmp_path, monkeypatch):
 
 
 def test_youtube_subtitle_job_starts_generated_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-test")
+    monkeypatch.setattr(
+        "openbbq.application.quickstart.load_runtime_settings",
+        lambda: _runtime_settings(tmp_path, llm_provider="openai"),
+    )
+
     def fake_create_run(request, *, execute_inline=False):
         return RunRecord(
             id="run_youtube",
@@ -284,3 +333,76 @@ def test_youtube_subtitle_job_starts_generated_run(tmp_path, monkeypatch):
     assert result.run_id == "run_youtube"
     assert result.source_artifact_id is None
     assert "watch?v=demo" in result.generated_config_path.read_text(encoding="utf-8")
+
+
+def test_youtube_subtitle_job_uses_runtime_defaults_when_request_omits_runtime_fields(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-test")
+    monkeypatch.setattr(
+        "openbbq.application.quickstart.load_runtime_settings",
+        lambda: _runtime_settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        "openbbq.application.quickstart.create_run",
+        lambda request, execute_inline=False: RunRecord(
+            id="run_youtube",
+            workflow_id=request.workflow_id,
+            mode="start",
+            status="queued",
+            project_root=request.project_root,
+            config_path=request.config_path,
+            plugin_paths=request.plugin_paths,
+            created_by=request.created_by,
+        ),
+    )
+
+    result = create_youtube_subtitle_job(
+        YouTubeSubtitleJobRequest(
+            workspace_root=tmp_path,
+            url="https://www.youtube.com/watch?v=demo",
+            source_lang="en",
+            target_lang="zh",
+            quality="best",
+            auth="auto",
+        )
+    )
+
+    rendered = yaml.safe_load(result.generated_config_path.read_text(encoding="utf-8"))
+    steps = _workflow_steps(rendered, "youtube-to-srt")
+
+    assert result.provider == "openai-compatible"
+    assert result.model == "gpt-4o-mini"
+    assert result.asr_model == "small"
+    assert result.asr_device == "cpu"
+    assert result.asr_compute_type == "int8"
+    assert steps["correct"]["parameters"]["provider"] == "openai-compatible"
+    assert steps["correct"]["parameters"]["model"] == "gpt-4o-mini"
+    assert steps["translate"]["parameters"]["provider"] == "openai-compatible"
+    assert steps["translate"]["parameters"]["model"] == "gpt-4o-mini"
+    assert steps["transcribe"]["parameters"]["model"] == "small"
+    assert steps["transcribe"]["parameters"]["device"] == "cpu"
+    assert steps["transcribe"]["parameters"]["compute_type"] == "int8"
+
+
+def test_quickstart_fails_when_default_llm_provider_is_missing(tmp_path, monkeypatch):
+    settings = _runtime_settings(tmp_path).model_copy(update={"providers": {}})
+    monkeypatch.setattr(
+        "openbbq.application.quickstart.load_runtime_settings",
+        lambda: settings,
+    )
+
+    with pytest.raises(
+        ValidationError,
+        match="Default LLM provider 'openai-compatible' is not configured",
+    ):
+        create_youtube_subtitle_job(
+            YouTubeSubtitleJobRequest(
+                workspace_root=tmp_path,
+                url="https://www.youtube.com/watch?v=demo",
+                source_lang="en",
+                target_lang="zh",
+                quality="best",
+                auth="auto",
+            )
+        )
