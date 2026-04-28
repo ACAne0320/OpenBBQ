@@ -9,6 +9,7 @@ from openbbq.runtime.redaction import redact_values
 from openbbq.storage.models import OutputBindings, StepRunRecord
 from openbbq.workflow.bindings import build_plugin_inputs, persist_step_outputs
 from openbbq.workflow.context import ExecutionContext
+from openbbq.workflow.progress import ProgressReporter
 from openbbq.workflow.transitions import mark_step_run_started, mark_workflow_running
 
 
@@ -78,11 +79,18 @@ def execute_step_attempt(
             runtime=context.runtime_payload,
             work_dir=str(context.config.storage.root / "work" / context.workflow.id / step.id),
         )
+        reporter = ProgressReporter(
+            context.store,
+            workflow_id=context.workflow.id,
+            step_id=step.id,
+            attempt=attempt,
+        )
         raw_response = execute_plugin_tool(
             plugin,
             tool,
             request,
             redactor=redact_runtime_secrets,
+            progress=reporter.report,
         )
         response = (
             raw_response

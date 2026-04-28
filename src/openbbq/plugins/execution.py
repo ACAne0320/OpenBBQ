@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import inspect
 from pathlib import Path
 from types import ModuleType
 from uuid import uuid4
@@ -19,6 +20,7 @@ def execute_plugin_tool(
     tool: ToolSpec,
     request: PluginRequest,
     redactor=None,
+    progress=None,
 ) -> PluginResponse:
     module_name, function_name = plugin.entrypoint.split(":", 1)
     module_path = plugin.manifest_path.parent / f"{module_name.replace('.', '/')}.py"
@@ -34,7 +36,11 @@ def execute_plugin_tool(
             f"Plugin '{plugin.name}' entrypoint '{plugin.entrypoint}' does not resolve to a callable.",
         )
     try:
-        response = entrypoint(request.model_dump(mode="json"))
+        request_payload = request.model_dump(mode="json")
+        if progress is not None and _accepts_progress(entrypoint):
+            response = entrypoint(request_payload, progress=progress)
+        else:
+            response = entrypoint(request_payload)
     except Exception as exc:
         message = f"Plugin '{plugin.name}' tool '{tool.name}' failed: {_exception_message(exc)}"
         if redactor is not None:
@@ -71,6 +77,17 @@ def _load_plugin_module(plugin: PluginSpec, module_path: Path) -> ModuleType:
     except Exception as exc:
         raise PluginError(f"Plugin module '{module_path}' failed to import: {exc}") from exc
     return module
+
+
+def _accepts_progress(entrypoint) -> bool:
+    try:
+        signature = inspect.signature(entrypoint)
+    except (TypeError, ValueError):
+        return False
+    parameters = signature.parameters
+    if "progress" in parameters:
+        return True
+    return any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
 
 
 def _builtin_module_name(module_path: Path) -> str | None:
