@@ -448,6 +448,50 @@ def test_faster_whisper_download_adapter_uses_download_utility(tmp_path, monkeyp
     assert any(event["current_bytes"] == 5 for event in progress_events)
 
 
+def test_faster_whisper_download_with_unknown_total_does_not_fabricate_percentages(
+    tmp_path, monkeypatch
+):
+    from openbbq.runtime.models_assets import download_faster_whisper_model
+
+    huggingface_hub_module = types.ModuleType("huggingface_hub")
+    progress_events = []
+
+    class FakeHfApi:
+        def model_info(self, repo_id, *, files_metadata=False):
+            return types.SimpleNamespace(
+                siblings=(
+                    types.SimpleNamespace(rfilename="model.bin", size=None),
+                    types.SimpleNamespace(rfilename="config.json", size=None),
+                )
+            )
+
+    def fake_snapshot_download(repo_id, **kwargs):
+        first_progress_bar = kwargs["tqdm_class"](total=2, unit="B")
+        first_progress_bar.update(2)
+        first_progress_bar.close()
+        second_progress_bar = kwargs["tqdm_class"](total=3, unit="B")
+        second_progress_bar.update(3)
+        second_progress_bar.close()
+        return str(tmp_path / "model-cache" / "models--Systran--faster-whisper-small")
+
+    huggingface_hub_module.HfApi = FakeHfApi
+    huggingface_hub_module.snapshot_download = fake_snapshot_download
+    monkeypatch.setitem(sys.modules, "huggingface_hub", huggingface_hub_module)
+
+    download_faster_whisper_model(
+        "small",
+        cache_dir=tmp_path / "model-cache",
+        device="cuda",
+        compute_type="float16",
+        progress=lambda **payload: progress_events.append(payload),
+    )
+
+    assert progress_events
+    assert [event["percent"] for event in progress_events[:-1]] == [0] * (len(progress_events) - 1)
+    assert progress_events[-1]["percent"] == 100
+    assert any(event["current_bytes"] == 5 for event in progress_events)
+
+
 def test_runtime_starts_and_polls_faster_whisper_download_job(tmp_path, monkeypatch):
     project = write_project_fixture(tmp_path, "text-basic")
     cache_root = tmp_path / "cache"

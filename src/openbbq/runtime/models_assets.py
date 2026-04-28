@@ -162,9 +162,7 @@ def _progress_tqdm_class(
 ) -> Any:
     lock = Lock()
     cumulative_bytes = 0
-    cumulative_total_bytes = 0
     n_by_progress_bar: dict[int, int] = {}
-    total_by_progress_bar: dict[int, int] = {}
 
     class ProgressTqdm(base_tqdm):
         def __init__(self, *args, **kwargs):
@@ -194,26 +192,20 @@ def _progress_tqdm_class(
             return max(self._openbbq_n, int(getattr(self, "n", 0) or 0))
 
         def _openbbq_emit_progress(self) -> None:
-            nonlocal cumulative_bytes, cumulative_total_bytes
+            nonlocal cumulative_bytes
 
             if progress is None or not self._openbbq_reports_bytes:
                 return
 
             progress_bar_id = id(self)
             n = self._openbbq_current_n()
-            total = _positive_int(getattr(self, "total", None))
             with lock:
                 previous_n = n_by_progress_bar.get(progress_bar_id, 0)
                 n_by_progress_bar[progress_bar_id] = n
                 cumulative_bytes += max(0, n - previous_n)
 
-                if expected_total_bytes is None and total is not None:
-                    previous_total = total_by_progress_bar.get(progress_bar_id, 0)
-                    total_by_progress_bar[progress_bar_id] = total
-                    cumulative_total_bytes += max(0, total - previous_total)
-
                 current_bytes = cumulative_bytes
-                total_bytes = expected_total_bytes or cumulative_total_bytes or None
+                total_bytes = expected_total_bytes
 
             percent = 0 if not total_bytes else (current_bytes / total_bytes) * 100
             progress(
@@ -223,12 +215,6 @@ def _progress_tqdm_class(
             )
 
     return ProgressTqdm
-
-
-def _positive_int(value: Any) -> int | None:
-    if not isinstance(value, (int, float)) or value <= 0:
-        return None
-    return int(value)
 
 
 def _candidate_size(path: Path) -> int | None:
