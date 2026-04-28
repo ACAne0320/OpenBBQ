@@ -13,6 +13,8 @@ const api = {
   checkLlmProvider: (name: string) => ipcRenderer.invoke("openbbq:check-llm-provider", name),
   saveFasterWhisperDefaults: (input: unknown) => ipcRenderer.invoke("openbbq:save-faster-whisper-defaults", input),
   getRuntimeModels: () => ipcRenderer.invoke("openbbq:get-runtime-models"),
+  downloadFasterWhisperModel: (input: unknown) =>
+    ipcRenderer.invoke("openbbq:download-faster-whisper-model", input),
   getDiagnostics: () => ipcRenderer.invoke("openbbq:get-diagnostics"),
   updateSegmentText: (input: unknown) => ipcRenderer.invoke("openbbq:update-segment-text", input),
   retryCheckpoint: (runId: string) => ipcRenderer.invoke("openbbq:retry-checkpoint", runId)

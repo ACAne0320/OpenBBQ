@@ -161,3 +161,7 @@ export type ApiModelAssetStatus = {
   size_bytes: number;
   error?: string | null;
 };
+
+export type ApiModelDownloadData = {
+  model: ApiModelAssetStatus;
+};

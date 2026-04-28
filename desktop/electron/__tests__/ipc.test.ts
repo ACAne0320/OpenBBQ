@@ -231,4 +231,47 @@ describe("desktop IPC actions", () => {
       })
     );
   });
+
+  it("downloads a faster-whisper model through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            model: {
+              provider: "faster-whisper",
+              model: "small",
+              cache_dir: "C:/models/fw",
+              present: true,
+              size_bytes: 10,
+              error: null
+            }
+          }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { downloadFasterWhisperModel } = await import("../ipc");
+
+    await expect(downloadFasterWhisperModel(sidecar, { model: "small" })).resolves.toEqual({
+      provider: "faster-whisper",
+      model: "small",
+      cacheDir: "C:/models/fw",
+      present: true,
+      sizeBytes: 10,
+      error: null
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/runtime/models/faster-whisper/download",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ model: "small" })
+      })
+    );
+  });
 });

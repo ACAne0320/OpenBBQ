@@ -1,6 +1,7 @@
 import { failedTask, reviewModel, workflowSteps } from "./mockData";
 import type {
   DiagnosticCheck,
+  DownloadFasterWhisperModelInput,
   LlmProviderModel,
   LocalMediaSelection,
   ReviewModel,
@@ -32,6 +33,7 @@ export type OpenBBQClient = {
   checkLlmProvider(name: string): Promise<SecretStatus>;
   saveFasterWhisperDefaults(input: SaveFasterWhisperDefaultsInput): Promise<RuntimeSettingsModel>;
   getRuntimeModels(): Promise<RuntimeModelStatus[]>;
+  downloadFasterWhisperModel(input: DownloadFasterWhisperModelInput): Promise<RuntimeModelStatus>;
   getDiagnostics(): Promise<DiagnosticCheck[]>;
   updateSegmentText(input: {
     segmentId: string;
@@ -66,6 +68,19 @@ function workflowTemplateForSource(source: SourceDraft): WorkflowStep[] {
   return workflowSteps;
 }
 
+const fasterWhisperModelNames = ["base", "tiny", "small", "medium", "large-v3"];
+
+function initialFasterWhisperModels(cacheDir: string): RuntimeModelStatus[] {
+  return fasterWhisperModelNames.map((model) => ({
+    provider: "faster-whisper",
+    model,
+    cacheDir,
+    present: false,
+    sizeBytes: 0,
+    error: null
+  }));
+}
+
 export function createMockClient(): OpenBBQClient {
   let reviewState = cloneModel(reviewModel);
   let runtimeSettings: RuntimeSettingsModel = {
@@ -89,16 +104,7 @@ export function createMockClient(): OpenBBQClient {
       defaultComputeType: "int8"
     }
   };
-  let runtimeModels: RuntimeModelStatus[] = [
-    {
-      provider: "faster-whisper",
-      model: "base",
-      cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
-      present: false,
-      sizeBytes: 0,
-      error: null
-    }
-  ];
+  let runtimeModels: RuntimeModelStatus[] = initialFasterWhisperModels(runtimeSettings.fasterWhisper.cacheDir);
   const diagnostics: DiagnosticCheck[] = [
     {
       id: "cache.root_writable",
@@ -174,6 +180,7 @@ export function createMockClient(): OpenBBQClient {
       };
     },
     async saveFasterWhisperDefaults(input) {
+      const cacheDirChanged = input.cacheDir !== runtimeSettings.fasterWhisper.cacheDir;
       runtimeSettings = {
         ...runtimeSettings,
         fasterWhisper: {
@@ -183,15 +190,48 @@ export function createMockClient(): OpenBBQClient {
           defaultComputeType: input.defaultComputeType
         }
       };
-      runtimeModels = runtimeModels.map((model) =>
-        model.provider === "faster-whisper"
-          ? { ...model, model: input.defaultModel, cacheDir: input.cacheDir }
-          : model
-      );
+      runtimeModels = cacheDirChanged
+        ? initialFasterWhisperModels(input.cacheDir)
+        : runtimeModels.map((model) =>
+            model.provider === "faster-whisper" ? { ...model, cacheDir: input.cacheDir } : model
+          );
       return cloneModel(runtimeSettings);
     },
     async getRuntimeModels() {
       return cloneModel(runtimeModels);
+    },
+    async downloadFasterWhisperModel(input) {
+      if (!fasterWhisperModelNames.includes(input.model)) {
+        throw new Error(`Unsupported faster-whisper model: ${input.model}`);
+      }
+
+      let downloadedModel: RuntimeModelStatus | null = null;
+      runtimeModels = runtimeModels.map((model) => {
+        if (model.provider !== "faster-whisper" || model.model !== input.model) {
+          return model;
+        }
+        const updatedModel = {
+          ...model,
+          present: true,
+          sizeBytes: Math.max(model.sizeBytes, 10)
+        };
+        downloadedModel = updatedModel;
+        return updatedModel;
+      });
+
+      if (downloadedModel === null) {
+        downloadedModel = {
+          provider: "faster-whisper",
+          model: input.model,
+          cacheDir: runtimeSettings.fasterWhisper.cacheDir,
+          present: true,
+          sizeBytes: 10,
+          error: null
+        };
+        runtimeModels = [...runtimeModels, downloadedModel];
+      }
+
+      return cloneModel(downloadedModel);
     },
     async getDiagnostics() {
       return cloneModel(diagnostics);

@@ -5,6 +5,7 @@ import type {
   ApiArtifactRecord,
   ApiDoctorCheck,
   ApiModelAssetStatus,
+  ApiModelDownloadData,
   ApiProviderProfile,
   ApiQuickstartTaskRecord,
   ApiRunRecord,
@@ -20,6 +21,7 @@ import { toTaskMonitorModel, toTaskSummaryModel } from "./taskMapping.js";
 import { buildQuickstartRequest, workflowTemplateForSource } from "./workflowMapping.js";
 import type {
   DiagnosticCheck,
+  DownloadFasterWhisperModelInput,
   LlmProviderModel,
   RuntimeModelStatus,
   RuntimeSettingsModel,
@@ -61,6 +63,10 @@ export function registerOpenBBQIpc(context: IpcContext): () => void {
       async (_event, input) => saveFasterWhisperDefaults(context.getSidecar(), input as SaveFasterWhisperDefaultsInput)
     ],
     ["openbbq:get-runtime-models", async () => getRuntimeModels(context.getSidecar())],
+    [
+      "openbbq:download-faster-whisper-model",
+      async (_event, input) => downloadFasterWhisperModel(context.getSidecar(), input as DownloadFasterWhisperModelInput)
+    ],
     ["openbbq:get-diagnostics", async () => getDiagnostics(context.getSidecar())],
     [
       "openbbq:update-segment-text",
@@ -273,6 +279,17 @@ export async function saveFasterWhisperDefaults(
 export async function getRuntimeModels(sidecar: ManagedSidecar): Promise<RuntimeModelStatus[]> {
   const data = await requestJson<{ models: ApiModelAssetStatus[] }>(sidecar.connection, "/runtime/models");
   return data.models.map(toModelStatusModel);
+}
+
+export async function downloadFasterWhisperModel(
+  sidecar: ManagedSidecar,
+  input: DownloadFasterWhisperModelInput
+): Promise<RuntimeModelStatus> {
+  const data = await requestJson<ApiModelDownloadData>(sidecar.connection, "/runtime/models/faster-whisper/download", {
+    method: "POST",
+    body: { model: input.model }
+  });
+  return toModelStatusModel(data.model);
 }
 
 export async function getDiagnostics(sidecar: ManagedSidecar): Promise<DiagnosticCheck[]> {

@@ -143,6 +143,16 @@ function createTestClient(
         }
       ];
     },
+    async downloadFasterWhisperModel() {
+      return {
+        provider: "faster-whisper",
+        model: "base",
+        cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+        present: true,
+        sizeBytes: 10,
+        error: null
+      };
+    },
     async getDiagnostics() {
       return [{ id: "cache.root_writable", status: "passed", severity: "error", message: "Runtime cache root is writable." }];
     },
@@ -289,6 +299,14 @@ describe("App workflow flow", () => {
         }
       }),
       getRuntimeModels: vi.fn().mockResolvedValue([]),
+      downloadFasterWhisperModel: vi.fn().mockResolvedValue({
+        provider: "faster-whisper",
+        model: "base",
+        cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+        present: true,
+        sizeBytes: 10,
+        error: null
+      }),
       getDiagnostics: vi.fn().mockResolvedValue([]),
       saveRuntimeDefaults: vi.fn(),
       saveLlmProvider: vi.fn(),

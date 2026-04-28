@@ -15,6 +15,7 @@ export function createDesktopClient(api: OpenBBQDesktopApi): OpenBBQClient {
     checkLlmProvider: (name) => api.checkLlmProvider(name),
     saveFasterWhisperDefaults: (input) => api.saveFasterWhisperDefaults(input),
     getRuntimeModels: () => api.getRuntimeModels(),
+    downloadFasterWhisperModel: (input) => api.downloadFasterWhisperModel(input),
     getDiagnostics: () => api.getDiagnostics(),
     updateSegmentText: (input) => api.updateSegmentText(input),
     retryCheckpoint: (runId) => api.retryCheckpoint(runId)

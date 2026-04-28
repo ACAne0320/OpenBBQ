@@ -125,6 +125,10 @@ export type RuntimeModelStatus = {
   error: string | null;
 };
 
+export type DownloadFasterWhisperModelInput = {
+  model: string;
+};
+
 export type SecretStatus = {
   reference: string;
   resolved: boolean;

@@ -75,6 +75,14 @@ describe("createDesktopClient", () => {
           error: null
         }
       ]),
+      downloadFasterWhisperModel: vi.fn().mockResolvedValue({
+        provider: "faster-whisper",
+        model: "small",
+        cacheDir: "cache/models/faster-whisper",
+        present: true,
+        sizeBytes: 10,
+        error: null
+      }),
       getDiagnostics: vi.fn().mockResolvedValue([{ id: "runtime", status: "ok", severity: "info", message: "Ready" }])
     };
     const client = createDesktopClient(api);
@@ -110,12 +118,14 @@ describe("createDesktopClient", () => {
       defaultComputeType: "int8"
     });
     await client.getRuntimeModels();
+    await client.downloadFasterWhisperModel({ model: "small" });
     await client.getDiagnostics();
     expect(api.saveRuntimeDefaults).toHaveBeenCalled();
     expect(api.saveLlmProvider).toHaveBeenCalled();
     expect(api.checkLlmProvider).toHaveBeenCalledWith("openai-compatible");
     expect(api.saveFasterWhisperDefaults).toHaveBeenCalled();
     expect(api.getRuntimeModels).toHaveBeenCalled();
+    expect(api.downloadFasterWhisperModel).toHaveBeenCalledWith({ model: "small" });
     expect(api.getDiagnostics).toHaveBeenCalled();
   });
 });

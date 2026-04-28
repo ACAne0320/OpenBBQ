@@ -68,4 +68,40 @@ describe("createMockClient", () => {
       })
     ).resolves.toEqual({ runId: "run_sample" });
   });
+
+  it("resets faster-whisper model presence when the cache directory changes", async () => {
+    const client = createMockClient();
+
+    await client.downloadFasterWhisperModel({ model: "small" });
+    const downloadedModels = await client.getRuntimeModels();
+    expect(downloadedModels.find((model) => model.model === "small")).toMatchObject({
+      cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+      present: true,
+      sizeBytes: 10,
+      error: null
+    });
+
+    await client.saveFasterWhisperDefaults({
+      cacheDir: "D:/openbbq/models/faster-whisper",
+      defaultModel: "base",
+      defaultDevice: "cpu",
+      defaultComputeType: "int8"
+    });
+
+    const modelsAfterCacheChange = await client.getRuntimeModels();
+    expect(modelsAfterCacheChange.find((model) => model.model === "small")).toMatchObject({
+      cacheDir: "D:/openbbq/models/faster-whisper",
+      present: false,
+      sizeBytes: 0,
+      error: null
+    });
+  });
+
+  it("rejects unsupported faster-whisper model downloads", async () => {
+    const client = createMockClient();
+
+    await expect(client.downloadFasterWhisperModel({ model: "unknown-size" })).rejects.toThrow(
+      "Unsupported faster-whisper model"
+    );
+  });
 });
