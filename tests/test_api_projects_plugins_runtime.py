@@ -257,7 +257,7 @@ def test_runtime_downloads_faster_whisper_model_with_fake_adapter(tmp_path, monk
     monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
     calls = []
 
-    def fake_download(model, *, cache_dir, device, compute_type):
+    def fake_download(model, *, cache_dir, device, compute_type, progress=None):
         calls.append(
             {
                 "model": model,
@@ -267,7 +267,9 @@ def test_runtime_downloads_faster_whisper_model_with_fake_adapter(tmp_path, monk
             }
         )
         model_dir = cache_dir / f"models--Systran--faster-whisper-{model}"
-        _write_faster_whisper_payload(model_dir)
+        payload_size = _write_faster_whisper_payload(model_dir)
+        if progress is not None:
+            progress(percent=100, current_bytes=payload_size, total_bytes=payload_size)
 
     monkeypatch.setattr("openbbq.application.runtime.download_faster_whisper_model", fake_download)
     client, headers = authed_client(project)
@@ -279,6 +281,9 @@ def test_runtime_downloads_faster_whisper_model_with_fake_adapter(tmp_path, monk
     )
 
     assert response.status_code == 200
+    job = response.json()["data"]["job"]
+    assert job["model"] == "small"
+    poll = _poll_download_job(client, headers, job["job_id"])
     assert calls == [
         {
             "model": "small",
@@ -287,7 +292,7 @@ def test_runtime_downloads_faster_whisper_model_with_fake_adapter(tmp_path, monk
             "compute_type": "int8",
         }
     ]
-    assert response.json()["data"]["model"] == {
+    assert poll.json()["data"]["job"]["model_status"] == {
         "provider": "faster-whisper",
         "model": "small",
         "cache_dir": str(cache_dir.resolve()),
@@ -300,17 +305,31 @@ def test_runtime_downloads_faster_whisper_model_with_fake_adapter(tmp_path, monk
 def test_faster_whisper_download_adapter_uses_download_utility(tmp_path, monkeypatch):
     from openbbq.runtime.models_assets import download_faster_whisper_model
 
-    faster_whisper_module = types.ModuleType("faster_whisper")
-    faster_whisper_module.__path__ = []
-    utils_module = types.ModuleType("faster_whisper.utils")
-    calls = []
+    huggingface_hub_module = types.ModuleType("huggingface_hub")
+    api_calls = []
+    snapshot_calls = []
+    progress_events = []
 
-    def fake_download_model(size_or_id, **kwargs):
-        calls.append({"size_or_id": size_or_id, **kwargs})
+    class FakeHfApi:
+        def model_info(self, repo_id, *, files_metadata=False):
+            api_calls.append({"repo_id": repo_id, "files_metadata": files_metadata})
+            return types.SimpleNamespace(
+                siblings=tuple(
+                    types.SimpleNamespace(rfilename=filename, size=len(content))
+                    for filename, content in FASTER_WHISPER_PAYLOAD_FILES.items()
+                )
+            )
 
-    utils_module.download_model = fake_download_model
-    monkeypatch.setitem(sys.modules, "faster_whisper", faster_whisper_module)
-    monkeypatch.setitem(sys.modules, "faster_whisper.utils", utils_module)
+    def fake_snapshot_download(repo_id, **kwargs):
+        snapshot_calls.append({"repo_id": repo_id, **kwargs})
+        progress_bar = kwargs["tqdm_class"](total=FASTER_WHISPER_PAYLOAD_SIZE, unit="B")
+        progress_bar.update(FASTER_WHISPER_PAYLOAD_SIZE)
+        progress_bar.close()
+        return str(cache_dir / "models--Systran--faster-whisper-small")
+
+    huggingface_hub_module.HfApi = FakeHfApi
+    huggingface_hub_module.snapshot_download = fake_snapshot_download
+    monkeypatch.setitem(sys.modules, "huggingface_hub", huggingface_hub_module)
     cache_dir = tmp_path / "model-cache"
 
     download_faster_whisper_model(
@@ -318,10 +337,96 @@ def test_faster_whisper_download_adapter_uses_download_utility(tmp_path, monkeyp
         cache_dir=cache_dir,
         device="cuda",
         compute_type="float16",
+        progress=lambda **payload: progress_events.append(payload),
     )
 
     assert cache_dir.is_dir()
-    assert calls == [{"size_or_id": "small", "cache_dir": str(cache_dir)}]
+    assert api_calls == [{"repo_id": "Systran/faster-whisper-small", "files_metadata": True}]
+    assert snapshot_calls[0]["repo_id"] == "Systran/faster-whisper-small"
+    assert snapshot_calls[0]["cache_dir"] == cache_dir
+    assert snapshot_calls[0]["allow_patterns"] == [
+        "config.json",
+        "preprocessor_config.json",
+        "model.bin",
+        "tokenizer.json",
+        "vocabulary.*",
+    ]
+    assert progress_events[-1] == {
+        "percent": 100,
+        "current_bytes": FASTER_WHISPER_PAYLOAD_SIZE,
+        "total_bytes": FASTER_WHISPER_PAYLOAD_SIZE,
+    }
+
+
+def test_runtime_starts_and_polls_faster_whisper_download_job(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
+    progress_values = [0, 40, 100]
+
+    def fake_download(model, *, cache_dir, device, compute_type, progress=None):
+        for percent in progress_values:
+            progress(percent=percent, current_bytes=percent, total_bytes=100)
+        model_dir = cache_dir / f"models--Systran--faster-whisper-{model}"
+        _write_faster_whisper_payload(model_dir)
+
+    monkeypatch.setattr("openbbq.application.runtime.download_faster_whisper_model", fake_download)
+
+    client, headers = authed_client(project)
+    start = client.post(
+        "/runtime/models/faster-whisper/download",
+        headers=headers,
+        json={"model": "small"},
+    )
+    assert start.status_code == 200
+    job = start.json()["data"]["job"]
+    assert job["model"] == "small"
+    assert job["status"] in {"running", "completed"}
+
+    poll = _poll_download_job(client, headers, job["job_id"])
+    assert poll.status_code == 200
+    assert poll.json()["data"]["job"]["percent"] == 100
+    assert poll.json()["data"]["job"]["status"] == "completed"
+
+
+def test_runtime_download_job_reports_failure(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    monkeypatch.setenv("OPENBBQ_CACHE_DIR", str(cache_root))
+
+    def fake_download(model, *, cache_dir, device, compute_type, progress=None):
+        progress(percent=10, current_bytes=10, total_bytes=100)
+        raise RuntimeError("network failed")
+
+    monkeypatch.setattr("openbbq.application.runtime.download_faster_whisper_model", fake_download)
+
+    client, headers = authed_client(project)
+    start = client.post(
+        "/runtime/models/faster-whisper/download",
+        headers=headers,
+        json={"model": "small"},
+    )
+    job = start.json()["data"]["job"]
+
+    poll = _poll_download_job(client, headers, job["job_id"])
+    assert poll.json()["data"]["job"]["status"] == "failed"
+    assert poll.json()["data"]["job"]["error"] == "network failed"
+
+
+def _poll_download_job(client, headers, job_id: str):
+    import time
+
+    response = None
+    for _ in range(20):
+        response = client.get(f"/runtime/models/faster-whisper/downloads/{job_id}", headers=headers)
+        status = response.json()["data"]["job"]["status"]
+        if status in {"completed", "failed"}:
+            return response
+        time.sleep(0.01)
+    assert response is not None
+    return response
 
 
 def test_runtime_download_rejects_unsupported_faster_whisper_model(tmp_path, monkeypatch):

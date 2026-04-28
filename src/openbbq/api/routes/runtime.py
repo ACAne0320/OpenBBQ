@@ -8,6 +8,7 @@ from openbbq.api.schemas import (
     DoctorData,
     FasterWhisperDownloadData,
     FasterWhisperDownloadRequest,
+    FasterWhisperDownloadStatusData,
     FasterWhisperSettingsSetRequest,
     ModelListData,
     ProviderAuthSetRequest,
@@ -28,6 +29,7 @@ from openbbq.application.runtime import (
     auth_set,
     defaults_set,
     faster_whisper_download,
+    faster_whisper_download_status,
     faster_whisper_set,
     model_list,
     provider_set,
@@ -135,7 +137,16 @@ def post_faster_whisper_model_download(
     body: FasterWhisperDownloadRequest,
 ) -> ApiSuccess[FasterWhisperDownloadData]:
     result = faster_whisper_download(ApplicationFasterWhisperDownloadRequest(model=body.model))
-    return ApiSuccess(data=FasterWhisperDownloadData(model=result.model))
+    return ApiSuccess(data=FasterWhisperDownloadData(job=result.job))
+
+
+@router.get(
+    "/runtime/models/faster-whisper/downloads/{job_id}",
+    response_model=ApiSuccess[FasterWhisperDownloadStatusData],
+)
+def get_faster_whisper_download(job_id: str) -> ApiSuccess[FasterWhisperDownloadStatusData]:
+    result = faster_whisper_download_status(job_id)
+    return ApiSuccess(data=FasterWhisperDownloadStatusData(job=result.job))
 
 
 @router.get("/runtime/models", response_model=ApiSuccess[ModelListData])

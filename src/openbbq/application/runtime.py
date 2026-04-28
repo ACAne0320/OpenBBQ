@@ -6,9 +6,11 @@ from pydantic import ValidationError as PydanticValidationError
 
 from openbbq.domain.base import OpenBBQModel, format_pydantic_error
 from openbbq.errors import ValidationError
+from openbbq.runtime.model_download_jobs import model_download_jobs
 from openbbq.runtime.models import (
     FasterWhisperSettings,
     ModelAssetStatus,
+    ModelDownloadJob,
     ProviderProfile,
     RuntimeDefaults,
     RuntimeSettings,
@@ -105,7 +107,11 @@ class ModelListResult(OpenBBQModel):
 
 
 class FasterWhisperDownloadResult(OpenBBQModel):
-    model: ModelAssetStatus
+    job: ModelDownloadJob
+
+
+class FasterWhisperDownloadStatusResult(OpenBBQModel):
+    job: ModelDownloadJob
 
 
 def settings_show() -> SettingsShowResult:
@@ -245,15 +251,27 @@ def faster_whisper_download(
             default_compute_type="int8",
         )
     )
-    download_faster_whisper_model(
-        request.model,
-        cache_dir=faster_whisper.cache_dir,
-        device=faster_whisper.default_device,
-        compute_type=faster_whisper.default_compute_type,
+
+    def worker(progress):
+        download_faster_whisper_model(
+            request.model,
+            cache_dir=faster_whisper.cache_dir,
+            device=faster_whisper.default_device,
+            compute_type=faster_whisper.default_compute_type,
+            progress=progress,
+        )
+        return faster_whisper_model_status(settings, model=request.model)
+
+    job = model_download_jobs.start(
+        provider="faster-whisper",
+        model=request.model,
+        worker=worker,
     )
-    return FasterWhisperDownloadResult(
-        model=faster_whisper_model_status(settings, model=request.model)
-    )
+    return FasterWhisperDownloadResult(job=job)
+
+
+def faster_whisper_download_status(job_id: str) -> FasterWhisperDownloadStatusResult:
+    return FasterWhisperDownloadStatusResult(job=model_download_jobs.get(job_id))
 
 
 def _default_provider_sqlite_reference(name: str) -> str:

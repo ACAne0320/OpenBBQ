@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
-from typing import TypeAlias
+from typing import Literal, TypeAlias
 
 from pydantic import Field, field_validator
 
@@ -153,6 +153,23 @@ class ModelAssetStatus(OpenBBQModel):
 
     def public_dict(self) -> JsonObject:
         return model_payload(self)
+
+
+ModelDownloadStatus = Literal["queued", "running", "completed", "failed"]
+
+
+class ModelDownloadJob(OpenBBQModel):
+    job_id: str
+    provider: str
+    model: str
+    status: ModelDownloadStatus
+    percent: float = 0
+    current_bytes: int | None = None
+    total_bytes: int | None = None
+    error: str | None = None
+    started_at: str
+    completed_at: str | None = None
+    model_status: ModelAssetStatus | None = None
 
 
 class DoctorCheck(OpenBBQModel):

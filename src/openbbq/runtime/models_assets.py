@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from fnmatch import fnmatch
 from pathlib import Path
+from typing import Any
 
 from openbbq.errors import ExecutionError, ValidationError
 from openbbq.runtime.models import FasterWhisperSettings, ModelAssetStatus, RuntimeSettings
@@ -9,6 +12,14 @@ SUPPORTED_FASTER_WHISPER_MODELS: tuple[str, ...] = ("tiny", "base", "small", "me
 REQUIRED_FAST_WHISPER_PAYLOAD_FILES: frozenset[str] = frozenset(
     {"model.bin", "config.json", "tokenizer.json"}
 )
+FASTER_WHISPER_DOWNLOAD_ALLOW_PATTERNS: tuple[str, ...] = (
+    "config.json",
+    "preprocessor_config.json",
+    "model.bin",
+    "tokenizer.json",
+    "vocabulary.*",
+)
+ProgressCallback = Callable[..., None]
 
 
 def faster_whisper_model_status(
@@ -72,18 +83,31 @@ def download_faster_whisper_model(
     cache_dir: Path,
     device: str,
     compute_type: str,
+    progress: ProgressCallback | None = None,
 ) -> None:
     require_supported_faster_whisper_model(model)
     cache_dir.mkdir(parents=True, exist_ok=True)
     try:
-        from faster_whisper.utils import download_model
+        from huggingface_hub import HfApi, snapshot_download
+        from tqdm.auto import tqdm as base_tqdm
     except ImportError as exc:
         raise ExecutionError(
-            "faster-whisper is not installed. Install OpenBBQ with the media optional dependencies."
+            "huggingface-hub is not installed. Install OpenBBQ with the media optional dependencies."
         ) from exc
 
     _ = (device, compute_type)
-    download_model(model, cache_dir=str(cache_dir))
+    repo_id = _faster_whisper_repo_id(model)
+    total_bytes = _faster_whisper_repository_size(HfApi(), repo_id)
+    if progress is not None:
+        progress(percent=0, current_bytes=0, total_bytes=total_bytes)
+    snapshot_download(
+        repo_id,
+        cache_dir=cache_dir,
+        allow_patterns=list(FASTER_WHISPER_DOWNLOAD_ALLOW_PATTERNS),
+        tqdm_class=_progress_tqdm_class(base_tqdm, progress, total_bytes),
+    )
+    if progress is not None:
+        progress(percent=100, current_bytes=total_bytes, total_bytes=total_bytes)
 
 
 def _default_first_faster_whisper_models(default_model: str) -> tuple[str, ...]:
@@ -99,6 +123,76 @@ def _faster_whisper_cache_candidates(cache_dir: Path, model: str) -> tuple[Path,
         cache_dir / f"faster-whisper-{model}",
         cache_dir / f"models--Systran--faster-whisper-{model}",
     )
+
+
+def _faster_whisper_repo_id(model: str) -> str:
+    return f"Systran/faster-whisper-{model}"
+
+
+def _faster_whisper_repository_size(api: Any, repo_id: str) -> int | None:
+    try:
+        repo_info = api.model_info(repo_id, files_metadata=True)
+    except Exception:
+        return None
+
+    total = 0
+    matched = False
+    for sibling in getattr(repo_info, "siblings", ()) or ():
+        filename = getattr(sibling, "rfilename", "")
+        if not _matches_faster_whisper_download(filename):
+            continue
+        size = getattr(sibling, "size", None)
+        if isinstance(size, int):
+            total += size
+            matched = True
+    if not matched:
+        return None
+    return total
+
+
+def _matches_faster_whisper_download(filename: str) -> bool:
+    return any(fnmatch(filename, pattern) for pattern in FASTER_WHISPER_DOWNLOAD_ALLOW_PATTERNS)
+
+
+def _progress_tqdm_class(
+    base_tqdm: Any,
+    progress: ProgressCallback | None,
+    expected_total_bytes: int | None,
+) -> Any:
+    class ProgressTqdm(base_tqdm):
+        def __init__(self, *args, **kwargs):
+            self._openbbq_reports_bytes = kwargs.get("unit") == "B"
+            self._openbbq_expected_total_bytes = expected_total_bytes
+            kwargs.setdefault("disable", True)
+            super().__init__(*args, **kwargs)
+            self._openbbq_emit_progress()
+
+        def refresh(self, *args, **kwargs):
+            value = super().refresh(*args, **kwargs)
+            self._openbbq_emit_progress()
+            return value
+
+        def update(self, n=1):
+            value = super().update(n)
+            self._openbbq_emit_progress()
+            return value
+
+        def _openbbq_emit_progress(self) -> None:
+            if progress is None or not self._openbbq_reports_bytes:
+                return
+            current_bytes = int(getattr(self, "n", 0) or 0)
+            total_bytes = self._openbbq_expected_total_bytes
+            tqdm_total = getattr(self, "total", None)
+            if total_bytes is None and isinstance(tqdm_total, (int, float)) and tqdm_total > 0:
+                total_bytes = int(tqdm_total)
+            percent = 0 if not total_bytes else (current_bytes / total_bytes) * 100
+            progress(
+                percent=max(0, min(100, percent)),
+                current_bytes=current_bytes,
+                total_bytes=total_bytes,
+            )
+
+    return ProgressTqdm
 
 
 def _candidate_size(path: Path) -> int | None:

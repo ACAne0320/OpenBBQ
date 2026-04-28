@@ -8,7 +8,13 @@ from pydantic import Field, model_validator
 from openbbq.domain.base import JsonObject, JsonValue, OpenBBQModel
 from openbbq.domain.models import StepOutput
 from openbbq.engine.validation import WorkflowValidationResult
-from openbbq.runtime.models import DoctorCheck, ModelAssetStatus, ProviderProfile, RuntimeSettings
+from openbbq.runtime.models import (
+    DoctorCheck,
+    ModelAssetStatus,
+    ModelDownloadJob,
+    ProviderProfile,
+    RuntimeSettings,
+)
 from openbbq.storage.models import (
     ArtifactRecord,
     ArtifactVersionRecord,
@@ -254,7 +260,11 @@ class ModelListData(OpenBBQModel):
 
 
 class FasterWhisperDownloadData(OpenBBQModel):
-    model: ModelAssetStatus
+    job: ModelDownloadJob
+
+
+class FasterWhisperDownloadStatusData(OpenBBQModel):
+    job: ModelDownloadJob
 
 
 class DoctorData(OpenBBQModel):
