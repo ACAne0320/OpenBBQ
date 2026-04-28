@@ -285,6 +285,14 @@ describe("App workflow flow", () => {
 
   it("opens Settings from the global navigation", async () => {
     const user = userEvent.setup();
+    const downloadFasterWhisperModel = vi.fn().mockResolvedValue({
+      provider: "faster-whisper",
+      model: "base",
+      cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+      present: true,
+      sizeBytes: 10,
+      error: null
+    });
     const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
       getRuntimeSettings: vi.fn().mockResolvedValue({
         configPath: "C:/Users/alex/.openbbq/config.toml",
@@ -298,15 +306,29 @@ describe("App workflow flow", () => {
           defaultComputeType: "int8"
         }
       }),
-      getRuntimeModels: vi.fn().mockResolvedValue([]),
-      downloadFasterWhisperModel: vi.fn().mockResolvedValue({
-        provider: "faster-whisper",
-        model: "base",
-        cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
-        present: true,
-        sizeBytes: 10,
-        error: null
-      }),
+      getRuntimeModels: vi
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            provider: "faster-whisper",
+            model: "base",
+            cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+            present: false,
+            sizeBytes: 0,
+            error: null
+          }
+        ])
+        .mockResolvedValueOnce([
+          {
+            provider: "faster-whisper",
+            model: "base",
+            cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+            present: true,
+            sizeBytes: 10,
+            error: null
+          }
+        ]),
+      downloadFasterWhisperModel,
       getDiagnostics: vi.fn().mockResolvedValue([]),
       saveRuntimeDefaults: vi.fn(),
       saveLlmProvider: vi.fn(),
@@ -320,6 +342,12 @@ describe("App workflow flow", () => {
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    await user.click(screen.getByRole("button", { name: "Download base" }));
+
+    expect(downloadFasterWhisperModel).toHaveBeenCalledWith({ model: "base" });
+    expect(await screen.findByText("Model downloaded.")).toBeInTheDocument();
   });
 
   it("opens a persisted task from history without re-entering the source", async () => {

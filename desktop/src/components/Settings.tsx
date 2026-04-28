@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { Eye, EyeOff } from "lucide-react";
 
 import type {
   DiagnosticCheck,
+  DownloadFasterWhisperModelInput,
   FasterWhisperSettingsModel,
   LlmProviderModel,
   RuntimeModelStatus,
@@ -15,6 +17,7 @@ type SettingsSection = "llm" | "asr" | "diagnostics" | "advanced";
 export type SettingsProps = {
   loadSettings(): Promise<RuntimeSettingsModel>;
   loadModels(): Promise<RuntimeModelStatus[]>;
+  downloadFasterWhisperModel(input: DownloadFasterWhisperModelInput): Promise<RuntimeModelStatus>;
   loadDiagnostics(): Promise<DiagnosticCheck[]>;
   saveRuntimeDefaults(input: { llmProvider: string; asrProvider: string }): Promise<RuntimeSettingsModel>;
   saveLlmProvider(input: {
@@ -35,6 +38,8 @@ export type SettingsProps = {
   }): Promise<RuntimeSettingsModel>;
 };
 
+const fallbackFasterWhisperModels = ["tiny", "base", "small", "medium", "large-v3"];
+
 type ProviderDraft = {
   displayName: string;
   baseUrl: string;
@@ -43,12 +48,16 @@ type ProviderDraft = {
   secretValue: string;
 };
 
+function defaultApiKeyRef(name: string): string {
+  return `sqlite:openbbq/providers/${name}/api_key`;
+}
+
 function providerDraft(provider: LlmProviderModel): ProviderDraft {
   return {
     displayName: provider.displayName ?? provider.name,
     baseUrl: provider.baseUrl ?? "",
     defaultChatModel: provider.defaultChatModel ?? "",
-    apiKeyRef: provider.apiKeyRef ?? `sqlite:openbbq/providers/${provider.name}/api_key`,
+    apiKeyRef: provider.apiKeyRef ?? "",
     secretValue: ""
   };
 }
@@ -58,7 +67,7 @@ function defaultLlmProvider(name: string): LlmProviderModel {
     name,
     type: "openai_compatible",
     baseUrl: null,
-    apiKeyRef: `sqlite:openbbq/providers/${name}/api_key`,
+    apiKeyRef: defaultApiKeyRef(name),
     defaultChatModel: null,
     displayName: name
   };
@@ -90,8 +99,80 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+function fasterWhisperStatuses(models: RuntimeModelStatus[], defaultModel: string): RuntimeModelStatus[] {
+  const fasterWhisperModels = models.filter((model) => model.provider === "faster-whisper");
+  const byName = new Map(fasterWhisperModels.map((model) => [model.model, model]));
+  const names = [...fallbackFasterWhisperModels, ...fasterWhisperModels.map((model) => model.model)];
+
+  if (defaultModel.trim().length > 0) {
+    names.push(defaultModel);
+  }
+
+  const uniqueNames = names.filter((name, index) => names.indexOf(name) === index);
+  const defaultIndex = uniqueNames.indexOf(defaultModel);
+  const orderedNames =
+    defaultIndex > 0
+      ? [defaultModel, ...uniqueNames.slice(0, defaultIndex), ...uniqueNames.slice(defaultIndex + 1)]
+      : uniqueNames;
+
+  return orderedNames.map(
+    (model) =>
+      byName.get(model) ?? {
+        provider: "faster-whisper",
+        model,
+        cacheDir: "",
+        present: false,
+        sizeBytes: 0,
+        error: "Status unavailable"
+      }
+  );
+}
+
+function fasterWhisperModelOptions(statuses: RuntimeModelStatus[], defaultModel: string): string[] {
+  const options = [
+    ...fallbackFasterWhisperModels,
+    ...statuses.map((status) => status.model).filter((model) => !fallbackFasterWhisperModels.includes(model))
+  ];
+
+  if (defaultModel.trim().length > 0 && !options.includes(defaultModel)) {
+    return [defaultModel, ...options];
+  }
+
+  return options;
+}
+
+function formatBytes(bytes: number): string | null {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return null;
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  if (unitIndex === 0) {
+    return `${bytes} B`;
+  }
+
+  return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
+}
+
+function upsertModelStatus(models: RuntimeModelStatus[], saved: RuntimeModelStatus): RuntimeModelStatus[] {
+  if (!models.some((model) => model.provider === saved.provider && model.model === saved.model)) {
+    return [...models, saved];
+  }
+
+  return models.map((model) => (model.provider === saved.provider && model.model === saved.model ? saved : model));
+}
+
 export function Settings({
   checkLlmProvider,
+  downloadFasterWhisperModel,
   loadDiagnostics,
   loadModels,
   loadSettings,
@@ -177,7 +258,10 @@ export function Settings({
         ) : null}
         {section === "asr" ? (
           <AsrSection
+            downloadFasterWhisperModel={downloadFasterWhisperModel}
+            loadModels={loadModels}
             models={models}
+            onModelsChange={setModels}
             saveFasterWhisperDefaults={saveFasterWhisperDefaults}
             settings={settings}
             onSettingsChange={setSettings}
@@ -256,13 +340,16 @@ function LlmProviderSection({
     setMutationError(null);
 
     try {
+      const secretValue = emptyToNull(draft.secretValue);
       const saved = await saveLlmProvider({
         name: selected.name,
         type: "openai_compatible",
         baseUrl: emptyToNull(draft.baseUrl),
         defaultChatModel: emptyToNull(draft.defaultChatModel),
-        secretValue: emptyToNull(draft.secretValue),
-        apiKeyRef: emptyToNull(draft.apiKeyRef),
+        secretValue,
+        apiKeyRef: secretValue
+          ? defaultApiKeyRef(selected.name)
+          : (emptyToNull(draft.apiKeyRef) ?? defaultApiKeyRef(selected.name)),
         displayName: emptyToNull(draft.displayName)
       });
 
@@ -357,14 +444,8 @@ function LlmProviderSection({
             value={draft.defaultChatModel}
             onChange={(defaultChatModel) => setDraft((current) => ({ ...current, defaultChatModel }))}
           />
-          <TextInput
-            label="API key reference"
-            value={draft.apiKeyRef}
-            onChange={(apiKeyRef) => setDraft((current) => ({ ...current, apiKeyRef }))}
-          />
-          <TextInput
+          <SecretInput
             label="API key"
-            type="password"
             value={draft.secretValue}
             onChange={(secretValue) => setDraft((current) => ({ ...current, secretValue }))}
           />
@@ -378,7 +459,7 @@ function LlmProviderSection({
             <span className="ml-2 text-muted">
               {secretStatus.resolved
                 ? (secretStatus.valuePreview ?? "configured")
-                : (secretStatus.error ?? secretStatus.reference)}
+                : "API key is not configured."}
             </span>
           </div>
         ) : null}
@@ -406,20 +487,28 @@ function LlmProviderSection({
 }
 
 function AsrSection({
+  downloadFasterWhisperModel,
+  loadModels,
   models,
+  onModelsChange,
   onSettingsChange,
   saveFasterWhisperDefaults,
   settings
 }: {
   settings: RuntimeSettingsModel;
   models: RuntimeModelStatus[];
+  loadModels: SettingsProps["loadModels"];
+  downloadFasterWhisperModel: NonNullable<SettingsProps["downloadFasterWhisperModel"]>;
+  onModelsChange(models: RuntimeModelStatus[]): void;
   onSettingsChange(settings: RuntimeSettingsModel): void;
   saveFasterWhisperDefaults: SettingsProps["saveFasterWhisperDefaults"];
 }) {
   const [draft, setDraft] = useState<FasterWhisperSettingsModel>(settings.fasterWhisper);
-  const status = models.find((model) => model.provider === "faster-whisper");
+  const statuses = useMemo(() => fasterWhisperStatuses(models, draft.defaultModel), [draft.defaultModel, models]);
+  const modelOptions = useMemo(() => fasterWhisperModelOptions(statuses, draft.defaultModel), [draft.defaultModel, statuses]);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [downloadingModel, setDownloadingModel] = useState<string | null>(null);
 
   async function saveDefaults() {
     setFeedback(null);
@@ -440,6 +529,33 @@ function AsrSection({
     }
   }
 
+  async function downloadModel(model: string) {
+    setFeedback(null);
+    setMutationError(null);
+    setDownloadingModel(model);
+
+    try {
+      const downloaded = await downloadFasterWhisperModel({ model });
+      onModelsChange(upsertModelStatus(models, downloaded));
+      setFeedback("Model downloaded.");
+
+      try {
+        const refreshed = await loadModels();
+        const hasDownloadedStatus = refreshed.some(
+          (status) => status.provider === downloaded.provider && status.model === downloaded.model
+        );
+
+        onModelsChange(hasDownloadedStatus ? refreshed : upsertModelStatus(refreshed, downloaded));
+      } catch (error) {
+        setMutationError(errorMessage(error, "Model status could not be refreshed."));
+      }
+    } catch (error) {
+      setMutationError(errorMessage(error, "Model could not be downloaded."));
+    } finally {
+      setDownloadingModel(null);
+    }
+  }
+
   return (
     <section className="grid grid-cols-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)]" aria-label="ASR model settings">
       <aside className="rounded-lg bg-paper-muted p-3 shadow-control">
@@ -455,8 +571,9 @@ function AsrSection({
         <h2 className="mt-2 text-2xl font-extrabold leading-tight text-ink-brown">faster-whisper</h2>
 
         <div className="mt-4 grid gap-3 xl:grid-cols-2">
-          <TextInput
+          <SelectInput
             label="Default model"
+            options={modelOptions}
             value={draft.defaultModel}
             onChange={(defaultModel) => setDraft((current) => ({ ...current, defaultModel }))}
           />
@@ -477,12 +594,35 @@ function AsrSection({
           />
         </div>
 
-        <div className="mt-4 rounded-md bg-paper px-3 py-2 text-sm shadow-control">
-          <span className="font-bold text-ink-brown">{status?.model ?? draft.defaultModel}</span>
-          <span className="ml-2 text-muted">{status?.cacheDir ?? draft.cacheDir}</span>
-          <span className={modelStatusClass(status)}>
-            {modelStatusLabel(status)}
-          </span>
+        <div className="mt-5 grid gap-2">
+          {statuses.map((status) => {
+            const size = formatBytes(status.sizeBytes);
+            const unavailable = modelStatusUnavailable(status);
+            const busy = downloadingModel !== null;
+            return (
+              <div
+                key={status.model}
+                className="grid gap-3 rounded-md bg-paper px-3 py-3 text-sm shadow-control md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-bold text-ink-brown">{status.model}</span>
+                    <span className={modelStatusClass(status)}>{modelStatusLabel(status)}</span>
+                    {size ? <span className="text-muted">{size}</span> : null}
+                  </div>
+                  <p className="mt-1 break-all text-xs text-muted">{status.cacheDir || draft.cacheDir}</p>
+                </div>
+                <Button
+                  variant="secondary"
+                  aria-label={`Download ${status.model}`}
+                  disabled={status.present || unavailable || busy}
+                  onClick={() => void downloadModel(status.model)}
+                >
+                  {downloadingModel === status.model ? "Downloading" : "Download"}
+                </Button>
+              </div>
+            );
+          })}
         </div>
         {feedback ? (
           <p className="mt-3 text-sm font-semibold text-ready" aria-live="polite">
@@ -539,20 +679,24 @@ function DiagnosticsSection({ checks, models }: { checks: DiagnosticCheck[]; mod
   );
 }
 
-function modelStatusLabel(status: RuntimeModelStatus | undefined) {
-  if (!status) {
-    return "Model cache status unavailable";
-  }
-
-  return status.present ? "Model cache present" : "Model cache missing";
+function modelStatusUnavailable(status: RuntimeModelStatus): boolean {
+  return status.error !== null;
 }
 
-function modelStatusClass(status: RuntimeModelStatus | undefined) {
-  if (!status) {
-    return "ml-2 font-bold text-muted";
+function modelStatusLabel(status: RuntimeModelStatus) {
+  if (modelStatusUnavailable(status)) {
+    return "Status unavailable";
   }
 
-  return status.present ? "ml-2 font-bold text-ready" : "ml-2 font-bold text-[#8c4d29]";
+  return status.present ? "Downloaded" : "Not downloaded";
+}
+
+function modelStatusClass(status: RuntimeModelStatus) {
+  if (modelStatusUnavailable(status)) {
+    return "font-bold text-muted";
+  }
+
+  return status.present ? "font-bold text-ready" : "font-bold text-[#8c4d29]";
 }
 
 function AdvancedSection({ settings }: { settings: RuntimeSettingsModel }) {
@@ -566,6 +710,72 @@ function AdvancedSection({ settings }: { settings: RuntimeSettingsModel }) {
         <ReadOnlyRow label="faster-whisper cache directory" value={settings.fasterWhisper.cacheDir} />
       </div>
     </section>
+  );
+}
+
+function SelectInput({
+  label,
+  onChange,
+  options,
+  value
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange(value: string): void;
+}) {
+  return (
+    <label className="grid gap-2 text-xs font-bold uppercase text-muted">
+      {label}
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-h-11 min-w-0 rounded-md bg-paper px-3 text-sm font-normal normal-case text-ink shadow-control focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function SecretInput({
+  label,
+  onChange,
+  value
+}: {
+  label: string;
+  value: string;
+  onChange(value: string): void;
+}) {
+  const inputId = useId();
+  const [visible, setVisible] = useState(false);
+  const labelText = visible ? "Hide API key" : "Show API key";
+
+  return (
+    <div className="grid gap-2 text-xs font-bold uppercase text-muted">
+      <label htmlFor={inputId}>{label}</label>
+      <div className="grid grid-cols-[minmax(0,1fr)_44px]">
+        <input
+          id={inputId}
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="min-h-11 min-w-0 rounded-l-md bg-paper px-3 text-sm font-normal normal-case text-ink shadow-control focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        />
+        <Button
+          variant="secondary"
+          aria-label={labelText}
+          className="rounded-l-none px-0"
+          onClick={() => setVisible((current) => !current)}
+        >
+          {visible ? <EyeOff aria-hidden="true" className="mx-auto size-4" /> : <Eye aria-hidden="true" className="mx-auto size-4" />}
+        </Button>
+      </div>
+    </div>
   );
 }
 

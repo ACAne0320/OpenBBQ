@@ -380,6 +380,7 @@ export function App({ client: providedClient }: AppProps = {}) {
       {screen === "settings" ? (
         <Settings
           checkLlmProvider={client.checkLlmProvider}
+          downloadFasterWhisperModel={client.downloadFasterWhisperModel}
           loadDiagnostics={client.getDiagnostics}
           loadModels={client.getRuntimeModels}
           loadSettings={client.getRuntimeSettings}
