@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from fnmatch import fnmatch
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from openbbq.errors import ExecutionError, ValidationError
@@ -159,12 +160,19 @@ def _progress_tqdm_class(
     progress: ProgressCallback | None,
     expected_total_bytes: int | None,
 ) -> Any:
+    lock = Lock()
+    cumulative_bytes = 0
+    cumulative_total_bytes = 0
+    n_by_progress_bar: dict[int, int] = {}
+    total_by_progress_bar: dict[int, int] = {}
+
     class ProgressTqdm(base_tqdm):
         def __init__(self, *args, **kwargs):
             self._openbbq_reports_bytes = kwargs.get("unit") == "B"
-            self._openbbq_expected_total_bytes = expected_total_bytes
+            self._openbbq_n = int(kwargs.get("initial", 0) or 0)
             kwargs.setdefault("disable", True)
             super().__init__(*args, **kwargs)
+            self._openbbq_n = max(self._openbbq_n, int(getattr(self, "n", 0) or 0))
             self._openbbq_emit_progress()
 
         def refresh(self, *args, **kwargs):
@@ -173,18 +181,40 @@ def _progress_tqdm_class(
             return value
 
         def update(self, n=1):
+            previous_n = self._openbbq_current_n()
             value = super().update(n)
+            next_n = int(getattr(self, "n", 0) or 0)
+            if next_n <= previous_n and n is not None:
+                next_n = previous_n + int(n)
+            self._openbbq_n = max(previous_n, next_n)
             self._openbbq_emit_progress()
             return value
 
+        def _openbbq_current_n(self) -> int:
+            return max(self._openbbq_n, int(getattr(self, "n", 0) or 0))
+
         def _openbbq_emit_progress(self) -> None:
+            nonlocal cumulative_bytes, cumulative_total_bytes
+
             if progress is None or not self._openbbq_reports_bytes:
                 return
-            current_bytes = int(getattr(self, "n", 0) or 0)
-            total_bytes = self._openbbq_expected_total_bytes
-            tqdm_total = getattr(self, "total", None)
-            if total_bytes is None and isinstance(tqdm_total, (int, float)) and tqdm_total > 0:
-                total_bytes = int(tqdm_total)
+
+            progress_bar_id = id(self)
+            n = self._openbbq_current_n()
+            total = _positive_int(getattr(self, "total", None))
+            with lock:
+                previous_n = n_by_progress_bar.get(progress_bar_id, 0)
+                n_by_progress_bar[progress_bar_id] = n
+                cumulative_bytes += max(0, n - previous_n)
+
+                if expected_total_bytes is None and total is not None:
+                    previous_total = total_by_progress_bar.get(progress_bar_id, 0)
+                    total_by_progress_bar[progress_bar_id] = total
+                    cumulative_total_bytes += max(0, total - previous_total)
+
+                current_bytes = cumulative_bytes
+                total_bytes = expected_total_bytes or cumulative_total_bytes or None
+
             percent = 0 if not total_bytes else (current_bytes / total_bytes) * 100
             progress(
                 percent=max(0, min(100, percent)),
@@ -193,6 +223,12 @@ def _progress_tqdm_class(
             )
 
     return ProgressTqdm
+
+
+def _positive_int(value: Any) -> int | None:
+    if not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return int(value)
 
 
 def _candidate_size(path: Path) -> int | None:

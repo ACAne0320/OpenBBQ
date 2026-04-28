@@ -42,7 +42,7 @@ class ModelDownloadJobManager:
                 job_id=uuid4().hex,
                 provider=provider,
                 model=model,
-                status="running",
+                status="queued",
                 started_at=_now(),
             )
             self._jobs[job.job_id] = job

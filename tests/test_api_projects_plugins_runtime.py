@@ -302,6 +302,44 @@ def test_runtime_downloads_faster_whisper_model_with_fake_adapter(tmp_path, monk
     }
 
 
+def test_model_download_job_manager_reports_queued_before_worker_starts(tmp_path):
+    from openbbq.runtime.model_download_jobs import ModelDownloadJobManager
+    from openbbq.runtime.models import ModelAssetStatus
+
+    manager = ModelDownloadJobManager()
+    manager._executor.shutdown(wait=False)
+    submitted = []
+
+    class DeferredExecutor:
+        def submit(self, fn, *args):
+            submitted.append((fn, args))
+
+    manager._executor = DeferredExecutor()
+
+    def worker(progress):
+        progress(percent=50, current_bytes=5, total_bytes=10)
+        return ModelAssetStatus(
+            provider="faster-whisper",
+            model="small",
+            cache_dir=tmp_path,
+            present=True,
+            size_bytes=10,
+        )
+
+    job = manager.start(provider="faster-whisper", model="small", worker=worker)
+
+    assert job.status == "queued"
+    assert manager.get(job.job_id).status == "queued"
+    assert len(submitted) == 1
+
+    fn, args = submitted[0]
+    fn(*args)
+
+    completed = manager.get(job.job_id)
+    assert completed.status == "completed"
+    assert completed.percent == 100
+
+
 def test_faster_whisper_download_adapter_uses_download_utility(tmp_path, monkeypatch):
     from openbbq.runtime.models_assets import download_faster_whisper_model
 
@@ -322,9 +360,12 @@ def test_faster_whisper_download_adapter_uses_download_utility(tmp_path, monkeyp
 
     def fake_snapshot_download(repo_id, **kwargs):
         snapshot_calls.append({"repo_id": repo_id, **kwargs})
-        progress_bar = kwargs["tqdm_class"](total=FASTER_WHISPER_PAYLOAD_SIZE, unit="B")
-        progress_bar.update(FASTER_WHISPER_PAYLOAD_SIZE)
-        progress_bar.close()
+        first_progress_bar = kwargs["tqdm_class"](total=2, unit="B")
+        first_progress_bar.update(2)
+        first_progress_bar.close()
+        second_progress_bar = kwargs["tqdm_class"](total=3, unit="B")
+        second_progress_bar.update(3)
+        second_progress_bar.close()
         return str(cache_dir / "models--Systran--faster-whisper-small")
 
     huggingface_hub_module.HfApi = FakeHfApi
@@ -356,6 +397,7 @@ def test_faster_whisper_download_adapter_uses_download_utility(tmp_path, monkeyp
         "current_bytes": FASTER_WHISPER_PAYLOAD_SIZE,
         "total_bytes": FASTER_WHISPER_PAYLOAD_SIZE,
     }
+    assert any(event["current_bytes"] == 5 for event in progress_events)
 
 
 def test_runtime_starts_and_polls_faster_whisper_download_job(tmp_path, monkeypatch):
@@ -382,7 +424,7 @@ def test_runtime_starts_and_polls_faster_whisper_download_job(tmp_path, monkeypa
     assert start.status_code == 200
     job = start.json()["data"]["job"]
     assert job["model"] == "small"
-    assert job["status"] in {"running", "completed"}
+    assert job["status"] in {"queued", "running", "completed"}
 
     poll = _poll_download_job(client, headers, job["job_id"])
     assert poll.status_code == 200
