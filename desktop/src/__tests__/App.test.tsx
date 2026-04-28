@@ -273,6 +273,37 @@ describe("App workflow flow", () => {
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 
+  it("opens Settings from the global navigation", async () => {
+    const user = userEvent.setup();
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      getRuntimeSettings: vi.fn().mockResolvedValue({
+        configPath: "C:/Users/alex/.openbbq/config.toml",
+        cacheRoot: "C:/Users/alex/.cache/openbbq",
+        defaults: { llmProvider: "openai-compatible", asrProvider: "faster-whisper" },
+        llmProviders: [],
+        fasterWhisper: {
+          cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+          defaultModel: "base",
+          defaultDevice: "cpu",
+          defaultComputeType: "int8"
+        }
+      }),
+      getRuntimeModels: vi.fn().mockResolvedValue([]),
+      getDiagnostics: vi.fn().mockResolvedValue([]),
+      saveRuntimeDefaults: vi.fn(),
+      saveLlmProvider: vi.fn(),
+      checkLlmProvider: vi.fn(),
+      saveFasterWhisperDefaults: vi.fn()
+    });
+
+    render(<App client={client} />);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("opens a persisted task from history without re-entering the source", async () => {
     const user = userEvent.setup();
     const listTasks = vi.fn().mockResolvedValue([persistedTask]);

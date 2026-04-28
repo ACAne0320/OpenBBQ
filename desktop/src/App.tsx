@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "./components/AppShell";
 import type { NavItem } from "./components/AppShell";
 import { ResultsReview } from "./components/ResultsReview";
+import { Settings } from "./components/Settings";
 import { SourceImport } from "./components/SourceImport";
 import { TaskHistory } from "./components/TaskHistory";
 import { TaskMonitor } from "./components/TaskMonitor";
@@ -12,7 +13,7 @@ import { createDefaultClient } from "./lib/clientFactory";
 import { workflowSteps } from "./lib/mockData";
 import type { ReviewModel, Segment, SourceDraft, TaskMonitorModel, TaskSummary, WorkflowStep } from "./lib/types";
 
-type Screen = "source" | "workflow" | "tasks" | "monitor" | "results";
+type Screen = "source" | "workflow" | "tasks" | "monitor" | "results" | "settings";
 
 type AppProps = {
   client?: OpenBBQClient;
@@ -282,6 +283,17 @@ export function App({ client: providedClient }: AppProps = {}) {
 
     if (item === "Results") {
       void openReview(task?.id ?? "run_sample");
+      return;
+    }
+
+    if (item === "Settings") {
+      invalidateTemplateRequest();
+      invalidateTaskRequest();
+      invalidateTaskListRequest();
+      invalidateReviewRequest();
+      cancelRetryState();
+      setLoadError(null);
+      setScreen("settings");
     }
   }
 
@@ -326,7 +338,14 @@ export function App({ client: providedClient }: AppProps = {}) {
     void openReview(task.id);
   }, [screen, task]);
 
-  const activeNav = screen === "tasks" || screen === "monitor" ? "Tasks" : screen === "results" ? "Results" : "New";
+  const activeNav =
+    screen === "settings"
+      ? "Settings"
+      : screen === "tasks" || screen === "monitor"
+        ? "Tasks"
+        : screen === "results"
+          ? "Results"
+          : "New";
 
   return (
     <AppShell active={activeNav} footerLabel={source ? "Source" : "Workspace"} footerValue={footerValue} onNavigate={handleNavigate}>
@@ -357,6 +376,17 @@ export function App({ client: providedClient }: AppProps = {}) {
       ) : null}
       {screen === "results" && review ? (
         <ResultsReview model={review} onSegmentChange={handleSegmentChange} />
+      ) : null}
+      {screen === "settings" ? (
+        <Settings
+          checkLlmProvider={client.checkLlmProvider}
+          loadDiagnostics={client.getDiagnostics}
+          loadModels={client.getRuntimeModels}
+          loadSettings={client.getRuntimeSettings}
+          saveFasterWhisperDefaults={client.saveFasterWhisperDefaults}
+          saveLlmProvider={client.saveLlmProvider}
+          saveRuntimeDefaults={client.saveRuntimeDefaults}
+        />
       ) : null}
     </AppShell>
   );
