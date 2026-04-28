@@ -42,6 +42,15 @@ export type ApiWorkflowEvent = {
   attempt?: number | null;
 };
 
+export type ApiProgressPayload = {
+  phase: string;
+  label: string;
+  percent: number;
+  current?: number | null;
+  total?: number | null;
+  unit?: string | null;
+};
+
 export type ApiSubtitleJobData = {
   generated_project_root: string;
   generated_config_path: string;
@@ -162,6 +171,20 @@ export type ApiModelAssetStatus = {
   error?: string | null;
 };
 
+export type ApiModelDownloadJob = {
+  job_id: string;
+  provider: string;
+  model: string;
+  status: "queued" | "running" | "completed" | "failed";
+  percent: number;
+  current_bytes?: number | null;
+  total_bytes?: number | null;
+  error?: string | null;
+  started_at: string;
+  completed_at?: string | null;
+  model_status?: ApiModelAssetStatus | null;
+};
+
 export type ApiModelDownloadData = {
-  model: ApiModelAssetStatus;
+  job: ApiModelDownloadJob;
 };

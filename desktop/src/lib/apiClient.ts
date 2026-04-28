@@ -5,6 +5,7 @@ import type {
   LlmProviderModel,
   LocalMediaSelection,
   ReviewModel,
+  RuntimeModelDownloadJob,
   RuntimeModelStatus,
   RuntimeSettingsModel,
   SaveFasterWhisperDefaultsInput,
@@ -33,7 +34,8 @@ export type OpenBBQClient = {
   checkLlmProvider(name: string): Promise<SecretStatus>;
   saveFasterWhisperDefaults(input: SaveFasterWhisperDefaultsInput): Promise<RuntimeSettingsModel>;
   getRuntimeModels(): Promise<RuntimeModelStatus[]>;
-  downloadFasterWhisperModel(input: DownloadFasterWhisperModelInput): Promise<RuntimeModelStatus>;
+  downloadFasterWhisperModel(input: DownloadFasterWhisperModelInput): Promise<RuntimeModelDownloadJob>;
+  getFasterWhisperModelDownload(jobId: string): Promise<RuntimeModelDownloadJob>;
   getDiagnostics(): Promise<DiagnosticCheck[]>;
   updateSegmentText(input: {
     segmentId: string;
@@ -105,6 +107,8 @@ export function createMockClient(): OpenBBQClient {
     }
   };
   let runtimeModels: RuntimeModelStatus[] = initialFasterWhisperModels(runtimeSettings.fasterWhisper.cacheDir);
+  const downloadJobs = new Map<string, RuntimeModelDownloadJob>();
+  let downloadJobSequence = 0;
   const diagnostics: DiagnosticCheck[] = [
     {
       id: "cache.root_writable",
@@ -231,7 +235,29 @@ export function createMockClient(): OpenBBQClient {
         runtimeModels = [...runtimeModels, downloadedModel];
       }
 
-      return cloneModel(downloadedModel);
+      downloadJobSequence += 1;
+      const job: RuntimeModelDownloadJob = {
+        jobId: `mock_fw_download_${downloadJobSequence}`,
+        provider: "faster-whisper",
+        model: input.model,
+        status: "completed",
+        percent: 100,
+        currentBytes: downloadedModel.sizeBytes,
+        totalBytes: downloadedModel.sizeBytes,
+        error: null,
+        startedAt: new Date(0).toISOString(),
+        completedAt: new Date(0).toISOString(),
+        modelStatus: downloadedModel
+      };
+      downloadJobs.set(job.jobId, cloneModel(job));
+      return cloneModel(job);
+    },
+    async getFasterWhisperModelDownload(jobId) {
+      const job = downloadJobs.get(jobId);
+      if (!job) {
+        throw new Error(`Unknown faster-whisper model download job: ${jobId}`);
+      }
+      return cloneModel(job);
     },
     async getDiagnostics() {
       return cloneModel(diagnostics);

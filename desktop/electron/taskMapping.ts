@@ -1,5 +1,5 @@
-import type { ProgressStep, RuntimeLogLine, TaskMonitorModel, TaskSummary } from "../src/lib/types.js";
-import type { ApiQuickstartTaskRecord, ApiRunRecord, ApiWorkflowEvent } from "./apiTypes.js";
+import type { ProgressStep, RuntimeLogLine, TaskMonitorModel, TaskProgressLogLine, TaskSummary } from "../src/lib/types.js";
+import type { ApiProgressPayload, ApiQuickstartTaskRecord, ApiRunRecord, ApiWorkflowEvent } from "./apiTypes.js";
 
 const knownSteps: Array<{ id: string; label: string }> = [
   { id: "extract_audio", label: "Extract" },
@@ -49,6 +49,62 @@ function toLogs(events: ApiWorkflowEvent[]): RuntimeLogLine[] {
   }));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isOptionalNumber(value: unknown): value is number | null | undefined {
+  return value === undefined || value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isOptionalString(value: unknown): value is string | null | undefined {
+  return value === undefined || value === null || typeof value === "string";
+}
+
+function isProgressPayload(value: unknown): value is ApiProgressPayload {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.phase === "string" &&
+    typeof value.label === "string" &&
+    typeof value.percent === "number" &&
+    Number.isFinite(value.percent) &&
+    isOptionalNumber(value.current) &&
+    isOptionalNumber(value.total) &&
+    isOptionalString(value.unit)
+  );
+}
+
+function clampPercent(percent: number): number {
+  return Math.min(100, Math.max(0, percent));
+}
+
+function toProgressLogs(events: ApiWorkflowEvent[]): TaskProgressLogLine[] {
+  return events.flatMap((event) => {
+    if (event.type !== "step.progress" || !event.step_id || !isProgressPayload(event.data.progress)) {
+      return [];
+    }
+
+    const progress = event.data.progress;
+    return [
+      {
+        sequence: event.sequence,
+        timestamp: event.created_at,
+        stepId: event.step_id,
+        attempt: event.attempt ?? null,
+        phase: progress.phase,
+        label: progress.label,
+        percent: clampPercent(progress.percent),
+        current: progress.current ?? null,
+        total: progress.total ?? null,
+        unit: progress.unit ?? null
+      }
+    ];
+  });
+}
+
 function computeProgress(run: ApiRunRecord, events: ApiWorkflowEvent[]): ProgressStep[] {
   const steps = stepsForWorkflow(run.workflow_id);
   if (run.status === "completed") {
@@ -90,6 +146,7 @@ export function toTaskMonitorModel(run: ApiRunRecord, events: ApiWorkflowEvent[]
     workflowName: workflowDisplayName(run.workflow_id),
     status: run.status,
     progress,
+    progressLogs: toProgressLogs(events),
     logs: toLogs(events),
     errorMessage: run.status === "failed" ? run.error?.message ?? undefined : undefined
   };

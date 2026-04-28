@@ -96,6 +96,7 @@ export const failedTask: TaskMonitorModel = {
     { id: "translate", label: "Translate", status: "failed" },
     { id: "subtitle", label: "Export", status: "blocked" }
   ],
+  progressLogs: [],
   logs: [
     {
       sequence: 1,

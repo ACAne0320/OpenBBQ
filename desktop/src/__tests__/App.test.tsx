@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import type { OpenBBQClient } from "../lib/apiClient";
 import { failedTask, reviewModel, workflowSteps } from "../lib/mockData";
-import type { TaskMonitorModel, TaskSummary, WorkflowStep } from "../lib/types";
+import type { RuntimeModelStatus, TaskMonitorModel, TaskSummary, WorkflowStep } from "../lib/types";
 
 const workflowEditorRender = vi.hoisted(() => vi.fn());
 
@@ -45,6 +45,22 @@ function createDeferred<T>() {
   });
 
   return { promise, resolve };
+}
+
+function completedDownloadJob(modelStatus: RuntimeModelStatus) {
+  return {
+    jobId: `job_${modelStatus.model}`,
+    provider: modelStatus.provider,
+    model: modelStatus.model,
+    status: "completed" as const,
+    percent: 100,
+    currentBytes: modelStatus.sizeBytes,
+    totalBytes: modelStatus.sizeBytes,
+    error: null,
+    startedAt: "2026-04-28T10:00:00.000Z",
+    completedAt: "2026-04-28T10:01:00.000Z",
+    modelStatus
+  };
 }
 
 function createTestClient(
@@ -144,14 +160,24 @@ function createTestClient(
       ];
     },
     async downloadFasterWhisperModel() {
-      return {
+      return completedDownloadJob({
         provider: "faster-whisper",
         model: "base",
         cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
         present: true,
         sizeBytes: 10,
         error: null
-      };
+      });
+    },
+    async getFasterWhisperModelDownload() {
+      return completedDownloadJob({
+        provider: "faster-whisper",
+        model: "base",
+        cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+        present: true,
+        sizeBytes: 10,
+        error: null
+      });
     },
     async getDiagnostics() {
       return [{ id: "cache.root_writable", status: "passed", severity: "error", message: "Runtime cache root is writable." }];
@@ -285,14 +311,14 @@ describe("App workflow flow", () => {
 
   it("opens Settings from the global navigation", async () => {
     const user = userEvent.setup();
-    const downloadFasterWhisperModel = vi.fn().mockResolvedValue({
+    const downloadFasterWhisperModel = vi.fn().mockResolvedValue(completedDownloadJob({
       provider: "faster-whisper",
       model: "base",
       cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
       present: true,
       sizeBytes: 10,
       error: null
-    });
+    }));
     const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
       getRuntimeSettings: vi.fn().mockResolvedValue({
         configPath: "C:/Users/alex/.openbbq/config.toml",

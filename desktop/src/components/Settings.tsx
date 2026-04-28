@@ -6,6 +6,7 @@ import type {
   DownloadFasterWhisperModelInput,
   FasterWhisperSettingsModel,
   LlmProviderModel,
+  RuntimeModelDownloadJob,
   RuntimeModelStatus,
   RuntimeSettingsModel,
   SecretStatus
@@ -17,7 +18,7 @@ type SettingsSection = "llm" | "asr" | "diagnostics" | "advanced";
 export type SettingsProps = {
   loadSettings(): Promise<RuntimeSettingsModel>;
   loadModels(): Promise<RuntimeModelStatus[]>;
-  downloadFasterWhisperModel(input: DownloadFasterWhisperModelInput): Promise<RuntimeModelStatus>;
+  downloadFasterWhisperModel(input: DownloadFasterWhisperModelInput): Promise<RuntimeModelDownloadJob>;
   loadDiagnostics(): Promise<DiagnosticCheck[]>;
   saveRuntimeDefaults(input: { llmProvider: string; asrProvider: string }): Promise<RuntimeSettingsModel>;
   saveLlmProvider(input: {
@@ -541,17 +542,20 @@ function AsrSection({
     setDownloadingModel(model);
 
     try {
-      const downloaded = await downloadFasterWhisperModel({ model });
-      onModelsChange(upsertModelStatus(models, downloaded));
+      const downloadJob = await downloadFasterWhisperModel({ model });
+      const downloaded = downloadJob.modelStatus ?? null;
+      if (downloaded) {
+        onModelsChange(upsertModelStatus(models, downloaded));
+      }
       setFeedback("Model downloaded.");
 
       try {
         const refreshed = await loadModels();
-        const hasDownloadedStatus = refreshed.some(
-          (status) => status.provider === downloaded.provider && status.model === downloaded.model
-        );
+        const hasDownloadedStatus =
+          downloaded !== null &&
+          refreshed.some((status) => status.provider === downloaded.provider && status.model === downloaded.model);
 
-        onModelsChange(hasDownloadedStatus ? refreshed : upsertModelStatus(refreshed, downloaded));
+        onModelsChange(hasDownloadedStatus || downloaded === null ? refreshed : upsertModelStatus(refreshed, downloaded));
       } catch (error) {
         setMutationError(errorMessage(error, "Model status could not be refreshed."));
       }

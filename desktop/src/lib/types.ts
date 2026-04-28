@@ -56,12 +56,29 @@ export type RuntimeLogLine = {
   message: string;
 };
 
+export type ProgressPercent = {
+  phase: string;
+  label: string;
+  percent: number;
+  current?: number | null;
+  total?: number | null;
+  unit?: string | null;
+};
+
+export type TaskProgressLogLine = ProgressPercent & {
+  sequence: number;
+  timestamp: string;
+  stepId: string;
+  attempt?: number | null;
+};
+
 export type TaskMonitorModel = {
   id: string;
   title: string;
   workflowName: string;
   status: TaskStatus;
   progress: ProgressStep[];
+  progressLogs: TaskProgressLogLine[];
   logs: RuntimeLogLine[];
   errorMessage?: string;
 };
@@ -123,6 +140,20 @@ export type RuntimeModelStatus = {
   present: boolean;
   sizeBytes: number;
   error: string | null;
+};
+
+export type RuntimeModelDownloadJob = {
+  jobId: string;
+  provider: string;
+  model: string;
+  status: "queued" | "running" | "completed" | "failed";
+  percent: number;
+  currentBytes?: number | null;
+  totalBytes?: number | null;
+  error?: string | null;
+  startedAt: string;
+  completedAt?: string | null;
+  modelStatus?: RuntimeModelStatus | null;
 };
 
 export type DownloadFasterWhisperModelInput = {

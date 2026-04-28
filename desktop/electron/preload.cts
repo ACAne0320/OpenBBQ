@@ -15,6 +15,8 @@ const api = {
   getRuntimeModels: () => ipcRenderer.invoke("openbbq:get-runtime-models"),
   downloadFasterWhisperModel: (input: unknown) =>
     ipcRenderer.invoke("openbbq:download-faster-whisper-model", input),
+  getFasterWhisperModelDownload: (jobId: string) =>
+    ipcRenderer.invoke("openbbq:get-faster-whisper-model-download", jobId),
   getDiagnostics: () => ipcRenderer.invoke("openbbq:get-diagnostics"),
   updateSegmentText: (input: unknown) => ipcRenderer.invoke("openbbq:update-segment-text", input),
   retryCheckpoint: (runId: string) => ipcRenderer.invoke("openbbq:retry-checkpoint", runId)

@@ -4,6 +4,7 @@ import type {
   ApiArtifactPreviewData,
   ApiArtifactRecord,
   ApiDoctorCheck,
+  ApiModelDownloadJob,
   ApiModelAssetStatus,
   ApiModelDownloadData,
   ApiProviderProfile,
@@ -23,6 +24,7 @@ import type {
   DiagnosticCheck,
   DownloadFasterWhisperModelInput,
   LlmProviderModel,
+  RuntimeModelDownloadJob,
   RuntimeModelStatus,
   RuntimeSettingsModel,
   SaveFasterWhisperDefaultsInput,
@@ -66,6 +68,10 @@ export function registerOpenBBQIpc(context: IpcContext): () => void {
     [
       "openbbq:download-faster-whisper-model",
       async (_event, input) => downloadFasterWhisperModel(context.getSidecar(), input as DownloadFasterWhisperModelInput)
+    ],
+    [
+      "openbbq:get-faster-whisper-model-download",
+      async (_event, jobId) => getFasterWhisperModelDownload(context.getSidecar(), String(jobId))
     ],
     ["openbbq:get-diagnostics", async () => getDiagnostics(context.getSidecar())],
     [
@@ -125,7 +131,7 @@ export async function listTasks(sidecar: ManagedSidecar) {
   return data.tasks.map(toTaskSummaryModel);
 }
 
-async function getTaskMonitor(sidecar: ManagedSidecar, runId: string) {
+export async function getTaskMonitor(sidecar: ManagedSidecar, runId: string) {
   const encodedRunId = encodeURIComponent(runId);
   const run = await requestJson<ApiRunRecord>(sidecar.connection, `/runs/${encodedRunId}`);
   const eventData = await requestJson<{ workflow_id: string; events: ApiWorkflowEvent[] }>(
@@ -197,6 +203,22 @@ function toModelStatusModel(model: ApiModelAssetStatus): RuntimeModelStatus {
     present: model.present,
     sizeBytes: model.size_bytes,
     error: model.error ?? null
+  };
+}
+
+function toModelDownloadJob(job: ApiModelDownloadJob): RuntimeModelDownloadJob {
+  return {
+    jobId: job.job_id,
+    provider: job.provider,
+    model: job.model,
+    status: job.status,
+    percent: job.percent,
+    currentBytes: job.current_bytes ?? null,
+    totalBytes: job.total_bytes ?? null,
+    error: job.error ?? null,
+    startedAt: job.started_at,
+    completedAt: job.completed_at ?? null,
+    modelStatus: job.model_status ? toModelStatusModel(job.model_status) : null
   };
 }
 
@@ -284,12 +306,23 @@ export async function getRuntimeModels(sidecar: ManagedSidecar): Promise<Runtime
 export async function downloadFasterWhisperModel(
   sidecar: ManagedSidecar,
   input: DownloadFasterWhisperModelInput
-): Promise<RuntimeModelStatus> {
+): Promise<RuntimeModelDownloadJob> {
   const data = await requestJson<ApiModelDownloadData>(sidecar.connection, "/runtime/models/faster-whisper/download", {
     method: "POST",
     body: { model: input.model }
   });
-  return toModelStatusModel(data.model);
+  return toModelDownloadJob(data.job);
+}
+
+export async function getFasterWhisperModelDownload(
+  sidecar: ManagedSidecar,
+  jobId: string
+): Promise<RuntimeModelDownloadJob> {
+  const data = await requestJson<{ job: ApiModelDownloadJob }>(
+    sidecar.connection,
+    `/runtime/models/faster-whisper/downloads/${encodeURIComponent(jobId)}`
+  );
+  return toModelDownloadJob(data.job);
 }
 
 export async function getDiagnostics(sidecar: ManagedSidecar): Promise<DiagnosticCheck[]> {

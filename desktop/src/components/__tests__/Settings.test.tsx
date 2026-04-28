@@ -2,7 +2,13 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { DiagnosticCheck, RuntimeModelStatus, RuntimeSettingsModel, SecretStatus } from "../../lib/types";
+import type {
+  DiagnosticCheck,
+  RuntimeModelDownloadJob,
+  RuntimeModelStatus,
+  RuntimeSettingsModel,
+  SecretStatus
+} from "../../lib/types";
 import { Settings, type SettingsProps } from "../Settings";
 
 const settings: RuntimeSettingsModel = {
@@ -75,6 +81,22 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function completedDownloadJob(modelStatus: RuntimeModelStatus): RuntimeModelDownloadJob {
+  return {
+    jobId: `job_${modelStatus.model}`,
+    provider: modelStatus.provider,
+    model: modelStatus.model,
+    status: "completed",
+    percent: 100,
+    currentBytes: modelStatus.sizeBytes,
+    totalBytes: modelStatus.sizeBytes,
+    error: null,
+    startedAt: "2026-04-28T10:00:00.000Z",
+    completedAt: "2026-04-28T10:01:00.000Z",
+    modelStatus
+  };
+}
+
 function renderSettings(overrides: Partial<SettingsProps> = {}) {
   const props: SettingsProps = {
     loadSettings: vi.fn().mockResolvedValue(clone(settings)),
@@ -97,7 +119,7 @@ function renderSettings(overrides: Partial<SettingsProps> = {}) {
       ...clone(settings),
       fasterWhisper: input
     })),
-    downloadFasterWhisperModel: vi.fn().mockResolvedValue(clone(models[1])),
+    downloadFasterWhisperModel: vi.fn().mockResolvedValue(completedDownloadJob(clone(models[1]))),
     ...overrides
   };
 
@@ -435,7 +457,7 @@ describe("Settings", () => {
       models[1]
     ];
     const loadModels = vi.fn().mockResolvedValueOnce(clone(models)).mockResolvedValueOnce(clone(downloadedModels));
-    const downloadFasterWhisperModel = vi.fn().mockResolvedValue(downloadedModels[0]);
+    const downloadFasterWhisperModel = vi.fn().mockResolvedValue(completedDownloadJob(downloadedModels[0]));
     renderSettings({ loadModels, downloadFasterWhisperModel });
 
     await screen.findByRole("heading", { name: "Settings" });
@@ -462,7 +484,7 @@ describe("Settings", () => {
       .fn()
       .mockResolvedValueOnce(clone(models))
       .mockRejectedValueOnce(new Error("Model status refresh failed."));
-    const downloadFasterWhisperModel = vi.fn().mockResolvedValue(downloadedModel);
+    const downloadFasterWhisperModel = vi.fn().mockResolvedValue(completedDownloadJob(downloadedModel));
     renderSettings({ loadModels, downloadFasterWhisperModel });
 
     await screen.findByRole("heading", { name: "Settings" });

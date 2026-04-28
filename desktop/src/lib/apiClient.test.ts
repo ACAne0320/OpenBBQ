@@ -69,10 +69,29 @@ describe("createMockClient", () => {
     ).resolves.toEqual({ runId: "run_sample" });
   });
 
-  it("resets faster-whisper model presence when the cache directory changes", async () => {
+  it("returns completed faster-whisper download jobs and updates model presence", async () => {
     const client = createMockClient();
 
-    await client.downloadFasterWhisperModel({ model: "small" });
+    const job = await client.downloadFasterWhisperModel({ model: "small" });
+    expect(job).toMatchObject({
+      provider: "faster-whisper",
+      model: "small",
+      status: "completed",
+      percent: 100,
+      modelStatus: {
+        provider: "faster-whisper",
+        model: "small",
+        present: true,
+        sizeBytes: 10,
+        error: null
+      }
+    });
+    await expect(client.getFasterWhisperModelDownload(job.jobId)).resolves.toMatchObject({
+      jobId: job.jobId,
+      status: "completed",
+      percent: 100
+    });
+
     const downloadedModels = await client.getRuntimeModels();
     expect(downloadedModels.find((model) => model.model === "small")).toMatchObject({
       cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",

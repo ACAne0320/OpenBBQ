@@ -78,4 +78,53 @@ describe("toTaskMonitorModel", () => {
 
     expect(model.progress.every((step) => step.status === "done")).toBe(true);
   });
+
+  it("maps valid progress events, clamps percentages, and ignores malformed progress payloads", () => {
+    const validProgress = event(1, "step.progress", "transcribe", "ASR parsing 120%");
+    validProgress.data = {
+      progress: {
+        phase: "asr_parse",
+        label: "ASR parsing",
+        percent: 120,
+        current: 12,
+        total: 10,
+        unit: "seconds"
+      }
+    };
+    validProgress.attempt = 2;
+
+    const malformedProgress = event(2, "step.progress", "translate", "Translate half");
+    malformedProgress.data = {
+      progress: {
+        phase: "translate",
+        percent: 50
+      }
+    };
+
+    const missingStep = event(3, "step.progress", null, "Download 20%");
+    missingStep.data = {
+      progress: {
+        phase: "download",
+        label: "Download video",
+        percent: 20
+      }
+    };
+
+    const model = toTaskMonitorModel(baseRun, [validProgress, malformedProgress, missingStep]);
+
+    expect(model.progressLogs).toEqual([
+      {
+        sequence: 1,
+        timestamp: "2026-04-27T03:15:11.000Z",
+        stepId: "transcribe",
+        attempt: 2,
+        phase: "asr_parse",
+        label: "ASR parsing",
+        percent: 100,
+        current: 12,
+        total: 10,
+        unit: "seconds"
+      }
+    ]);
+  });
 });

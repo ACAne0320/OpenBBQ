@@ -76,12 +76,37 @@ describe("createDesktopClient", () => {
         }
       ]),
       downloadFasterWhisperModel: vi.fn().mockResolvedValue({
+        jobId: "job_1",
         provider: "faster-whisper",
         model: "small",
-        cacheDir: "cache/models/faster-whisper",
-        present: true,
-        sizeBytes: 10,
-        error: null
+        status: "running",
+        percent: 30,
+        currentBytes: 30,
+        totalBytes: 100,
+        error: null,
+        startedAt: "2026-04-28T10:00:00.000Z",
+        completedAt: null,
+        modelStatus: null
+      }),
+      getFasterWhisperModelDownload: vi.fn().mockResolvedValue({
+        jobId: "job_1",
+        provider: "faster-whisper",
+        model: "small",
+        status: "completed",
+        percent: 100,
+        currentBytes: 100,
+        totalBytes: 100,
+        error: null,
+        startedAt: "2026-04-28T10:00:00.000Z",
+        completedAt: "2026-04-28T10:01:00.000Z",
+        modelStatus: {
+          provider: "faster-whisper",
+          model: "small",
+          cacheDir: "cache/models/faster-whisper",
+          present: true,
+          sizeBytes: 10,
+          error: null
+        }
       }),
       getDiagnostics: vi.fn().mockResolvedValue([{ id: "runtime", status: "ok", severity: "info", message: "Ready" }])
     };
@@ -119,6 +144,7 @@ describe("createDesktopClient", () => {
     });
     await client.getRuntimeModels();
     await client.downloadFasterWhisperModel({ model: "small" });
+    await client.getFasterWhisperModelDownload("job_1");
     await client.getDiagnostics();
     expect(api.saveRuntimeDefaults).toHaveBeenCalled();
     expect(api.saveLlmProvider).toHaveBeenCalled();
@@ -126,6 +152,7 @@ describe("createDesktopClient", () => {
     expect(api.saveFasterWhisperDefaults).toHaveBeenCalled();
     expect(api.getRuntimeModels).toHaveBeenCalled();
     expect(api.downloadFasterWhisperModel).toHaveBeenCalledWith({ model: "small" });
+    expect(api.getFasterWhisperModelDownload).toHaveBeenCalledWith("job_1");
     expect(api.getDiagnostics).toHaveBeenCalled();
   });
 });

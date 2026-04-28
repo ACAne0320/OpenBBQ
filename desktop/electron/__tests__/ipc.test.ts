@@ -238,13 +238,18 @@ describe("desktop IPC actions", () => {
         JSON.stringify({
           ok: true,
           data: {
-            model: {
+            job: {
+              job_id: "job_1",
               provider: "faster-whisper",
               model: "small",
-              cache_dir: "C:/models/fw",
-              present: true,
-              size_bytes: 10,
-              error: null
+              status: "running",
+              percent: 30,
+              current_bytes: 30,
+              total_bytes: 100,
+              error: null,
+              started_at: "2026-04-28T10:00:00.000Z",
+              completed_at: null,
+              model_status: null
             }
           }
         }),
@@ -258,12 +263,17 @@ describe("desktop IPC actions", () => {
     const { downloadFasterWhisperModel } = await import("../ipc");
 
     await expect(downloadFasterWhisperModel(sidecar, { model: "small" })).resolves.toEqual({
+      jobId: "job_1",
       provider: "faster-whisper",
       model: "small",
-      cacheDir: "C:/models/fw",
-      present: true,
-      sizeBytes: 10,
-      error: null
+      status: "running",
+      percent: 30,
+      currentBytes: 30,
+      totalBytes: 100,
+      error: null,
+      startedAt: "2026-04-28T10:00:00.000Z",
+      completedAt: null,
+      modelStatus: null
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -273,5 +283,136 @@ describe("desktop IPC actions", () => {
         body: JSON.stringify({ model: "small" })
       })
     );
+  });
+
+  it("polls a faster-whisper model download job through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            job: {
+              job_id: "job_1",
+              provider: "faster-whisper",
+              model: "small",
+              status: "completed",
+              percent: 100,
+              current_bytes: 100,
+              total_bytes: 100,
+              error: null,
+              started_at: "2026-04-28T10:00:00.000Z",
+              completed_at: "2026-04-28T10:01:00.000Z",
+              model_status: {
+                provider: "faster-whisper",
+                model: "small",
+                cache_dir: "C:/models/fw",
+                present: true,
+                size_bytes: 10,
+                error: null
+              }
+            }
+          }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { getFasterWhisperModelDownload } = await import("../ipc");
+
+    await expect(getFasterWhisperModelDownload(sidecar, "job 1")).resolves.toMatchObject({
+      jobId: "job_1",
+      status: "completed",
+      percent: 100,
+      modelStatus: {
+        provider: "faster-whisper",
+        model: "small",
+        cacheDir: "C:/models/fw",
+        present: true
+      }
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/runtime/models/faster-whisper/downloads/job%201",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("maps workflow progress events into task progress log lines", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            data: {
+              id: "run_1",
+              workflow_id: "youtube-to-srt",
+              mode: "start",
+              status: "running",
+              project_root: "/tmp/project",
+              plugin_paths: [],
+              latest_event_sequence: 2,
+              created_by: "desktop"
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            data: {
+              workflow_id: "youtube-to-srt",
+              events: [
+                {
+                  id: "event_1",
+                  workflow_id: "youtube-to-srt",
+                  sequence: 1,
+                  type: "step.progress",
+                  level: "info",
+                  message: "Download video 42%",
+                  data: {
+                    progress: {
+                      phase: "video_download",
+                      label: "Download video",
+                      percent: 42,
+                      current: 42,
+                      total: 100,
+                      unit: "bytes"
+                    }
+                  },
+                  created_at: "2026-04-28T10:00:00.000Z",
+                  step_id: "download",
+                  attempt: 1
+                }
+              ]
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { getTaskMonitor } = await import("../ipc");
+
+    await expect(getTaskMonitor(sidecar, "run_1")).resolves.toMatchObject({
+      progressLogs: [
+        {
+          sequence: 1,
+          timestamp: "2026-04-28T10:00:00.000Z",
+          stepId: "download",
+          attempt: 1,
+          phase: "video_download",
+          label: "Download video",
+          percent: 42,
+          current: 42,
+          total: 100,
+          unit: "bytes"
+        }
+      ]
+    });
   });
 });
