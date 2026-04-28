@@ -1,6 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   DiagnosticCheck,
@@ -81,6 +81,50 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+
+  return { promise, resolve };
+}
+
+async function waitForDownloadPoll(milliseconds = 800) {
+  await act(async () => {
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, milliseconds);
+    });
+  });
+}
+
+function missingFasterWhisperModel(model: string): RuntimeModelStatus {
+  return {
+    provider: "faster-whisper",
+    model,
+    cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+    present: false,
+    sizeBytes: 0,
+    error: null
+  };
+}
+
+function runningDownloadJob(model: string, percent: number): RuntimeModelDownloadJob {
+  return {
+    jobId: `job-${model}`,
+    provider: "faster-whisper",
+    model,
+    status: "running",
+    percent,
+    currentBytes: percent,
+    totalBytes: 100,
+    error: null,
+    startedAt: "2026-04-28T10:00:00.000Z",
+    completedAt: null,
+    modelStatus: null
+  };
+}
+
 function completedDownloadJob(modelStatus: RuntimeModelStatus): RuntimeModelDownloadJob {
   return {
     jobId: `job_${modelStatus.model}`,
@@ -96,6 +140,10 @@ function completedDownloadJob(modelStatus: RuntimeModelStatus): RuntimeModelDown
     modelStatus
   };
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function renderSettings(overrides: Partial<SettingsProps> = {}) {
   const props: SettingsProps = {
@@ -524,6 +572,114 @@ describe("Settings", () => {
     expect(getFasterWhisperModelDownload).toHaveBeenCalledWith("job-base");
     expect(await screen.findByText("Model downloaded.")).toBeInTheDocument();
     expect(screen.getAllByText("Downloaded").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("preserves active faster-whisper download progress when switching settings sections", async () => {
+    const user = userEvent.setup();
+    const downloadedModel: RuntimeModelStatus = {
+      provider: "faster-whisper",
+      model: "base",
+      cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+      present: true,
+      sizeBytes: 10,
+      error: null
+    };
+    const downloadFasterWhisperModel = vi.fn().mockResolvedValue(runningDownloadJob("base", 35));
+    const getFasterWhisperModelDownload = vi.fn().mockResolvedValue(completedDownloadJob(downloadedModel));
+
+    renderSettings({
+      downloadFasterWhisperModel,
+      getFasterWhisperModelDownload
+    });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    await user.click(screen.getByRole("button", { name: "Download base" }));
+    expect(await screen.findByText("35%")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Diagnostics" }));
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+
+    expect(screen.getByRole("progressbar", { name: "base download progress" })).toHaveAttribute("aria-valuenow", "35");
+    expect(screen.getByRole("button", { name: "Download base" })).toBeDisabled();
+
+    await waitForDownloadPoll();
+
+    expect(getFasterWhisperModelDownload).toHaveBeenCalledWith("job-base");
+    expect(await screen.findByText("100%")).toBeInTheDocument();
+  });
+
+  it("does not overlap slow faster-whisper download polls for the same job", async () => {
+    const user = userEvent.setup();
+    const downloadedModel: RuntimeModelStatus = {
+      provider: "faster-whisper",
+      model: "base",
+      cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+      present: true,
+      sizeBytes: 10,
+      error: null
+    };
+    const firstPoll = createDeferred<RuntimeModelDownloadJob>();
+    const getFasterWhisperModelDownload = vi.fn().mockReturnValue(firstPoll.promise);
+
+    renderSettings({
+      downloadFasterWhisperModel: vi.fn().mockResolvedValue(runningDownloadJob("base", 35)),
+      getFasterWhisperModelDownload
+    });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    await user.click(screen.getByRole("button", { name: "Download base" }));
+    expect(await screen.findByText("35%")).toBeInTheDocument();
+
+    await waitForDownloadPoll();
+    expect(getFasterWhisperModelDownload).toHaveBeenCalledTimes(1);
+
+    await waitForDownloadPoll();
+    expect(getFasterWhisperModelDownload).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      firstPoll.resolve(completedDownloadJob(downloadedModel));
+      await firstPoll.promise;
+    });
+    expect(await screen.findByText("100%")).toBeInTheDocument();
+  });
+
+  it("keeps two completed faster-whisper downloads when model refreshes fail", async () => {
+    const user = userEvent.setup();
+    const initialModels = [missingFasterWhisperModel("tiny"), missingFasterWhisperModel("base")];
+    const completedModels = Object.fromEntries(
+      initialModels.map((model) => [model.model, { ...model, present: true, sizeBytes: 10 }])
+    ) as Record<string, RuntimeModelStatus>;
+    const loadModels = vi
+      .fn()
+      .mockResolvedValueOnce(clone(initialModels))
+      .mockRejectedValue(new Error("Model status refresh failed."));
+    const downloadFasterWhisperModel = vi
+      .fn()
+      .mockImplementation(async ({ model }: { model: string }) => runningDownloadJob(model, 35));
+    const getFasterWhisperModelDownload = vi.fn().mockImplementation(async (jobId: string) => {
+      const model = jobId.replace("job-", "");
+      return completedDownloadJob(completedModels[model]);
+    });
+
+    renderSettings({
+      downloadFasterWhisperModel,
+      getFasterWhisperModelDownload,
+      loadModels
+    });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    await user.click(screen.getByRole("button", { name: "Download tiny" }));
+    await user.click(screen.getByRole("button", { name: "Download base" }));
+
+    await waitForDownloadPoll();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Download tiny" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Download base" })).toBeDisabled();
+    });
   });
 
   it("keeps downloaded model status when refresh fails after download succeeds", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 
 import type {
@@ -14,6 +14,7 @@ import type {
 import { Button } from "./Button";
 
 type SettingsSection = "llm" | "asr" | "diagnostics" | "advanced";
+type ModelStatusUpdate = RuntimeModelStatus[] | ((current: RuntimeModelStatus[]) => RuntimeModelStatus[]);
 
 export type SettingsProps = {
   loadSettings(): Promise<RuntimeSettingsModel>;
@@ -188,6 +189,79 @@ export function Settings({
   const [models, setModels] = useState<RuntimeModelStatus[]>([]);
   const [diagnostics, setDiagnostics] = useState<DiagnosticCheck[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [asrFeedback, setAsrFeedback] = useState<string | null>(null);
+  const [asrMutationError, setAsrMutationError] = useState<string | null>(null);
+  const [downloadJobs, setDownloadJobs] = useState<Record<string, RuntimeModelDownloadJob>>({});
+  const inFlightDownloadPolls = useRef<Set<string>>(new Set());
+  const appliedDownloadJobs = useRef<Set<string>>(new Set());
+
+  const applyDownloadJob = useCallback(
+    async (job: RuntimeModelDownloadJob) => {
+      if (job.status === "failed") {
+        setAsrMutationError(job.error ?? "Model download failed.");
+        return;
+      }
+
+      if (job.status !== "completed" || !job.modelStatus || appliedDownloadJobs.current.has(job.jobId)) {
+        return;
+      }
+
+      appliedDownloadJobs.current.add(job.jobId);
+
+      const downloaded = job.modelStatus;
+      setModels((current) => upsertModelStatus(current, downloaded));
+      setAsrFeedback("Model downloaded.");
+
+      try {
+        const refreshed = await loadModels();
+        const hasDownloadedStatus = refreshed.some(
+          (status) => status.provider === downloaded.provider && status.model === downloaded.model && status.present
+        );
+
+        setModels(hasDownloadedStatus ? refreshed : upsertModelStatus(refreshed, downloaded));
+      } catch (refreshError) {
+        setAsrMutationError(errorMessage(refreshError, "Model status could not be refreshed."));
+      }
+    },
+    [loadModels]
+  );
+
+  const pollDownloadJob = useCallback(
+    async (jobId: string) => {
+      if (inFlightDownloadPolls.current.has(jobId) || appliedDownloadJobs.current.has(jobId)) {
+        return;
+      }
+
+      inFlightDownloadPolls.current.add(jobId);
+
+      try {
+        const nextJob = await getFasterWhisperModelDownload(jobId);
+        setDownloadJobs((current) => ({ ...current, [nextJob.model]: nextJob }));
+        await applyDownloadJob(nextJob);
+      } catch (pollError) {
+        setAsrMutationError(errorMessage(pollError, "Model download status could not be refreshed."));
+      } finally {
+        inFlightDownloadPolls.current.delete(jobId);
+      }
+    },
+    [applyDownloadJob, getFasterWhisperModelDownload]
+  );
+
+  const downloadModel = useCallback(
+    async (model: string) => {
+      setAsrFeedback(null);
+      setAsrMutationError(null);
+
+      try {
+        const downloadJob = await downloadFasterWhisperModel({ model });
+        setDownloadJobs((current) => ({ ...current, [downloadJob.model]: downloadJob }));
+        await applyDownloadJob(downloadJob);
+      } catch (downloadError) {
+        setAsrMutationError(errorMessage(downloadError, "Model could not be downloaded."));
+      }
+    },
+    [applyDownloadJob, downloadFasterWhisperModel]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -212,6 +286,22 @@ export function Settings({
       cancelled = true;
     };
   }, [loadDiagnostics, loadModels, loadSettings]);
+
+  useEffect(() => {
+    const activeJobs = Object.values(downloadJobs).filter(isActiveModelDownloadJob);
+
+    if (activeJobs.length === 0) {
+      return undefined;
+    }
+
+    const interval = window.setInterval(() => {
+      for (const job of activeJobs) {
+        void pollDownloadJob(job.jobId);
+      }
+    }, 750);
+
+    return () => window.clearInterval(interval);
+  }, [downloadJobs, pollDownloadJob]);
 
   if (error) {
     return (
@@ -261,11 +351,15 @@ export function Settings({
         ) : null}
         {section === "asr" ? (
           <AsrSection
-            downloadFasterWhisperModel={downloadFasterWhisperModel}
-            getFasterWhisperModelDownload={getFasterWhisperModelDownload}
+            downloadJobs={downloadJobs}
+            feedback={asrFeedback}
             loadModels={loadModels}
             models={models}
+            mutationError={asrMutationError}
+            onDownloadModel={downloadModel}
+            onFeedbackChange={setAsrFeedback}
             onModelsChange={setModels}
+            onMutationErrorChange={setAsrMutationError}
             saveFasterWhisperDefaults={saveFasterWhisperDefaults}
             settings={settings}
             onSettingsChange={setSettings}
@@ -491,50 +585,39 @@ function LlmProviderSection({
 }
 
 function AsrSection({
-  downloadFasterWhisperModel,
-  getFasterWhisperModelDownload,
+  downloadJobs,
+  feedback,
   loadModels,
   models,
+  mutationError,
+  onDownloadModel,
+  onFeedbackChange,
   onModelsChange,
+  onMutationErrorChange,
   onSettingsChange,
   saveFasterWhisperDefaults,
   settings
 }: {
   settings: RuntimeSettingsModel;
   models: RuntimeModelStatus[];
+  downloadJobs: Record<string, RuntimeModelDownloadJob>;
+  feedback: string | null;
+  mutationError: string | null;
   loadModels: SettingsProps["loadModels"];
-  downloadFasterWhisperModel: NonNullable<SettingsProps["downloadFasterWhisperModel"]>;
-  getFasterWhisperModelDownload: SettingsProps["getFasterWhisperModelDownload"];
-  onModelsChange(models: RuntimeModelStatus[]): void;
+  onDownloadModel(model: string): Promise<void>;
+  onFeedbackChange(feedback: string | null): void;
+  onModelsChange(update: ModelStatusUpdate): void;
+  onMutationErrorChange(error: string | null): void;
   onSettingsChange(settings: RuntimeSettingsModel): void;
   saveFasterWhisperDefaults: SettingsProps["saveFasterWhisperDefaults"];
 }) {
   const [draft, setDraft] = useState<FasterWhisperSettingsModel>(settings.fasterWhisper);
   const statuses = useMemo(() => fasterWhisperStatuses(models, draft.defaultModel), [draft.defaultModel, models]);
   const modelOptions = useMemo(() => fasterWhisperModelOptions(statuses, draft.defaultModel), [draft.defaultModel, statuses]);
-  const [feedback, setFeedback] = useState<string | null>(null);
-  const [mutationError, setMutationError] = useState<string | null>(null);
-  const [downloadJobs, setDownloadJobs] = useState<Record<string, RuntimeModelDownloadJob>>({});
-
-  useEffect(() => {
-    const activeJobs = Object.values(downloadJobs).filter(isActiveModelDownloadJob);
-
-    if (activeJobs.length === 0) {
-      return undefined;
-    }
-
-    const interval = window.setInterval(() => {
-      for (const job of activeJobs) {
-        void pollDownloadJob(job.jobId);
-      }
-    }, 750);
-
-    return () => window.clearInterval(interval);
-  }, [downloadJobs]);
 
   async function saveDefaults() {
-    setFeedback(null);
-    setMutationError(null);
+    onFeedbackChange(null);
+    onMutationErrorChange(null);
 
     try {
       const updated = await saveFasterWhisperDefaults({
@@ -547,62 +630,13 @@ function AsrSection({
       onSettingsChange(updated);
       try {
         onModelsChange(await loadModels());
-        setFeedback("ASR defaults saved.");
+        onFeedbackChange("ASR defaults saved.");
       } catch (error) {
-        setFeedback("ASR defaults saved.");
-        setMutationError(errorMessage(error, "Model status could not be refreshed."));
+        onFeedbackChange("ASR defaults saved.");
+        onMutationErrorChange(errorMessage(error, "Model status could not be refreshed."));
       }
     } catch (error) {
-      setMutationError(errorMessage(error, "ASR defaults could not be saved."));
-    }
-  }
-
-  async function downloadModel(model: string) {
-    setFeedback(null);
-    setMutationError(null);
-
-    try {
-      const downloadJob = await downloadFasterWhisperModel({ model });
-      setDownloadJobs((current) => ({ ...current, [downloadJob.model]: downloadJob }));
-      await applyDownloadJob(downloadJob);
-    } catch (error) {
-      setMutationError(errorMessage(error, "Model could not be downloaded."));
-    }
-  }
-
-  async function pollDownloadJob(jobId: string) {
-    try {
-      const nextJob = await getFasterWhisperModelDownload(jobId);
-      setDownloadJobs((current) => ({ ...current, [nextJob.model]: nextJob }));
-      await applyDownloadJob(nextJob);
-    } catch (error) {
-      setMutationError(errorMessage(error, "Model download status could not be refreshed."));
-    }
-  }
-
-  async function applyDownloadJob(job: RuntimeModelDownloadJob) {
-    if (job.status === "failed") {
-      setMutationError(job.error ?? "Model download failed.");
-      return;
-    }
-
-    if (job.status !== "completed" || !job.modelStatus) {
-      return;
-    }
-
-    const downloaded = job.modelStatus;
-    onModelsChange(upsertModelStatus(models, downloaded));
-    setFeedback("Model downloaded.");
-
-    try {
-      const refreshed = await loadModels();
-      const hasDownloadedStatus = refreshed.some(
-        (status) => status.provider === downloaded.provider && status.model === downloaded.model && status.present
-      );
-
-      onModelsChange(hasDownloadedStatus ? refreshed : upsertModelStatus(refreshed, downloaded));
-    } catch (error) {
-      setMutationError(errorMessage(error, "Model status could not be refreshed."));
+      onMutationErrorChange(errorMessage(error, "ASR defaults could not be saved."));
     }
   }
 
@@ -668,7 +702,7 @@ function AsrSection({
                   variant="secondary"
                   aria-label={`Download ${status.model}`}
                   disabled={status.present || unavailable || busy}
-                  onClick={() => void downloadModel(status.model)}
+                  onClick={() => void onDownloadModel(status.model)}
                 >
                   {busy ? "Downloading" : "Download"}
                 </Button>
