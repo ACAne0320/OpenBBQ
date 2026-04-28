@@ -7,6 +7,13 @@ const api = {
   listTasks: () => ipcRenderer.invoke("openbbq:list-tasks"),
   getTaskMonitor: (runId: string) => ipcRenderer.invoke("openbbq:get-task-monitor", runId),
   getReview: (runId: string) => ipcRenderer.invoke("openbbq:get-review", runId),
+  getRuntimeSettings: () => ipcRenderer.invoke("openbbq:get-runtime-settings"),
+  saveRuntimeDefaults: (input: unknown) => ipcRenderer.invoke("openbbq:save-runtime-defaults", input),
+  saveLlmProvider: (input: unknown) => ipcRenderer.invoke("openbbq:save-llm-provider", input),
+  checkLlmProvider: (name: string) => ipcRenderer.invoke("openbbq:check-llm-provider", name),
+  saveFasterWhisperDefaults: (input: unknown) => ipcRenderer.invoke("openbbq:save-faster-whisper-defaults", input),
+  getRuntimeModels: () => ipcRenderer.invoke("openbbq:get-runtime-models"),
+  getDiagnostics: () => ipcRenderer.invoke("openbbq:get-diagnostics"),
   updateSegmentText: (input: unknown) => ipcRenderer.invoke("openbbq:update-segment-text", input),
   retryCheckpoint: (runId: string) => ipcRenderer.invoke("openbbq:retry-checkpoint", runId)
 };

@@ -91,3 +91,73 @@ export type ReviewModel = {
   waveform: WaveformBar[];
   segments: Segment[];
 };
+
+export type RuntimeSettingsModel = {
+  configPath: string;
+  cacheRoot: string;
+  defaults: { llmProvider: string; asrProvider: string };
+  llmProviders: LlmProviderModel[];
+  fasterWhisper: FasterWhisperSettingsModel;
+};
+
+export type LlmProviderModel = {
+  name: string;
+  type: "openai_compatible";
+  baseUrl: string | null;
+  apiKeyRef: string | null;
+  defaultChatModel: string | null;
+  displayName: string | null;
+};
+
+export type FasterWhisperSettingsModel = {
+  cacheDir: string;
+  defaultModel: string;
+  defaultDevice: string;
+  defaultComputeType: string;
+};
+
+export type RuntimeModelStatus = {
+  provider: string;
+  model: string;
+  cacheDir: string;
+  present: boolean;
+  sizeBytes: number;
+  error: string | null;
+};
+
+export type SecretStatus = {
+  reference: string;
+  resolved: boolean;
+  display: string;
+  valuePreview: string | null;
+  error: string | null;
+};
+
+export type DiagnosticCheck = {
+  id: string;
+  status: string;
+  severity: string;
+  message: string;
+};
+
+export type SaveRuntimeDefaultsInput = {
+  llmProvider: string;
+  asrProvider: string;
+};
+
+export type SaveLlmProviderInput = {
+  name: string;
+  type: "openai_compatible";
+  baseUrl: string | null;
+  defaultChatModel: string | null;
+  secretValue: string | null;
+  apiKeyRef: string | null;
+  displayName: string | null;
+};
+
+export type SaveFasterWhisperDefaultsInput = {
+  cacheDir: string;
+  defaultModel: string;
+  defaultDevice: string;
+  defaultComputeType: string;
+};

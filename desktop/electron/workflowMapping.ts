@@ -8,11 +8,6 @@ export type QuickstartRequest =
         input_path: string;
         source_lang: string;
         target_lang: string;
-        provider: string;
-        model: string | null;
-        asr_model: string;
-        asr_device: string;
-        asr_compute_type: string;
       };
     }
   | {
@@ -21,11 +16,6 @@ export type QuickstartRequest =
         url: string;
         source_lang: string;
         target_lang: string;
-        provider: string;
-        model: string | null;
-        asr_model: string;
-        asr_device: string;
-        asr_compute_type: string;
         quality: string;
         auth: string;
         browser: string | null;
@@ -101,12 +91,7 @@ export function buildQuickstartRequest(source: SourceDraft, steps: WorkflowStep[
   const targetLang = languageCode(parameterValue(steps, "translate", "target_lang", "zh"));
   const common = {
     source_lang: sourceLang,
-    target_lang: targetLang,
-    provider: parameterValue(steps, "translate", "provider", "openai"),
-    model: optionalParameterValue(steps, "translate", "model"),
-    asr_model: parameterValue(steps, "transcribe", "model", "base"),
-    asr_device: parameterValue(steps, "transcribe", "device", "cpu"),
-    asr_compute_type: parameterValue(steps, "transcribe", "compute_type", "int8")
+    target_lang: targetLang
   };
 
   if (source.kind === "local_file") {

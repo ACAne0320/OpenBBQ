@@ -9,6 +9,13 @@ export function createDesktopClient(api: OpenBBQDesktopApi): OpenBBQClient {
     listTasks: () => api.listTasks(),
     getTaskMonitor: (runId) => api.getTaskMonitor(runId),
     getReview: (runId) => api.getReview(runId),
+    getRuntimeSettings: () => api.getRuntimeSettings(),
+    saveRuntimeDefaults: (input) => api.saveRuntimeDefaults(input),
+    saveLlmProvider: (input) => api.saveLlmProvider(input),
+    checkLlmProvider: (name) => api.checkLlmProvider(name),
+    saveFasterWhisperDefaults: (input) => api.saveFasterWhisperDefaults(input),
+    getRuntimeModels: () => api.getRuntimeModels(),
+    getDiagnostics: () => api.getDiagnostics(),
     updateSegmentText: (input) => api.updateSegmentText(input),
     retryCheckpoint: (runId) => api.retryCheckpoint(runId)
   };

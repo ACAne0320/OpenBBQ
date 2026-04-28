@@ -34,14 +34,14 @@ describe("buildQuickstartRequest", () => {
       body: {
         input_path: "C:/video/sample.mp4",
         source_lang: "en",
-        target_lang: "zh",
-        provider: "openai",
-        model: null,
-        asr_model: "base",
-        asr_device: "cpu",
-        asr_compute_type: "int8"
+        target_lang: "zh"
       }
     });
+    expect(request.body).not.toHaveProperty("provider");
+    expect(request.body).not.toHaveProperty("model");
+    expect(request.body).not.toHaveProperty("asr_model");
+    expect(request.body).not.toHaveProperty("asr_device");
+    expect(request.body).not.toHaveProperty("asr_compute_type");
   });
 
   it("maps remote workflow parameters to the YouTube quickstart request", () => {
@@ -53,11 +53,14 @@ describe("buildQuickstartRequest", () => {
       url: "https://example.test/watch",
       source_lang: "en",
       target_lang: "zh",
-      provider: "openai",
-      asr_model: "base",
-      asr_device: "cpu",
-      asr_compute_type: "int8"
+      quality: "best[ext=mp4][height<=720]/best[height<=720]/best",
+      auth: "auto"
     });
+    expect(request.body).not.toHaveProperty("provider");
+    expect(request.body).not.toHaveProperty("model");
+    expect(request.body).not.toHaveProperty("asr_model");
+    expect(request.body).not.toHaveProperty("asr_device");
+    expect(request.body).not.toHaveProperty("asr_compute_type");
   });
 
   it("uses edited workflow parameters", () => {

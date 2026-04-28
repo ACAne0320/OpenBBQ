@@ -112,3 +112,52 @@ export type ApiArtifactPreviewData = {
   content_encoding: string;
   content_size: number;
 };
+
+export type ApiProviderProfile = {
+  name: string;
+  type: "openai_compatible";
+  base_url?: string | null;
+  api_key?: string | null;
+  default_chat_model?: string | null;
+  display_name?: string | null;
+};
+
+export type ApiRuntimeSettings = {
+  version: number;
+  config_path: string;
+  cache: { root: string };
+  defaults: { llm_provider: string; asr_provider: string };
+  providers: Record<string, ApiProviderProfile>;
+  models: {
+    faster_whisper: {
+      cache_dir: string;
+      default_model: string;
+      default_device: string;
+      default_compute_type: string;
+    };
+  };
+};
+
+export type ApiSecretCheck = {
+  reference: string;
+  resolved: boolean;
+  display: string;
+  value_preview?: string | null;
+  error?: string | null;
+};
+
+export type ApiDoctorCheck = {
+  id: string;
+  status: string;
+  severity: string;
+  message: string;
+};
+
+export type ApiModelAssetStatus = {
+  provider: string;
+  model: string;
+  cache_dir: string;
+  present: boolean;
+  size_bytes: number;
+  error?: string | null;
+};

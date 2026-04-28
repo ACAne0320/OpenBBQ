@@ -2,7 +2,7 @@ import type { ApiEnvelope } from "./apiTypes.js";
 import type { SidecarConnection } from "./sidecar.js";
 
 type RequestOptions = {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT";
   body?: unknown;
 };
 

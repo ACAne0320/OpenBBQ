@@ -109,4 +109,126 @@ describe("desktop IPC actions", () => {
       expect.objectContaining({ method: "GET" })
     );
   });
+
+  it("loads runtime settings through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            settings: {
+              version: 1,
+              config_path: "C:/Users/alex/.openbbq/config.toml",
+              cache: { root: "C:/Users/alex/.cache/openbbq" },
+              defaults: { llm_provider: "openai-compatible", asr_provider: "faster-whisper" },
+              providers: {
+                "openai-compatible": {
+                  name: "openai-compatible",
+                  type: "openai_compatible",
+                  base_url: "http://127.0.0.1:11434/v1",
+                  api_key: "env:OPENBBQ_LLM_API_KEY",
+                  default_chat_model: "qwen2.5",
+                  display_name: "Local gateway"
+                }
+              },
+              models: {
+                faster_whisper: {
+                  cache_dir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+                  default_model: "base",
+                  default_device: "cpu",
+                  default_compute_type: "int8"
+                }
+              }
+            }
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { getRuntimeSettings } = await import("../ipc");
+
+    await expect(getRuntimeSettings(sidecar)).resolves.toMatchObject({
+      configPath: "C:/Users/alex/.openbbq/config.toml",
+      cacheRoot: "C:/Users/alex/.cache/openbbq",
+      defaults: { llmProvider: "openai-compatible", asrProvider: "faster-whisper" },
+      llmProviders: [
+        {
+          name: "openai-compatible",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
+          defaultChatModel: "qwen2.5",
+          displayName: "Local gateway"
+        }
+      ],
+      fasterWhisper: {
+        cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+        defaultModel: "base",
+        defaultDevice: "cpu",
+        defaultComputeType: "int8"
+      }
+    });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/runtime/settings",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("saves faster-whisper defaults through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            settings: {
+              version: 1,
+              config_path: "config.toml",
+              cache: { root: "cache" },
+              defaults: { llm_provider: "openai-compatible", asr_provider: "faster-whisper" },
+              providers: {},
+              models: {
+                faster_whisper: {
+                  cache_dir: "C:/models/fw",
+                  default_model: "small",
+                  default_device: "cpu",
+                  default_compute_type: "int8"
+                }
+              }
+            },
+            config_path: "config.toml"
+          }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { saveFasterWhisperDefaults } = await import("../ipc");
+
+    await expect(
+      saveFasterWhisperDefaults(sidecar, {
+        cacheDir: "C:/models/fw",
+        defaultModel: "small",
+        defaultDevice: "cpu",
+        defaultComputeType: "int8"
+      })
+    ).resolves.toMatchObject({
+      fasterWhisper: { cacheDir: "C:/models/fw", defaultModel: "small" }
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/runtime/models/faster-whisper",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          cache_dir: "C:/models/fw",
+          default_model: "small",
+          default_device: "cpu",
+          default_compute_type: "int8"
+        })
+      })
+    );
+  });
 });
