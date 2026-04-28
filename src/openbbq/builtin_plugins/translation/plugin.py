@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import re
 from typing import Any
@@ -32,16 +33,28 @@ NUMBER_RE = re.compile(r"\d+(?:[.,:]\d+)*")
 WHITESPACE_RE = re.compile(r"\s+")
 
 
-def run(request: dict, client_factory=None) -> dict:
+@dataclass(frozen=True)
+class _IndexedTimedSegment:
+    index: int
+    start: float
+    end: float
+    text: str
+    payload: dict[str, Any]
+    source_text: str | None = None
+    confidence: float | None = None
+    words: tuple[Any, ...] = ()
+
+
+def run(request: dict, client_factory=None, progress=None) -> dict:
     tool_name = request.get("tool_name")
     if tool_name == "translate":
-        return run_translate(request, client_factory=client_factory)
+        return run_translate(request, client_factory=client_factory, progress=progress)
     if tool_name == "qa":
         return run_qa(request)
     raise ValueError(f"Unsupported tool: {tool_name}")
 
 
-def run_translate(request: dict, client_factory=None) -> dict:
+def run_translate(request: dict, client_factory=None, progress=None) -> dict:
     effective_client_factory = _default_client_factory if client_factory is None else client_factory
     return run_translation(
         request,
@@ -49,6 +62,7 @@ def run_translate(request: dict, client_factory=None) -> dict:
         error_prefix="translation.translate",
         include_provider_metadata=True,
         input_names=("subtitle_segments", "transcript"),
+        progress=progress,
     )
 
 
@@ -59,6 +73,7 @@ def run_translation(
     error_prefix: str,
     include_provider_metadata: bool,
     input_names: tuple[str, ...],
+    progress=None,
 ) -> dict:
     if request.get("tool_name") != "translate":
         raise ValueError(f"Unsupported tool: {request.get('tool_name')}")
@@ -78,23 +93,55 @@ def run_translation(
         tool_name=error_prefix,
     )
     client = client_factory(api_key=provider.api_key, base_url=provider.base_url)
-    segments = _timed_segments_any(request, input_names=input_names, error_prefix=error_prefix)
+    segments = _segments_with_indexes(
+        _timed_segments_any(request, input_names=input_names, error_prefix=error_prefix)
+    )
     translated_segments = []
+    total_segments = len(segments)
+    translated_count = 0
+    _report(
+        progress,
+        phase="translate",
+        label="Translate",
+        percent=0,
+        current=0,
+        total=total_segments,
+        unit="segments",
+    )
     for chunk in segment_chunks(
         segments, DEFAULT_MAX_SEGMENTS_PER_REQUEST, error_prefix=error_prefix
     ):
-        translated_segments.extend(
-            _translate_chunk(
-                client=client,
-                chunk=chunk,
-                model=model,
-                temperature=temperature,
-                system_prompt=system_prompt,
-                source_lang=source_lang,
-                target_lang=target_lang,
-                glossary_rules=glossary_rules,
-                error_prefix=error_prefix,
-            )
+        translated = _translate_chunk(
+            client=client,
+            chunk=chunk,
+            model=model,
+            temperature=temperature,
+            system_prompt=system_prompt,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            glossary_rules=glossary_rules,
+            error_prefix=error_prefix,
+        )
+        translated_segments.extend(translated)
+        translated_count += len(chunk)
+        _report(
+            progress,
+            phase="translate",
+            label="Translate",
+            percent=(translated_count / total_segments) * 100 if total_segments else 100,
+            current=translated_count,
+            total=total_segments,
+            unit="segments",
+        )
+    if total_segments == 0:
+        _report(
+            progress,
+            phase="translate",
+            label="Translate",
+            percent=100,
+            current=0,
+            total=0,
+            unit="segments",
         )
     metadata = {
         "source_lang": source_lang,
@@ -257,10 +304,52 @@ def run_qa(request: dict) -> dict:
 _default_client_factory = default_openai_client_factory
 
 
+def _report(
+    progress,
+    *,
+    phase: str,
+    label: str,
+    percent: float,
+    current=None,
+    total=None,
+    unit=None,
+) -> None:
+    if progress is not None:
+        progress(
+            phase=phase,
+            label=label,
+            percent=percent,
+            current=current,
+            total=total,
+            unit=unit,
+        )
+
+
+def _segments_with_indexes(segments: list[TimedSegment]) -> list[_IndexedTimedSegment]:
+    return [
+        _IndexedTimedSegment(
+            index=_segment_index(segment, fallback_index),
+            start=segment.start,
+            end=segment.end,
+            text=segment.text,
+            payload=segment.payload,
+            source_text=segment.source_text,
+            confidence=segment.confidence,
+            words=segment.words,
+        )
+        for fallback_index, segment in enumerate(segments)
+    ]
+
+
+def _segment_index(segment: TimedSegment, fallback_index: int) -> int:
+    index = segment.payload.get("index")
+    return index if isinstance(index, int) else fallback_index
+
+
 def _translate_chunk(
     *,
     client: Any,
-    chunk: list[TimedSegment],
+    chunk: list[_IndexedTimedSegment],
     model: str,
     temperature: float,
     system_prompt: str,
@@ -311,7 +400,7 @@ def _translate_chunk(
 def _translate_chunk_once(
     *,
     client: Any,
-    chunk: list[TimedSegment],
+    chunk: list[_IndexedTimedSegment],
     model: str,
     temperature: float,
     system_prompt: str,

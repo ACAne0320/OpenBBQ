@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 
-def run(request: dict, model_factory=None) -> dict:
+def run(request: dict, model_factory=None, progress=None) -> dict:
     if request.get("tool_name") != "transcribe":
         raise ValueError(f"Unsupported tool: {request.get('tool_name')}")
     audio = request.get("inputs", {}).get("audio", {})
@@ -26,6 +26,7 @@ def run(request: dict, model_factory=None) -> dict:
     vad_parameters = parameters.get("vad_parameters")
     download_root = _runtime_faster_whisper_cache(request)
     model_factory = _default_model_factory if model_factory is None else model_factory
+    _report(progress, phase="asr_parse", label="ASR parsing", percent=0)
     model = model_factory(
         model_name,
         device=device,
@@ -55,7 +56,33 @@ def run(request: dict, model_factory=None) -> dict:
         audio_path,
         **transcribe_kwargs,
     )
-    content = [_segment_payload(segment, include_words=word_timestamps) for segment in segments]
+    duration = float(getattr(info, "duration", 0) or 0)
+    last_percent = 0.0
+    content = []
+    for segment in segments:
+        content.append(_segment_payload(segment, include_words=word_timestamps))
+        if duration > 0:
+            current = min(float(segment.end), duration)
+            last_percent = (current / duration) * 100
+            _report(
+                progress,
+                phase="asr_parse",
+                label="ASR parsing",
+                percent=last_percent,
+                current=current,
+                total=duration,
+                unit="seconds",
+            )
+    if last_percent < 100:
+        _report(
+            progress,
+            phase="asr_parse",
+            label="ASR parsing",
+            percent=100,
+            current=duration or None,
+            total=duration or None,
+            unit="seconds" if duration > 0 else None,
+        )
     return {
         "outputs": {
             "transcript": {
@@ -72,6 +99,27 @@ def run(request: dict, model_factory=None) -> dict:
             }
         }
     }
+
+
+def _report(
+    progress,
+    *,
+    phase: str,
+    label: str,
+    percent: float,
+    current=None,
+    total=None,
+    unit=None,
+) -> None:
+    if progress is not None:
+        progress(
+            phase=phase,
+            label=label,
+            percent=percent,
+            current=current,
+            total=total,
+            unit=unit,
+        )
 
 
 def _default_model_factory(

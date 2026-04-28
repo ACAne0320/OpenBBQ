@@ -42,7 +42,7 @@ class MissingDownloadDependencyError(RuntimeError):
     pass
 
 
-def run(request: dict, downloader_factory=None) -> dict:
+def run(request: dict, downloader_factory=None, progress=None) -> dict:
     if request.get("tool_name") != "download":
         raise ValueError(f"Unsupported tool: {request.get('tool_name')}")
     parameters = request.get("parameters", {})
@@ -71,12 +71,21 @@ def run(request: dict, downloader_factory=None) -> dict:
         browser=browser,
         browser_profile=browser_profile,
     )
+    _report(
+        progress,
+        phase="video_download",
+        label="Download video",
+        percent=0,
+        unit="bytes",
+    )
     info = None
     auth_source = None
     failure_messages: list[str] = []
     for index, attempt in enumerate(attempts):
         try:
             options = _options_for_attempt(base_options, attempt)
+            if progress is not None:
+                options["progress_hooks"] = [_yt_dlp_progress_hook(progress)]
             with downloader_factory(options) as downloader:
                 info = downloader.extract_info(url, download=True)
             auth_source = attempt
@@ -121,6 +130,59 @@ def run(request: dict, downloader_factory=None) -> dict:
             }
         }
     }
+
+
+def _report(
+    progress,
+    *,
+    phase: str,
+    label: str,
+    percent: float,
+    current=None,
+    total=None,
+    unit=None,
+) -> None:
+    if progress is not None:
+        progress(
+            phase=phase,
+            label=label,
+            percent=percent,
+            current=current,
+            total=total,
+            unit=unit,
+        )
+
+
+def _yt_dlp_progress_hook(progress):
+    def hook(payload: dict[str, Any]) -> None:
+        status = payload.get("status")
+        total = payload.get("total_bytes") or payload.get("total_bytes_estimate")
+        current = payload.get("downloaded_bytes")
+        if (
+            status == "downloading"
+            and isinstance(total, (int, float))
+            and total > 0
+            and isinstance(current, (int, float))
+        ):
+            _report(
+                progress,
+                phase="video_download",
+                label="Download video",
+                percent=min((current / total) * 100, 99),
+                current=current,
+                total=total,
+                unit="bytes",
+            )
+        elif status == "finished":
+            _report(
+                progress,
+                phase="video_download",
+                label="Download video",
+                percent=100,
+                unit="bytes",
+            )
+
+    return hook
 
 
 def _default_downloader_factory(options: dict[str, Any]):
