@@ -379,6 +379,48 @@ describe("Settings", () => {
     expect(screen.getByLabelText("Cache directory")).toHaveValue("C:/OpenBBQ/cache/faster-whisper");
   });
 
+  it("refreshes model statuses after saving faster-whisper defaults", async () => {
+    const user = userEvent.setup();
+    const cacheDir = "C:/OpenBBQ/cache/faster-whisper";
+    const refreshedModels: RuntimeModelStatus[] = [
+      {
+        provider: "faster-whisper",
+        model: "base",
+        cacheDir,
+        present: false,
+        sizeBytes: 0,
+        error: null
+      },
+      {
+        provider: "faster-whisper",
+        model: "small",
+        cacheDir,
+        present: false,
+        sizeBytes: 0,
+        error: null
+      }
+    ];
+    const loadModels = vi.fn().mockResolvedValueOnce(clone(models)).mockResolvedValueOnce(clone(refreshedModels));
+    const saveFasterWhisperDefaults = vi.fn().mockImplementation(async (input) => ({
+      ...clone(settings),
+      fasterWhisper: input
+    }));
+    renderSettings({ loadModels, saveFasterWhisperDefaults });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    expect(screen.getByRole("button", { name: "Download small" })).toBeDisabled();
+
+    await user.clear(screen.getByLabelText("Cache directory"));
+    await user.type(screen.getByLabelText("Cache directory"), cacheDir);
+    await user.click(screen.getByRole("button", { name: "Save ASR defaults" }));
+
+    expect(await screen.findByText("ASR defaults saved.")).toBeInTheDocument();
+    expect(loadModels).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Downloaded")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download small" })).toBeEnabled();
+  });
+
   it("downloads a selected faster-whisper model and refreshes model status", async () => {
     const user = userEvent.setup();
     const downloadedModels: RuntimeModelStatus[] = [

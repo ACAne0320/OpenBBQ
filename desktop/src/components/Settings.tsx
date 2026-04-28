@@ -523,7 +523,13 @@ function AsrSection({
       });
       setDraft(updated.fasterWhisper);
       onSettingsChange(updated);
-      setFeedback("ASR defaults saved.");
+      try {
+        onModelsChange(await loadModels());
+        setFeedback("ASR defaults saved.");
+      } catch (error) {
+        setFeedback("ASR defaults saved.");
+        setMutationError(errorMessage(error, "Model status could not be refreshed."));
+      }
     } catch (error) {
       setMutationError(errorMessage(error, "ASR defaults could not be saved."));
     }
