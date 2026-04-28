@@ -173,6 +173,33 @@ function upsertModelStatus(models: RuntimeModelStatus[], saved: RuntimeModelStat
   return models.map((model) => (model.provider === saved.provider && model.model === saved.model ? saved : model));
 }
 
+function modelStatusKey(status: RuntimeModelStatus): string {
+  return `${status.provider}:${status.model}`;
+}
+
+function sameModelStatus(left: RuntimeModelStatus, right: RuntimeModelStatus): boolean {
+  return left.provider === right.provider && left.model === right.model;
+}
+
+function mergeRefreshedModelStatuses(
+  models: RuntimeModelStatus[],
+  currentModels: RuntimeModelStatus[],
+  completedStatuses: Iterable<RuntimeModelStatus>
+): RuntimeModelStatus[] {
+  let merged = models;
+
+  for (const status of completedStatuses) {
+    const currentStatus = currentModels.find((model) => sameModelStatus(model, status));
+    const statusToPreserve = currentStatus?.present ? currentStatus : status;
+
+    if (statusToPreserve.present) {
+      merged = upsertModelStatus(merged, statusToPreserve);
+    }
+  }
+
+  return merged;
+}
+
 export function Settings({
   checkLlmProvider,
   downloadFasterWhisperModel,
@@ -194,6 +221,7 @@ export function Settings({
   const [downloadJobs, setDownloadJobs] = useState<Record<string, RuntimeModelDownloadJob>>({});
   const inFlightDownloadPolls = useRef<Set<string>>(new Set());
   const appliedDownloadJobs = useRef<Set<string>>(new Set());
+  const completedDownloadStatuses = useRef<Map<string, RuntimeModelStatus>>(new Map());
 
   const applyDownloadJob = useCallback(
     async (job: RuntimeModelDownloadJob) => {
@@ -209,6 +237,7 @@ export function Settings({
       appliedDownloadJobs.current.add(job.jobId);
 
       const downloaded = job.modelStatus;
+      completedDownloadStatuses.current.set(modelStatusKey(downloaded), downloaded);
       setModels((current) => upsertModelStatus(current, downloaded));
       setAsrFeedback("Model downloaded.");
 
@@ -218,7 +247,13 @@ export function Settings({
           (status) => status.provider === downloaded.provider && status.model === downloaded.model && status.present
         );
 
-        setModels(hasDownloadedStatus ? refreshed : upsertModelStatus(refreshed, downloaded));
+        setModels((current) =>
+          mergeRefreshedModelStatuses(
+            hasDownloadedStatus ? refreshed : upsertModelStatus(refreshed, downloaded),
+            current,
+            completedDownloadStatuses.current.values()
+          )
+        );
       } catch (refreshError) {
         setAsrMutationError(errorMessage(refreshError, "Model status could not be refreshed."));
       }

@@ -682,6 +682,55 @@ describe("Settings", () => {
     });
   });
 
+  it("keeps a local completed download when another stale model refresh succeeds", async () => {
+    const user = userEvent.setup();
+    const initialModels = [missingFasterWhisperModel("tiny"), missingFasterWhisperModel("base")];
+    const completedModels = Object.fromEntries(
+      initialModels.map((model) => [model.model, { ...model, present: true, sizeBytes: 10 }])
+    ) as Record<string, RuntimeModelStatus>;
+    const staleTinyRefresh = createDeferred<RuntimeModelStatus[]>();
+    const loadModels = vi
+      .fn()
+      .mockResolvedValueOnce(clone(initialModels))
+      .mockReturnValueOnce(staleTinyRefresh.promise)
+      .mockRejectedValueOnce(new Error("Model status refresh failed."));
+    const downloadFasterWhisperModel = vi
+      .fn()
+      .mockImplementation(async ({ model }: { model: string }) => runningDownloadJob(model, 35));
+    const getFasterWhisperModelDownload = vi.fn().mockImplementation(async (jobId: string) => {
+      const model = jobId.replace("job-", "");
+      return completedDownloadJob(completedModels[model]);
+    });
+
+    renderSettings({
+      downloadFasterWhisperModel,
+      getFasterWhisperModelDownload,
+      loadModels
+    });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    await user.click(screen.getByRole("button", { name: "Download tiny" }));
+    await user.click(screen.getByRole("button", { name: "Download base" }));
+
+    await waitForDownloadPoll();
+    await waitFor(() => {
+      expect(loadModels).toHaveBeenCalledTimes(3);
+      expect(screen.getByRole("button", { name: "Download tiny" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Download base" })).toBeDisabled();
+    });
+
+    await act(async () => {
+      staleTinyRefresh.resolve([completedModels.tiny, missingFasterWhisperModel("base")]);
+      await staleTinyRefresh.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Download tiny" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Download base" })).toBeDisabled();
+    });
+  });
+
   it("keeps downloaded model status when refresh fails after download succeeds", async () => {
     const user = userEvent.setup();
     const downloadedModel: RuntimeModelStatus = {
