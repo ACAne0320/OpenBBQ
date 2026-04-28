@@ -1,10 +1,10 @@
-import { app, BrowserWindow, net, protocol } from "electron";
+import { app, BrowserWindow, protocol } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createDesktopRuntimeConfig } from "./config.js";
 import { registerOpenBBQIpc } from "./ipc.js";
-import { artifactFileScheme, resolveArtifactFileUrl } from "./mediaUrls.js";
+import { artifactFileResponse, artifactFileScheme } from "./mediaUrls.js";
 import { startSidecar, type ManagedSidecar } from "./sidecar.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -27,15 +27,7 @@ function logSidecarOutput(stream: "stdout" | "stderr", text: string) {
 
 function registerArtifactFileProtocol() {
   protocol.handle(artifactFileScheme, async (request) => {
-    const resolved = resolveArtifactFileUrl(request.url);
-    if (!resolved) {
-      return new Response("Artifact file is not available.", { status: 404 });
-    }
-    const response = await net.fetch(resolved.fileUrl);
-    return new Response(response.body, {
-      status: response.status,
-      headers: { "Content-Type": resolved.mediaType }
-    });
+    return artifactFileResponse(request.url, request.headers);
   });
 }
 
