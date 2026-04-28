@@ -8,16 +8,20 @@ from openbbq.runtime import models as runtime_models
 from openbbq.runtime.models import (
     CacheSettings,
     DoctorCheck,
+    FasterWhisperSettings,
     ModelAssetStatus,
     ProviderProfile,
     ResolvedProvider,
+    RuntimeDefaults,
     RuntimeSettings,
 )
 from openbbq.runtime.settings import (
     DEFAULT_CACHE_ROOT,
     load_runtime_settings,
     runtime_settings_to_toml,
+    with_faster_whisper_settings,
     with_provider_profile,
+    with_runtime_defaults,
 )
 from openbbq.runtime.settings_parser import parse_runtime_settings
 from openbbq.runtime.user_db import UserRuntimeDatabase
@@ -37,6 +41,32 @@ def test_load_runtime_settings_defaults_when_file_is_absent(tmp_path, monkeypatc
         == (DEFAULT_CACHE_ROOT / "models" / "faster-whisper").expanduser().resolve()
     )
     assert settings.providers == {}
+
+
+def test_load_runtime_settings_includes_default_runtime_providers(tmp_path):
+    settings = load_runtime_settings(config_path=tmp_path / "missing.toml", env={})
+
+    assert settings.defaults.llm_provider == "openai-compatible"
+    assert settings.defaults.asr_provider == "faster-whisper"
+
+
+def test_load_runtime_settings_reads_defaults_table(tmp_path):
+    config = tmp_path / "config.toml"
+    config.write_text(
+        """
+version = 1
+
+[defaults]
+llm_provider = "local-gateway"
+asr_provider = "faster-whisper"
+""",
+        encoding="utf-8",
+    )
+
+    settings = load_runtime_settings(config_path=config, env={})
+
+    assert settings.defaults.llm_provider == "local-gateway"
+    assert settings.defaults.asr_provider == "faster-whisper"
 
 
 def test_load_runtime_settings_from_toml(tmp_path):
@@ -235,6 +265,64 @@ def test_with_provider_profile_adds_profile(tmp_path):
 
     assert updated.providers["openai"].api_key == "env:OPENBBQ_LLM_API_KEY"
     assert settings.providers == {}
+
+
+def test_runtime_settings_to_toml_writes_defaults_and_faster_whisper(tmp_path):
+    settings = RuntimeSettings(
+        version=1,
+        config_path=tmp_path / "config.toml",
+        cache=CacheSettings(root=tmp_path / "cache"),
+        defaults=RuntimeDefaults(
+            llm_provider="openai-compatible",
+            asr_provider="faster-whisper",
+        ),
+        models=runtime_models.ModelsSettings(
+            faster_whisper=FasterWhisperSettings(
+                cache_dir=tmp_path / "models",
+                default_model="small",
+                default_device="cpu",
+                default_compute_type="int8",
+            )
+        ),
+    )
+
+    rendered = runtime_settings_to_toml(settings)
+
+    assert "[defaults]" in rendered
+    assert 'llm_provider = "openai-compatible"' in rendered
+    assert 'asr_provider = "faster-whisper"' in rendered
+    assert "[models.faster_whisper]" in rendered
+    assert 'default_model = "small"' in rendered
+
+
+def test_runtime_settings_copy_helpers_are_immutable(tmp_path):
+    settings = RuntimeSettings(
+        version=1,
+        config_path=tmp_path / "config.toml",
+        cache=CacheSettings(root=tmp_path / "cache"),
+    )
+
+    with_defaults = with_runtime_defaults(
+        settings,
+        RuntimeDefaults(
+            llm_provider="local-gateway",
+            asr_provider="faster-whisper",
+        ),
+    )
+    with_asr = with_faster_whisper_settings(
+        with_defaults,
+        FasterWhisperSettings(
+            cache_dir=tmp_path / "fw-cache",
+            default_model="medium",
+            default_device="cuda",
+            default_compute_type="float16",
+        ),
+    )
+
+    assert settings.defaults.llm_provider == "openai-compatible"
+    assert with_defaults.defaults.llm_provider == "local-gateway"
+    assert with_asr.models.faster_whisper.default_model == "medium"
+    assert with_defaults.models.faster_whisper.default_model == "base"
 
 
 def test_runtime_settings_to_toml_round_trips_provider(tmp_path):

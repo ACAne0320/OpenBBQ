@@ -5,7 +5,10 @@ import os
 from pathlib import Path
 
 from openbbq.runtime.models import (
+    FasterWhisperSettings,
+    ModelsSettings,
     ProviderProfile,
+    RuntimeDefaults,
     RuntimeSettings,
 )
 from openbbq.runtime.settings_parser import (
@@ -48,7 +51,14 @@ def load_runtime_settings(
 
 
 def runtime_settings_to_toml(settings: RuntimeSettings) -> str:
-    lines = ["version = 1", ""]
+    lines = [
+        "version = 1",
+        "",
+        "[defaults]",
+        f'llm_provider = "{_escape_toml(settings.defaults.llm_provider)}"',
+        f'asr_provider = "{_escape_toml(settings.defaults.asr_provider)}"',
+        "",
+    ]
     lines.extend(["[cache]", f'root = "{_escape_toml(str(settings.cache.root))}"', ""])
     if settings.providers:
         for name, provider in sorted(settings.providers.items()):
@@ -86,6 +96,31 @@ def with_provider_profile(
     providers = dict(settings.providers)
     providers[provider.name] = provider
     return settings.model_copy(update={"providers": providers})
+
+
+def with_runtime_defaults(
+    settings: RuntimeSettings,
+    defaults: RuntimeDefaults,
+) -> RuntimeSettings:
+    update: dict[str, object] = {"defaults": defaults}
+    if settings.models is None:
+        update["models"] = _default_models_settings(settings)
+    return settings.model_copy(update=update)
+
+
+def with_faster_whisper_settings(
+    settings: RuntimeSettings,
+    faster_whisper: FasterWhisperSettings,
+) -> RuntimeSettings:
+    return settings.model_copy(update={"models": ModelsSettings(faster_whisper=faster_whisper)})
+
+
+def _default_models_settings(settings: RuntimeSettings) -> ModelsSettings:
+    return ModelsSettings(
+        faster_whisper=FasterWhisperSettings(
+            cache_dir=settings.cache.root / "models" / "faster-whisper",
+        )
+    )
 
 
 def _escape_toml(value: str) -> str:

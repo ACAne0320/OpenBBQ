@@ -72,10 +72,23 @@ class ModelsSettings(OpenBBQModel):
     faster_whisper: FasterWhisperSettings
 
 
+class RuntimeDefaults(OpenBBQModel):
+    llm_provider: str = "openai-compatible"
+    asr_provider: str = "faster-whisper"
+
+    @field_validator("llm_provider", "asr_provider")
+    @classmethod
+    def valid_provider_name(cls, value: str) -> str:
+        if not value or PROVIDER_NAME_PATTERN.fullmatch(value) is None:
+            raise ValueError("Provider names must use only letters, digits, '_' or '-'")
+        return value
+
+
 class RuntimeSettings(OpenBBQModel):
     version: int
     config_path: Path
     cache: CacheSettings
+    defaults: RuntimeDefaults = Field(default_factory=RuntimeDefaults)
     providers: ProviderMap = Field(default_factory=dict)
     models: ModelsSettings | None = None
 

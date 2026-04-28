@@ -16,6 +16,7 @@ from openbbq.runtime.models import (
     ProviderProfile,
     ProviderMap,
     PROVIDER_NAME_PATTERN,
+    RuntimeDefaults,
     RuntimeSettings,
     SUPPORTED_PROVIDER_TYPES,
 )
@@ -47,6 +48,7 @@ def parse_runtime_settings(
         raise ValidationError("Runtime settings version must be 1.")
 
     cache_root = _cache_root(raw, env, config_path.parent)
+    defaults = _runtime_defaults(raw)
     faster_whisper = _faster_whisper_settings(raw, cache_root, config_path.parent)
     providers = _provider_profiles(raw)
     try:
@@ -54,6 +56,7 @@ def parse_runtime_settings(
             version=1,
             config_path=config_path,
             cache=CacheSettings(root=cache_root),
+            defaults=defaults,
             providers=providers,
             models=ModelsSettings(faster_whisper=faster_whisper),
         )
@@ -67,6 +70,23 @@ def _cache_root(raw: JsonObject, env: Mapping[str, str], base_dir: Path) -> Path
         return Path(env_value).expanduser().resolve()
     cache_raw = _optional_mapping(raw.get("cache"), "cache")
     return _resolve_user_path(cache_raw.get("root", DEFAULT_CACHE_ROOT), base_dir, "cache.root")
+
+
+def _runtime_defaults(raw: JsonObject) -> RuntimeDefaults:
+    defaults_raw = _optional_mapping(raw.get("defaults"), "defaults")
+    try:
+        return RuntimeDefaults(
+            llm_provider=_required_string(
+                defaults_raw.get("llm_provider", "openai-compatible"),
+                "defaults.llm_provider",
+            ),
+            asr_provider=_required_string(
+                defaults_raw.get("asr_provider", "faster-whisper"),
+                "defaults.asr_provider",
+            ),
+        )
+    except PydanticValidationError as exc:
+        raise ValidationError(format_pydantic_error("defaults", exc)) from exc
 
 
 def _faster_whisper_settings(
