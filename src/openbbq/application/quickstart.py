@@ -39,6 +39,8 @@ __all__ = (
     "YouTubeSubtitleJobRequest",
     "create_local_subtitle_job",
     "create_youtube_subtitle_job",
+    "resolve_local_subtitle_job_request",
+    "resolve_youtube_subtitle_job_request",
     "write_local_subtitle_workflow",
     "write_youtube_subtitle_workflow",
 )
@@ -95,23 +97,17 @@ class YouTubeSubtitleJobRequest(OpenBBQModel):
 
 
 def create_local_subtitle_job(request: LocalSubtitleJobRequest) -> SubtitleJobResult:
-    defaults = _runtime_defaults_for_request(
-        provider=request.provider,
-        model=request.model,
-        asr_model=request.asr_model,
-        asr_device=request.asr_device,
-        asr_compute_type=request.asr_compute_type,
-    )
+    request = resolve_local_subtitle_job_request(request)
     generated = write_local_subtitle_workflow(
         workspace_root=request.workspace_root,
         video_selector="project.art_source_video",
         source_lang=request.source_lang,
         target_lang=request.target_lang,
-        provider=defaults.provider,
-        model=defaults.model,
-        asr_model=defaults.asr_model,
-        asr_device=defaults.asr_device,
-        asr_compute_type=defaults.asr_compute_type,
+        provider=request.provider,
+        model=request.model,
+        asr_model=request.asr_model,
+        asr_device=request.asr_device,
+        asr_compute_type=request.asr_compute_type,
     )
     imported = import_artifact(
         ArtifactImportRequest(
@@ -127,11 +123,11 @@ def create_local_subtitle_job(request: LocalSubtitleJobRequest) -> SubtitleJobRe
         video_selector=f"project.{imported.artifact.id}",
         source_lang=request.source_lang,
         target_lang=request.target_lang,
-        provider=defaults.provider,
-        model=defaults.model,
-        asr_model=defaults.asr_model,
-        asr_device=defaults.asr_device,
-        asr_compute_type=defaults.asr_compute_type,
+        provider=request.provider,
+        model=request.model,
+        asr_model=request.asr_model,
+        asr_device=request.asr_device,
+        asr_compute_type=request.asr_compute_type,
         run_id=generated.run_id,
     )
     run = create_run(
@@ -151,15 +147,17 @@ def create_local_subtitle_job(request: LocalSubtitleJobRequest) -> SubtitleJobRe
         run_id=run.id,
         output_path=request.output_path,
         source_artifact_id=imported.artifact.id,
-        provider=defaults.provider,
-        model=defaults.model,
-        asr_model=defaults.asr_model,
-        asr_device=defaults.asr_device,
-        asr_compute_type=defaults.asr_compute_type,
+        provider=request.provider,
+        model=request.model,
+        asr_model=request.asr_model,
+        asr_device=request.asr_device,
+        asr_compute_type=request.asr_compute_type,
     )
 
 
-def create_youtube_subtitle_job(request: YouTubeSubtitleJobRequest) -> SubtitleJobResult:
+def resolve_local_subtitle_job_request(
+    request: LocalSubtitleJobRequest,
+) -> LocalSubtitleJobRequest:
     defaults = _runtime_defaults_for_request(
         provider=request.provider,
         model=request.model,
@@ -167,16 +165,29 @@ def create_youtube_subtitle_job(request: YouTubeSubtitleJobRequest) -> SubtitleJ
         asr_device=request.asr_device,
         asr_compute_type=request.asr_compute_type,
     )
+    return request.model_copy(
+        update={
+            "provider": defaults.provider,
+            "model": defaults.model,
+            "asr_model": defaults.asr_model,
+            "asr_device": defaults.asr_device,
+            "asr_compute_type": defaults.asr_compute_type,
+        }
+    )
+
+
+def create_youtube_subtitle_job(request: YouTubeSubtitleJobRequest) -> SubtitleJobResult:
+    request = resolve_youtube_subtitle_job_request(request)
     generated = write_youtube_subtitle_workflow(
         workspace_root=request.workspace_root,
         url=request.url,
         source_lang=request.source_lang,
         target_lang=request.target_lang,
-        provider=defaults.provider,
-        model=defaults.model,
-        asr_model=defaults.asr_model,
-        asr_device=defaults.asr_device,
-        asr_compute_type=defaults.asr_compute_type,
+        provider=request.provider,
+        model=request.model,
+        asr_model=request.asr_model,
+        asr_device=request.asr_device,
+        asr_compute_type=request.asr_compute_type,
         quality=request.quality,
         auth=request.auth,
         browser=request.browser,
@@ -199,11 +210,32 @@ def create_youtube_subtitle_job(request: YouTubeSubtitleJobRequest) -> SubtitleJ
         run_id=run.id,
         output_path=request.output_path,
         source_artifact_id=None,
-        provider=defaults.provider,
-        model=defaults.model,
-        asr_model=defaults.asr_model,
-        asr_device=defaults.asr_device,
-        asr_compute_type=defaults.asr_compute_type,
+        provider=request.provider,
+        model=request.model,
+        asr_model=request.asr_model,
+        asr_device=request.asr_device,
+        asr_compute_type=request.asr_compute_type,
+    )
+
+
+def resolve_youtube_subtitle_job_request(
+    request: YouTubeSubtitleJobRequest,
+) -> YouTubeSubtitleJobRequest:
+    defaults = _runtime_defaults_for_request(
+        provider=request.provider,
+        model=request.model,
+        asr_model=request.asr_model,
+        asr_device=request.asr_device,
+        asr_compute_type=request.asr_compute_type,
+    )
+    return request.model_copy(
+        update={
+            "provider": defaults.provider,
+            "model": defaults.model,
+            "asr_model": defaults.asr_model,
+            "asr_device": defaults.asr_device,
+            "asr_compute_type": defaults.asr_compute_type,
+        }
     )
 
 

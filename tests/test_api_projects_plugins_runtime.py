@@ -438,6 +438,74 @@ def test_quickstart_task_history_records_resolved_runtime_defaults(tmp_path, mon
     assert cached.json()["data"] == data
 
 
+def test_quickstart_cache_key_uses_current_resolved_runtime_defaults(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    user_db_path = tmp_path / "user.db"
+    default_provider = {"name": "provider-a", "model": "model-a"}
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-test")
+
+    def runtime_settings():
+        provider_name = default_provider["name"]
+        return RuntimeSettings(
+            version=1,
+            config_path=tmp_path / "config.toml",
+            cache=CacheSettings(root=tmp_path / "cache"),
+            defaults=RuntimeDefaults(
+                llm_provider=provider_name,
+                asr_provider="faster-whisper",
+            ),
+            providers={
+                provider_name: ProviderProfile(
+                    name=provider_name,
+                    type="openai_compatible",
+                    api_key="env:OPENBBQ_LLM_API_KEY",
+                    default_chat_model=default_provider["model"],
+                )
+            },
+            models=ModelsSettings(
+                faster_whisper=FasterWhisperSettings(
+                    cache_dir=tmp_path / "fw-cache",
+                    default_model="small",
+                    default_device="cpu",
+                    default_compute_type="int8",
+                )
+            ),
+        )
+
+    monkeypatch.setattr(
+        "openbbq.application.quickstart.load_runtime_settings",
+        runtime_settings,
+    )
+    client = TestClient(
+        create_app(ApiAppSettings(project_root=project, token="token", user_db_path=user_db_path))
+    )
+    headers = {"Authorization": "Bearer token"}
+    body = {
+        "url": "https://www.youtube.com/watch?v=demo",
+        "source_lang": "en",
+        "target_lang": "zh",
+        "quality": "best",
+    }
+
+    first = client.post("/quickstart/subtitle/youtube", headers=headers, json=body)
+    default_provider.update({"name": "provider-b", "model": "model-b"})
+    second = client.post("/quickstart/subtitle/youtube", headers=headers, json=body)
+    third = client.post("/quickstart/subtitle/youtube", headers=headers, json=body)
+    tasks = UserRuntimeDatabase(user_db_path).list_quickstart_tasks()
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert third.status_code == 200
+    assert first.json()["data"]["provider"] == "provider-a"
+    assert first.json()["data"]["model"] == "model-a"
+    assert second.json()["data"]["provider"] == "provider-b"
+    assert second.json()["data"]["model"] == "model-b"
+    assert second.json()["data"]["run_id"] != first.json()["data"]["run_id"]
+    assert third.json()["data"]["run_id"] == second.json()["data"]["run_id"]
+    assert len(tasks) == 2
+    assert len({task.cache_key for task in tasks}) == 2
+
+
 def test_quickstart_history_resolves_run_after_app_restart(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -562,6 +630,32 @@ def test_quickstart_subtitle_route_reuses_existing_cached_task(tmp_path, monkeyp
 
     monkeypatch.setattr(
         "openbbq.api.routes.quickstart.create_youtube_subtitle_job", fake_youtube_job
+    )
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-test")
+    monkeypatch.setattr(
+        "openbbq.application.quickstart.load_runtime_settings",
+        lambda: RuntimeSettings(
+            version=1,
+            config_path=tmp_path / "config.toml",
+            cache=CacheSettings(root=tmp_path / "cache"),
+            defaults=RuntimeDefaults(llm_provider="openai", asr_provider="faster-whisper"),
+            providers={
+                "openai": ProviderProfile(
+                    name="openai",
+                    type="openai_compatible",
+                    api_key="env:OPENBBQ_LLM_API_KEY",
+                    default_chat_model="gpt-4o-mini",
+                )
+            },
+            models=ModelsSettings(
+                faster_whisper=FasterWhisperSettings(
+                    cache_dir=tmp_path / "fw-cache",
+                    default_model="base",
+                    default_device="cpu",
+                    default_compute_type="int8",
+                )
+            ),
+        ),
     )
     user_db_path = tmp_path / "user.db"
     client = TestClient(

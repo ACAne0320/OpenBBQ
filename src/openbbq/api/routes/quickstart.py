@@ -24,6 +24,8 @@ from openbbq.application.quickstart import (
     YouTubeSubtitleJobRequest,
     create_local_subtitle_job,
     create_youtube_subtitle_job,
+    resolve_local_subtitle_job_request,
+    resolve_youtube_subtitle_job_request,
 )
 
 router = APIRouter(tags=["quickstart"])
@@ -35,17 +37,7 @@ def post_local_subtitle_job(
     request: Request,
 ) -> ApiSuccess[SubtitleJobData]:
     settings = active_project_settings(request)
-    cached = reusable_local_subtitle_job(request, body)
-    if cached is not None:
-        register_run_project(
-            request,
-            run_id=cached.run_id,
-            project_root=cached.generated_project_root,
-            config_path=cached.generated_config_path,
-            plugin_paths=settings.plugin_paths,
-        )
-        return ApiSuccess(data=api_model(SubtitleJobData, cached))
-    result = create_local_subtitle_job(
+    job_request = resolve_local_subtitle_job_request(
         LocalSubtitleJobRequest(
             workspace_root=settings.project_root,
             input_path=body.input_path,
@@ -62,6 +54,18 @@ def post_local_subtitle_job(
             execute_inline=settings.execute_runs_inline,
         )
     )
+    resolved_body = body.model_copy(update=_runtime_fields(job_request))
+    cached = reusable_local_subtitle_job(request, resolved_body)
+    if cached is not None:
+        register_run_project(
+            request,
+            run_id=cached.run_id,
+            project_root=cached.generated_project_root,
+            config_path=cached.generated_config_path,
+            plugin_paths=settings.plugin_paths,
+        )
+        return ApiSuccess(data=api_model(SubtitleJobData, cached))
+    result = create_local_subtitle_job(job_request)
     register_run_project(
         request,
         run_id=result.run_id,
@@ -71,7 +75,7 @@ def post_local_subtitle_job(
     )
     record_local_subtitle_job(
         request,
-        body=body,
+        body=resolved_body,
         result=result,
         workspace_root=settings.project_root,
         plugin_paths=settings.plugin_paths,
@@ -85,17 +89,7 @@ def post_youtube_subtitle_job(
     request: Request,
 ) -> ApiSuccess[SubtitleJobData]:
     settings = active_project_settings(request)
-    cached = reusable_youtube_subtitle_job(request, body)
-    if cached is not None:
-        register_run_project(
-            request,
-            run_id=cached.run_id,
-            project_root=cached.generated_project_root,
-            config_path=cached.generated_config_path,
-            plugin_paths=settings.plugin_paths,
-        )
-        return ApiSuccess(data=api_model(SubtitleJobData, cached))
-    result = create_youtube_subtitle_job(
+    job_request = resolve_youtube_subtitle_job_request(
         YouTubeSubtitleJobRequest(
             workspace_root=settings.project_root,
             url=body.url,
@@ -116,6 +110,18 @@ def post_youtube_subtitle_job(
             execute_inline=settings.execute_runs_inline,
         )
     )
+    resolved_body = body.model_copy(update=_runtime_fields(job_request))
+    cached = reusable_youtube_subtitle_job(request, resolved_body)
+    if cached is not None:
+        register_run_project(
+            request,
+            run_id=cached.run_id,
+            project_root=cached.generated_project_root,
+            config_path=cached.generated_config_path,
+            plugin_paths=settings.plugin_paths,
+        )
+        return ApiSuccess(data=api_model(SubtitleJobData, cached))
+    result = create_youtube_subtitle_job(job_request)
     register_run_project(
         request,
         run_id=result.run_id,
@@ -125,7 +131,7 @@ def post_youtube_subtitle_job(
     )
     record_youtube_subtitle_job(
         request,
-        body=body,
+        body=resolved_body,
         result=result,
         workspace_root=settings.project_root,
         plugin_paths=settings.plugin_paths,
@@ -136,3 +142,15 @@ def post_youtube_subtitle_job(
 @router.get("/quickstart/tasks", response_model=ApiSuccess[QuickstartTaskListData])
 def get_quickstart_tasks(request: Request) -> ApiSuccess[QuickstartTaskListData]:
     return ApiSuccess(data=QuickstartTaskListData(tasks=list_quickstart_tasks(request)))
+
+
+def _runtime_fields(
+    request: LocalSubtitleJobRequest | YouTubeSubtitleJobRequest,
+) -> dict[str, str | None]:
+    return {
+        "provider": request.provider,
+        "model": request.model,
+        "asr_model": request.asr_model,
+        "asr_device": request.asr_device,
+        "asr_compute_type": request.asr_compute_type,
+    }
