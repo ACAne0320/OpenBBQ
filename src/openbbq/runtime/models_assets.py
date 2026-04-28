@@ -2,16 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from openbbq.runtime.models import ModelAssetStatus, RuntimeSettings
+from openbbq.runtime.models import FasterWhisperSettings, ModelAssetStatus, RuntimeSettings
 
 
 def faster_whisper_model_status(settings: RuntimeSettings) -> ModelAssetStatus:
-    if settings.models is None:
-        cache_dir = settings.cache.root / "models" / "faster-whisper"
-        model = "base"
-    else:
-        cache_dir = settings.models.faster_whisper.cache_dir
-        model = settings.models.faster_whisper.default_model
+    model_settings = (
+        settings.models.faster_whisper
+        if settings.models is not None
+        else FasterWhisperSettings(
+            cache_dir=settings.cache.root / "models" / "faster-whisper",
+            default_model="base",
+            default_device="cpu",
+            default_compute_type="int8",
+        )
+    )
+    cache_dir = model_settings.cache_dir
+    model = model_settings.default_model
     present = cache_dir.exists()
     return ModelAssetStatus(
         provider="faster_whisper",

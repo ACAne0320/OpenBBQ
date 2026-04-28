@@ -205,9 +205,26 @@ class RuntimeSettingsData(OpenBBQModel):
     settings: RuntimeSettings
 
 
+class RuntimeDefaultsSetRequest(OpenBBQModel):
+    llm_provider: str
+    asr_provider: str = "faster-whisper"
+
+
+class RuntimeSettingsSetData(OpenBBQModel):
+    settings: RuntimeSettings
+    config_path: Path
+
+
 class ProviderData(OpenBBQModel):
     provider: ProviderProfile
     config_path: Path
+
+
+class FasterWhisperSettingsSetRequest(OpenBBQModel):
+    cache_dir: Path
+    default_model: str
+    default_device: str
+    default_compute_type: str
 
 
 class ProviderAuthSetRequest(OpenBBQModel):

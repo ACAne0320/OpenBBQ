@@ -6,9 +6,12 @@ from openbbq.api.context import active_project_settings
 from openbbq.api.schemas import (
     ApiSuccess,
     DoctorData,
+    FasterWhisperSettingsSetRequest,
     ModelListData,
     ProviderAuthSetRequest,
+    RuntimeDefaultsSetRequest,
     RuntimeSettingsData,
+    RuntimeSettingsSetData,
     SecretCheckRequest,
     SecretSetRequest,
 )
@@ -21,11 +24,19 @@ from openbbq.application.runtime import (
     ProviderSetResult,
     auth_check,
     auth_set,
+    defaults_set,
+    faster_whisper_set,
     model_list,
     provider_set,
     secret_check,
     secret_set,
     settings_show,
+)
+from openbbq.application.runtime import (
+    FasterWhisperSetRequest as ApplicationFasterWhisperSetRequest,
+)
+from openbbq.application.runtime import (
+    RuntimeDefaultsSetRequest as ApplicationRuntimeDefaultsSetRequest,
 )
 from openbbq.application.runtime import SecretSetRequest as ApplicationSecretSetRequest
 from openbbq.application.runtime import SecretCheckResult
@@ -37,6 +48,21 @@ router = APIRouter(tags=["runtime"])
 def get_runtime_settings() -> ApiSuccess[RuntimeSettingsData]:
     result = settings_show()
     return ApiSuccess(data=RuntimeSettingsData(settings=result.settings))
+
+
+@router.put("/runtime/defaults", response_model=ApiSuccess[RuntimeSettingsSetData])
+def put_runtime_defaults(
+    body: RuntimeDefaultsSetRequest,
+) -> ApiSuccess[RuntimeSettingsSetData]:
+    result = defaults_set(
+        ApplicationRuntimeDefaultsSetRequest(
+            llm_provider=body.llm_provider,
+            asr_provider=body.asr_provider,
+        )
+    )
+    return ApiSuccess(
+        data=RuntimeSettingsSetData(settings=result.settings, config_path=result.config_path)
+    )
 
 
 @router.put("/runtime/providers/{name}", response_model=ApiSuccess[ProviderSetResult])
@@ -75,6 +101,23 @@ def post_secret_check(body: SecretCheckRequest) -> ApiSuccess[SecretCheckResult]
 def put_secret(body: SecretSetRequest) -> ApiSuccess[SecretCheckResult]:
     return ApiSuccess(
         data=secret_set(ApplicationSecretSetRequest(reference=body.reference, value=body.value))
+    )
+
+
+@router.put("/runtime/models/faster-whisper", response_model=ApiSuccess[RuntimeSettingsSetData])
+def put_faster_whisper_settings(
+    body: FasterWhisperSettingsSetRequest,
+) -> ApiSuccess[RuntimeSettingsSetData]:
+    result = faster_whisper_set(
+        ApplicationFasterWhisperSetRequest(
+            cache_dir=body.cache_dir,
+            default_model=body.default_model,
+            default_device=body.default_device,
+            default_compute_type=body.default_compute_type,
+        )
+    )
+    return ApiSuccess(
+        data=RuntimeSettingsSetData(settings=result.settings, config_path=result.config_path)
     )
 
 

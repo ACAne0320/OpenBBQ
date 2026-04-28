@@ -7,8 +7,10 @@ from pydantic import ValidationError as PydanticValidationError
 from openbbq.domain.base import OpenBBQModel, format_pydantic_error
 from openbbq.errors import ValidationError
 from openbbq.runtime.models import (
+    FasterWhisperSettings,
     ModelAssetStatus,
     ProviderProfile,
+    RuntimeDefaults,
     RuntimeSettings,
     SecretCheck,
 )
@@ -16,7 +18,9 @@ from openbbq.runtime.models_assets import faster_whisper_model_status
 from openbbq.runtime.secrets import SecretResolver
 from openbbq.runtime.settings import (
     load_runtime_settings,
+    with_faster_whisper_settings,
     with_provider_profile,
+    with_runtime_defaults,
     write_runtime_settings,
 )
 from openbbq.runtime.user_db import UserRuntimeDatabase
@@ -24,6 +28,23 @@ from openbbq.runtime.user_db import UserRuntimeDatabase
 
 class SettingsShowResult(OpenBBQModel):
     settings: RuntimeSettings
+
+
+class RuntimeDefaultsSetRequest(OpenBBQModel):
+    llm_provider: str
+    asr_provider: str = "faster-whisper"
+
+
+class RuntimeSettingsSetResult(OpenBBQModel):
+    settings: RuntimeSettings
+    config_path: Path
+
+
+class FasterWhisperSetRequest(OpenBBQModel):
+    cache_dir: Path
+    default_model: str
+    default_device: str
+    default_compute_type: str
 
 
 class ProviderSetRequest(OpenBBQModel):
@@ -76,6 +97,30 @@ class ModelListResult(OpenBBQModel):
 
 def settings_show() -> SettingsShowResult:
     return SettingsShowResult(settings=load_runtime_settings())
+
+
+def defaults_set(request: RuntimeDefaultsSetRequest) -> RuntimeSettingsSetResult:
+    defaults = RuntimeDefaults(
+        llm_provider=request.llm_provider,
+        asr_provider=request.asr_provider,
+    )
+    settings = load_runtime_settings()
+    updated = with_runtime_defaults(settings, defaults)
+    write_runtime_settings(updated)
+    return RuntimeSettingsSetResult(settings=updated, config_path=updated.config_path)
+
+
+def faster_whisper_set(request: FasterWhisperSetRequest) -> RuntimeSettingsSetResult:
+    settings = load_runtime_settings()
+    faster_whisper = FasterWhisperSettings(
+        cache_dir=request.cache_dir.expanduser().resolve(),
+        default_model=request.default_model,
+        default_device=request.default_device,
+        default_compute_type=request.default_compute_type,
+    )
+    updated = with_faster_whisper_settings(settings, faster_whisper)
+    write_runtime_settings(updated)
+    return RuntimeSettingsSetResult(settings=updated, config_path=updated.config_path)
 
 
 def provider_set(request: ProviderSetRequest) -> ProviderSetResult:

@@ -69,7 +69,7 @@ def test_runtime_auth_and_secret_routes(tmp_path, monkeypatch):
     client, headers = authed_client(project)
 
     provider = client.put(
-        "/runtime/providers/openai/auth",
+        "/runtime/providers/openai-compatible/auth",
         headers=headers,
         json={
             "type": "openai_compatible",
@@ -77,7 +77,7 @@ def test_runtime_auth_and_secret_routes(tmp_path, monkeypatch):
             "default_chat_model": "gpt-4o-mini",
         },
     )
-    check = client.get("/runtime/providers/openai/check", headers=headers)
+    check = client.get("/runtime/providers/openai-compatible/check", headers=headers)
     secret = client.post(
         "/runtime/secrets/check",
         headers=headers,
@@ -85,9 +85,48 @@ def test_runtime_auth_and_secret_routes(tmp_path, monkeypatch):
     )
 
     assert provider.status_code == 200
-    assert provider.json()["data"]["provider"]["name"] == "openai"
+    assert provider.json()["data"]["provider"]["name"] == "openai-compatible"
     assert check.json()["data"]["secret"]["resolved"] is True
     assert secret.json()["data"]["secret"]["value_preview"] == "sk-...test"
+
+
+def test_runtime_defaults_and_faster_whisper_routes(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    monkeypatch.setenv("OPENBBQ_USER_CONFIG", str(tmp_path / "user-config.toml"))
+    client, headers = authed_client(project)
+
+    defaults = client.put(
+        "/runtime/defaults",
+        headers=headers,
+        json={"llm_provider": "openai-compatible", "asr_provider": "faster-whisper"},
+    )
+    asr = client.put(
+        "/runtime/models/faster-whisper",
+        headers=headers,
+        json={
+            "cache_dir": str(tmp_path / "fw-cache"),
+            "default_model": "small",
+            "default_device": "cpu",
+            "default_compute_type": "int8",
+        },
+    )
+    settings = client.get("/runtime/settings", headers=headers)
+    models = client.get("/runtime/models", headers=headers)
+
+    assert defaults.status_code == 200
+    assert (
+        defaults.json()["data"]["settings"]["defaults"]["llm_provider"]
+        == "openai-compatible"
+    )
+    assert asr.status_code == 200
+    assert (
+        settings.json()["data"]["settings"]["models"]["faster_whisper"]["default_model"]
+        == "small"
+    )
+    assert models.json()["data"]["models"][0]["model"] == "small"
+    assert models.json()["data"]["models"][0]["cache_dir"] == str(
+        (tmp_path / "fw-cache").resolve()
+    )
 
 
 def test_runtime_auth_route_stores_user_secret_in_sqlite(tmp_path, monkeypatch):
