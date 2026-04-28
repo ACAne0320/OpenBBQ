@@ -83,7 +83,7 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
   const [segments, setSegments] = useState<DraftSegment[]>(() => toDraftSegments(model.segments));
   const [activeSegmentId, setActiveSegmentId] = useState(model.activeSegmentId);
   const [currentMs, setCurrentMs] = useState(model.currentMs);
-  const [timelineZoomInput, setTimelineZoomInput] = useState("32");
+  const [timelineZoomInput, setTimelineZoomInput] = useState("64");
   const cardRefs = useRef<Record<string, HTMLElement | null>>({});
   const mountedRef = useRef(false);
   const onSegmentChangeRef = useRef(onSegmentChange);
@@ -112,6 +112,10 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
   const status = saveStatus(segments);
   const previewTime = currentMs;
   const pixelsPerSecond = timelinePixelsPerSecond(timelineZoomInput);
+  const timelineDescription =
+    model.waveformSource === "audio_loudness"
+      ? "Subtitle regions follow playback and align to audio loudness."
+      : "Subtitle regions follow playback; audio loudness is not available for this run.";
 
   function segmentAtTime(timeMs: number): DraftSegment | undefined {
     const sortedSegments = [...segmentsRef.current].sort((left, right) => left.startMs - right.startMs);
@@ -350,7 +354,7 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
             <div className="mb-2.5 flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs uppercase text-muted">Timeline</p>
-                <p className="mt-1 text-xs text-muted">Subtitle regions follow playback and align to audio loudness.</p>
+                <p className="mt-1 text-xs text-muted">{timelineDescription}</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <label className="flex items-center gap-1.5 text-xs font-semibold text-[#8c4d29]">

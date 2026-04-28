@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { type MouseEvent, useEffect, useMemo, useRef } from "react";
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { formatRange } from "../lib/format";
 import type { Segment, WaveformBar } from "../lib/types";
@@ -13,6 +13,22 @@ type WaveformProps = {
   waveform: WaveformBar[];
   onSelectSegment: (segmentId: string) => void;
   onSeekMs: (timeMs: number) => void;
+};
+
+const waveformHorizontalInsetPx = 36;
+const waveformBarWidthPx = 1;
+const waveformBarGapPx = 0;
+const maxRenderedWaveformBars = 24_000;
+const fallbackViewportWidthPx = 1200;
+const waveformViewportBufferPx = 240;
+
+type WaveformViewport = {
+  left: number;
+  width: number;
+};
+
+type RenderedWaveformBar = WaveformBar & {
+  left: number;
 };
 
 function boundedNumber(value: number): number {
@@ -29,6 +45,41 @@ function timelineWidth(durationMs: number, pixelsPerSecond: number): number {
   }
 
   return Math.max(1, Math.round((durationMs / 1000) * pixelsPerSecond));
+}
+
+function renderedWaveformBarCount(widthPx: number): number {
+  const availableWidth = Math.max(1, widthPx - waveformHorizontalInsetPx);
+  const stride = waveformBarWidthPx + waveformBarGapPx;
+  return Math.min(maxRenderedWaveformBars, Math.max(1, Math.floor((availableWidth + waveformBarGapPx) / stride)));
+}
+
+function waveformLevelAt(waveform: WaveformBar[], index: number, count: number): number {
+  const start = Math.floor((index / count) * waveform.length);
+  const end = Math.max(start + 1, Math.floor(((index + 1) / count) * waveform.length));
+  const slice = waveform.slice(start, end);
+  return slice.reduce((total, bar) => total + bar.level, 0) / slice.length;
+}
+
+function waveformForViewport(waveform: WaveformBar[], widthPx: number, viewport: WaveformViewport): RenderedWaveformBar[] {
+  const count = renderedWaveformBarCount(widthPx);
+  if (waveform.length === 0) {
+    return [];
+  }
+
+  const stride = waveformBarWidthPx + waveformBarGapPx;
+  const visibleStart = Math.max(0, viewport.left - 18 - waveformViewportBufferPx);
+  const visibleEnd = Math.min(widthPx, viewport.left + viewport.width - 18 + waveformViewportBufferPx);
+  const startIndex = Math.max(0, Math.floor(visibleStart / stride));
+  const endIndex = Math.min(count, Math.ceil(visibleEnd / stride));
+
+  return Array.from({ length: Math.max(0, endIndex - startIndex) }, (_, offset) => {
+    const index = startIndex + offset;
+    return {
+      id: `rendered-${index.toString().padStart(4, "0")}`,
+      left: index * stride,
+      level: waveformLevelAt(waveform, index, count)
+    };
+  });
 }
 
 function segmentPosition(segment: Segment, durationMs: number, pixelsPerSecond: number) {
@@ -70,11 +121,24 @@ export function Waveform({
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const widthPx = useMemo(() => timelineWidth(durationMs, pixelsPerSecond), [durationMs, pixelsPerSecond]);
+  const [viewport, setViewport] = useState<WaveformViewport>(() => ({
+    left: 0,
+    width: Math.min(widthPx, fallbackViewportWidthPx)
+  }));
+  const renderedWaveform = useMemo(() => waveformForViewport(waveform, widthPx, viewport), [waveform, widthPx, viewport]);
   const playheadLeft = (clampTime(currentMs, durationMs) / 1000) * Math.max(0, pixelsPerSecond);
+
+  function syncViewport(scroller: HTMLDivElement | null) {
+    setViewport({
+      left: scroller?.scrollLeft ?? 0,
+      width: Math.min(widthPx, scroller && scroller.clientWidth > 0 ? scroller.clientWidth : fallbackViewportWidthPx)
+    });
+  }
 
   useEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller || scroller.clientWidth <= 0) {
+      syncViewport(scroller);
       return;
     }
 
@@ -83,7 +147,12 @@ export function Waveform({
     if (playheadLeft < leftEdge + 48 || playheadLeft > rightEdge - 96) {
       scroller.scrollLeft = Math.max(0, playheadLeft - scroller.clientWidth * 0.35);
     }
+    syncViewport(scroller);
   }, [playheadLeft]);
+
+  useEffect(() => {
+    syncViewport(scrollerRef.current);
+  }, [widthPx]);
 
   function handleTrackClick(event: MouseEvent<HTMLDivElement>) {
     const track = trackRef.current;
@@ -100,6 +169,7 @@ export function Waveform({
     <div
       ref={scrollerRef}
       className="relative h-32 w-full min-w-0 overflow-x-auto overflow-y-hidden rounded-lg bg-paper-muted shadow-control"
+      onScroll={(event) => syncViewport(event.currentTarget)}
     >
       <div
         ref={trackRef}
@@ -110,13 +180,18 @@ export function Waveform({
       >
         <div className="absolute inset-x-4 top-1/2 h-px bg-[#d6c7ae]" />
 
-        <div className="absolute inset-x-[18px] bottom-5 top-5 flex items-center gap-[3px]" aria-hidden="true">
-          {waveform.map((bar) => (
+        <div className="absolute inset-x-[18px] bottom-5 top-5 overflow-hidden" aria-hidden="true">
+          {renderedWaveform.map((bar) => (
             <span
               key={bar.id}
               data-testid="waveform-bar"
-              className="w-1 flex-1 rounded-sm bg-[#b9a98e]"
-              style={{ height: `${Math.max(8, Math.min(96, bar.level))}%` }}
+              className="absolute top-1/2 shrink-0 -translate-y-1/2 rounded-[1px] bg-[#b9a98e]"
+              style={{
+                height: `${Math.max(0, Math.min(96, bar.level))}%`,
+                left: `${bar.left}px`,
+                opacity: bar.level <= 0 ? 0 : 1,
+                width: `${waveformBarWidthPx}px`
+              }}
             />
           ))}
         </div>

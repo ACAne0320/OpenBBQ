@@ -1,6 +1,7 @@
 import type { ReviewModel, Segment, WaveformBar } from "../src/lib/types.js";
 import type { ApiArtifactPreviewData, ApiArtifactRecord } from "./apiTypes.js";
 import { artifactFileUrl } from "./mediaUrls.js";
+import { waveformFromPcm16WavFile } from "./wavWaveform.js";
 
 export class ReviewUnavailableError extends Error {
   code = "review_unavailable";
@@ -41,6 +42,10 @@ function isSubtitleArtifact(artifact: ApiArtifactRecord): boolean {
 
 function isVideoArtifact(artifact: ApiArtifactRecord): boolean {
   return artifact.type === "video";
+}
+
+function isAudioArtifact(artifact: ApiArtifactRecord): boolean {
+  return artifact.type === "audio";
 }
 
 function asRawSegments(content: unknown): RawSegment[] {
@@ -95,12 +100,20 @@ function toSegments(rawSegments: RawSegment[], translatedSegments: RawSegment[] 
   });
 }
 
-function waveform(): WaveformBar[] {
+function placeholderWaveform(barCount = 48): WaveformBar[] {
   const levels = [24, 40, 62, 48, 72, 56, 80, 34];
-  return Array.from({ length: 48 }, (_, index) => ({
+  return Array.from({ length: barCount }, (_, index) => ({
     id: `bar-${index.toString().padStart(2, "0")}`,
     level: levels[index % levels.length]
   }));
+}
+
+function waveformBarCount(durationMs: number): number {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) {
+    return 240;
+  }
+
+  return Math.min(24_000, Math.max(240, Math.ceil(durationMs / 20)));
 }
 
 export function toReviewModel(
@@ -122,6 +135,7 @@ export function toReviewModel(
   }
 
   const durationMs = Math.max(...segments.map((segment) => segment.endMs), 1);
+  const realWaveform = audioWaveform(artifacts, previewsByVersionId, waveformBarCount(durationMs));
   return {
     title: `${runId} results`,
     durationMs,
@@ -129,7 +143,8 @@ export function toReviewModel(
     activeSegmentId: segments[0]?.id ?? "",
     videoSrc: videoSrc(artifacts, previewsByVersionId),
     subtitleText: subtitleText(artifacts, previewsByVersionId),
-    waveform: waveform(),
+    waveform: realWaveform ?? placeholderWaveform(waveformBarCount(durationMs)),
+    waveformSource: realWaveform ? "audio_loudness" : "placeholder",
     segments
   };
 }
@@ -165,6 +180,24 @@ function videoSrc(
     return undefined;
   }
   return artifactFileUrl(contentPath, "video/mp4");
+}
+
+function audioWaveform(
+  artifacts: ApiArtifactRecord[],
+  previewsByVersionId: Map<string, ApiArtifactPreviewData>,
+  barCount: number
+): WaveformBar[] | null {
+  const preview = firstPreview(artifacts, previewsByVersionId, isAudioArtifact);
+  if (!preview) {
+    return null;
+  }
+
+  const contentPath = preview.version.content_path;
+  if (!contentPath || preview.version.content_encoding !== "file") {
+    return null;
+  }
+
+  return waveformFromPcm16WavFile(contentPath, barCount);
 }
 
 function subtitleText(

@@ -106,6 +106,7 @@ export type ReviewModel = {
   videoSrc?: string;
   subtitleText?: string;
   waveform: WaveformBar[];
+  waveformSource: "audio_loudness" | "placeholder";
   segments: Segment[];
 };
 

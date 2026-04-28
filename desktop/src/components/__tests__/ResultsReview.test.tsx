@@ -19,7 +19,7 @@ describe("ResultsReview", () => {
     expect(screen.getByText("Timeline")).toBeInTheDocument();
     expect(screen.getByText("Editable segments")).toBeInTheDocument();
     expect(screen.queryByText("Generated subtitle")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("waveform-bar")).toHaveLength(reviewModel.waveform.length);
+    expect(screen.getAllByTestId("waveform-bar").length).toBeGreaterThan(reviewModel.waveform.length);
     expect(screen.getAllByTestId("waveform-segment-overlay")).toHaveLength(reviewModel.segments.length);
 
     const segment = screen.getByRole("article", { name: "Segment 3" });
@@ -223,8 +223,8 @@ describe("ResultsReview", () => {
     const user = userEvent.setup();
     render(<ResultsReview model={reviewModel} onSegmentChange={vi.fn()} />);
 
-    expect(screen.getByLabelText("Timeline zoom")).toHaveValue("32");
-    expect(screen.getByTestId("timeline-track")).toHaveStyle({ minWidth: "7309px" });
+    expect(screen.getByLabelText("Timeline zoom")).toHaveValue("64");
+    expect(screen.getByTestId("timeline-track")).toHaveStyle({ minWidth: "14619px" });
 
     await user.clear(screen.getByLabelText("Timeline zoom"));
     await user.type(screen.getByLabelText("Timeline zoom"), "48");
@@ -234,7 +234,11 @@ describe("ResultsReview", () => {
 });
 
 describe("Waveform", () => {
-  function renderWaveform(segments: Segment[], durationMs = 1000) {
+  function renderWaveform(
+    segments: Segment[],
+    durationMs = 1000,
+    waveform = [{ id: "bar-01", level: 50 }]
+  ) {
     render(
       <Waveform
         activeSegmentId={segments[0]?.id ?? ""}
@@ -244,7 +248,7 @@ describe("Waveform", () => {
         onSelectSegment={vi.fn()}
         onSeekMs={vi.fn()}
         segments={segments}
-        waveform={[{ id: "bar-01", level: 50 }]}
+        waveform={waveform}
       />
     );
   }
@@ -306,5 +310,51 @@ describe("Waveform", () => {
     );
 
     expect(screen.getByTestId("waveform-segment-overlay")).toHaveStyle({ left: "0px", width: "0px" });
+  });
+
+  it("renders dense narrow waveform bars instead of stretching source samples", () => {
+    renderWaveform(
+      [
+        {
+          id: "seg-1",
+          index: 1,
+          startMs: 0,
+          endMs: 10_000,
+          transcript: "",
+          translation: "",
+          savedState: "saved"
+        }
+      ],
+      10_000
+    );
+
+    const bars = screen.getAllByTestId("waveform-bar");
+    expect(bars.length).toBeGreaterThan(80);
+    expect(bars[0]).toHaveStyle({ width: "1px" });
+  });
+
+  it("renders zero-level waveform bars as visible silent gaps", () => {
+    renderWaveform(
+      [
+        {
+          id: "seg-1",
+          index: 1,
+          startMs: 0,
+          endMs: 10_000,
+          transcript: "",
+          translation: "",
+          savedState: "saved"
+        }
+      ],
+      10_000,
+      [
+        { id: "bar-silent", level: 0 },
+        { id: "bar-loud", level: 96 }
+      ]
+    );
+
+    const bars = screen.getAllByTestId("waveform-bar");
+    expect(bars[0]).toHaveStyle({ height: "0%", opacity: "0", width: "1px" });
+    expect(bars[bars.length - 1]).toHaveStyle({ opacity: "1" });
   });
 });

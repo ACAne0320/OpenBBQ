@@ -142,6 +142,7 @@ export const reviewModel: ReviewModel = {
     id: `bar-${index.toString().padStart(2, "0")}`,
     level: waveformLevels[index % waveformLevels.length]
   })),
+  waveformSource: "placeholder",
   segments: [
     {
       id: "seg-02",
