@@ -199,6 +199,33 @@ describe("Settings", () => {
     expect(screen.queryByText("sk-test-secret")).not.toBeInTheDocument();
   });
 
+  it("renders LLM mutation failures without throwing unhandled rejections", async () => {
+    const user = userEvent.setup();
+    renderSettings({ saveLlmProvider: vi.fn().mockRejectedValue(new Error("Provider write failed.")) });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "Save provider" }));
+
+    expect(await screen.findByText("Provider write failed.")).toBeInTheDocument();
+  });
+
+  it("renders default-provider and secret-check failures", async () => {
+    const user = userEvent.setup();
+    renderSettings({
+      saveRuntimeDefaults: vi.fn().mockRejectedValue(new Error("Defaults write failed.")),
+      checkLlmProvider: vi.fn().mockRejectedValue(new Error("Secret check failed."))
+    });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "Set as default" }));
+
+    expect(await screen.findByText("Defaults write failed.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Check secret" }));
+
+    expect(await screen.findByText("Secret check failed.")).toBeInTheDocument();
+  });
+
   it("saves faster-whisper defaults", async () => {
     const user = userEvent.setup();
     const saveFasterWhisperDefaults = vi.fn().mockImplementation(async (input) => ({
@@ -221,6 +248,52 @@ describe("Settings", () => {
       defaultDevice: "cpu",
       defaultComputeType: "float16"
     });
+  });
+
+  it("syncs ASR inputs to canonical saved settings", async () => {
+    const user = userEvent.setup();
+    const saveFasterWhisperDefaults = vi.fn().mockResolvedValue({
+      ...clone(settings),
+      fasterWhisper: {
+        cacheDir: "C:/OpenBBQ/cache/faster-whisper",
+        defaultModel: "small.en",
+        defaultDevice: "cpu",
+        defaultComputeType: "int8"
+      }
+    });
+    renderSettings({ saveFasterWhisperDefaults });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    await user.clear(screen.getByLabelText("Default model"));
+    await user.type(screen.getByLabelText("Default model"), "small");
+    await user.click(screen.getByRole("button", { name: "Save ASR defaults" }));
+
+    expect(await screen.findByText("ASR defaults saved.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Default model")).toHaveValue("small.en");
+    expect(screen.getByLabelText("Cache directory")).toHaveValue("C:/OpenBBQ/cache/faster-whisper");
+  });
+
+  it("renders ASR mutation failures", async () => {
+    const user = userEvent.setup();
+    renderSettings({ saveFasterWhisperDefaults: vi.fn().mockRejectedValue(new Error("ASR write failed.")) });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    await user.click(screen.getByRole("button", { name: "Save ASR defaults" }));
+
+    expect(await screen.findByText("ASR write failed.")).toBeInTheDocument();
+  });
+
+  it("renders unavailable model status when faster-whisper status is absent", async () => {
+    const user = userEvent.setup();
+    renderSettings({ loadModels: vi.fn().mockResolvedValue([]) });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+
+    expect(screen.getByText("Model cache status unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Model cache missing")).not.toBeInTheDocument();
   });
 
   it("renders diagnostics and advanced content", async () => {

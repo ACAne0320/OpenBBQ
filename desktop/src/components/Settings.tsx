@@ -58,6 +58,10 @@ function emptyToNull(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function Settings({
   checkLlmProvider,
   loadDiagnostics,
@@ -193,6 +197,7 @@ function LlmProviderSection({
   );
   const [secretStatus, setSecretStatus] = useState<SecretStatus | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selected) {
@@ -202,6 +207,7 @@ function LlmProviderSection({
     setDraft(providerDraft(selected));
     setSecretStatus(null);
     setFeedback(null);
+    setMutationError(null);
   }, [selected]);
 
   if (!selected) {
@@ -215,37 +221,56 @@ function LlmProviderSection({
 
   async function saveProvider() {
     setFeedback(null);
-    const saved = await saveLlmProvider({
-      name: selected.name,
-      type: "openai_compatible",
-      baseUrl: emptyToNull(draft.baseUrl),
-      defaultChatModel: emptyToNull(draft.defaultChatModel),
-      secretValue: emptyToNull(draft.secretValue),
-      apiKeyRef: emptyToNull(draft.apiKeyRef),
-      displayName: emptyToNull(draft.displayName)
-    });
+    setMutationError(null);
 
-    onSettingsChange({
-      ...settings,
-      llmProviders: settings.llmProviders.map((provider) => (provider.name === saved.name ? saved : provider))
-    });
-    setDraft((current) => ({ ...current, secretValue: "" }));
-    setFeedback("Provider saved.");
+    try {
+      const saved = await saveLlmProvider({
+        name: selected.name,
+        type: "openai_compatible",
+        baseUrl: emptyToNull(draft.baseUrl),
+        defaultChatModel: emptyToNull(draft.defaultChatModel),
+        secretValue: emptyToNull(draft.secretValue),
+        apiKeyRef: emptyToNull(draft.apiKeyRef),
+        displayName: emptyToNull(draft.displayName)
+      });
+
+      onSettingsChange({
+        ...settings,
+        llmProviders: settings.llmProviders.map((provider) => (provider.name === saved.name ? saved : provider))
+      });
+      setDraft((current) => ({ ...current, secretValue: "" }));
+      setFeedback("Provider saved.");
+    } catch (error) {
+      setMutationError(errorMessage(error, "Provider could not be saved."));
+    }
   }
 
   async function setDefaultProvider() {
     setFeedback(null);
-    const updated = await saveRuntimeDefaults({
-      llmProvider: selected.name,
-      asrProvider: settings.defaults.asrProvider
-    });
-    onSettingsChange(updated);
-    setFeedback("Default provider updated.");
+    setMutationError(null);
+
+    try {
+      const updated = await saveRuntimeDefaults({
+        llmProvider: selected.name,
+        asrProvider: settings.defaults.asrProvider
+      });
+      onSettingsChange(updated);
+      setFeedback("Default provider updated.");
+    } catch (error) {
+      setMutationError(errorMessage(error, "Default provider could not be updated."));
+    }
   }
 
   async function checkSecret() {
     setFeedback(null);
-    setSecretStatus(await checkLlmProvider(selected.name));
+    setMutationError(null);
+
+    try {
+      setSecretStatus(await checkLlmProvider(selected.name));
+    } catch (error) {
+      setSecretStatus(null);
+      setMutationError(errorMessage(error, "Secret could not be checked."));
+    }
   }
 
   return (
@@ -330,6 +355,7 @@ function LlmProviderSection({
             {feedback}
           </p>
         ) : null}
+        {mutationError ? <InlineError>{mutationError}</InlineError> : null}
 
         <div className="mt-5 flex flex-wrap gap-2">
           <Button variant="primary" onClick={() => void saveProvider()}>
@@ -360,15 +386,26 @@ function AsrSection({
 }) {
   const [draft, setDraft] = useState<FasterWhisperSettingsModel>(settings.fasterWhisper);
   const status = models.find((model) => model.provider === "faster_whisper");
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   async function saveDefaults() {
-    const updated = await saveFasterWhisperDefaults({
-      cacheDir: draft.cacheDir,
-      defaultModel: draft.defaultModel,
-      defaultDevice: draft.defaultDevice,
-      defaultComputeType: draft.defaultComputeType
-    });
-    onSettingsChange(updated);
+    setFeedback(null);
+    setMutationError(null);
+
+    try {
+      const updated = await saveFasterWhisperDefaults({
+        cacheDir: draft.cacheDir,
+        defaultModel: draft.defaultModel,
+        defaultDevice: draft.defaultDevice,
+        defaultComputeType: draft.defaultComputeType
+      });
+      setDraft(updated.fasterWhisper);
+      onSettingsChange(updated);
+      setFeedback("ASR defaults saved.");
+    } catch (error) {
+      setMutationError(errorMessage(error, "ASR defaults could not be saved."));
+    }
   }
 
   return (
@@ -411,10 +448,16 @@ function AsrSection({
         <div className="mt-4 rounded-md bg-paper px-3 py-2 text-sm shadow-control">
           <span className="font-bold text-ink-brown">{status?.model ?? draft.defaultModel}</span>
           <span className="ml-2 text-muted">{status?.cacheDir ?? draft.cacheDir}</span>
-          <span className={status?.present ? "ml-2 font-bold text-ready" : "ml-2 font-bold text-[#8c4d29]"}>
-            {status?.present ? "Model cache present" : "Model cache missing"}
+          <span className={modelStatusClass(status)}>
+            {modelStatusLabel(status)}
           </span>
         </div>
+        {feedback ? (
+          <p className="mt-3 text-sm font-semibold text-ready" aria-live="polite">
+            {feedback}
+          </p>
+        ) : null}
+        {mutationError ? <InlineError>{mutationError}</InlineError> : null}
 
         <div className="mt-5">
           <Button variant="primary" onClick={() => void saveDefaults()}>
@@ -464,6 +507,22 @@ function DiagnosticsSection({ checks, models }: { checks: DiagnosticCheck[]; mod
   );
 }
 
+function modelStatusLabel(status: RuntimeModelStatus | undefined) {
+  if (!status) {
+    return "Model cache status unavailable";
+  }
+
+  return status.present ? "Model cache present" : "Model cache missing";
+}
+
+function modelStatusClass(status: RuntimeModelStatus | undefined) {
+  if (!status) {
+    return "ml-2 font-bold text-muted";
+  }
+
+  return status.present ? "ml-2 font-bold text-ready" : "ml-2 font-bold text-[#8c4d29]";
+}
+
 function AdvancedSection({ settings }: { settings: RuntimeSettingsModel }) {
   return (
     <section aria-label="Advanced" className="rounded-lg bg-paper-muted p-5 shadow-control">
@@ -508,5 +567,13 @@ function ReadOnlyRow({ label, value }: { label: string; value: string }) {
       <span className="text-xs font-bold uppercase text-muted">{label}</span>
       <code className="break-all text-sm text-ink-brown">{value}</code>
     </div>
+  );
+}
+
+function InlineError({ children }: { children: string }) {
+  return (
+    <p className="mt-3 rounded-md bg-accent-soft px-3 py-2 text-sm font-semibold text-[#6b3f27]" aria-live="assertive">
+      {children}
+    </p>
   );
 }
