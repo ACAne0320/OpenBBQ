@@ -21,6 +21,35 @@ from openbbq.storage.runs import write_run
 from tests.helpers import authed_client, write_project_fixture
 
 
+def _patch_valid_quickstart_runtime(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-test")
+    monkeypatch.setattr(
+        "openbbq.application.quickstart.load_runtime_settings",
+        lambda: RuntimeSettings(
+            version=1,
+            config_path=tmp_path / "config.toml",
+            cache=CacheSettings(root=tmp_path / "cache"),
+            defaults=RuntimeDefaults(llm_provider="openai", asr_provider="faster-whisper"),
+            providers={
+                "openai": ProviderProfile(
+                    name="openai",
+                    type="openai_compatible",
+                    api_key="env:OPENBBQ_LLM_API_KEY",
+                    default_chat_model="gpt-4o-mini",
+                )
+            },
+            models=ModelsSettings(
+                faster_whisper=FasterWhisperSettings(
+                    cache_dir=tmp_path / "fw-cache",
+                    default_model="base",
+                    default_device="cpu",
+                    default_compute_type="int8",
+                )
+            ),
+        ),
+    )
+
+
 def test_project_and_plugin_routes(tmp_path):
     project = write_project_fixture(tmp_path, "text-basic")
     client, headers = authed_client(project)
@@ -228,6 +257,7 @@ def test_runtime_auth_route_stores_user_secret_in_sqlite(tmp_path, monkeypatch):
 def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monkeypatch):
     project = write_project_fixture(tmp_path, "text-basic")
     client, headers = authed_client(project)
+    _patch_valid_quickstart_runtime(monkeypatch, tmp_path)
 
     def fake_local_job(request):
         return SubtitleJobResult(
@@ -296,6 +326,7 @@ def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monk
 
 def test_quickstart_subtitle_route_persists_task_history(tmp_path, monkeypatch):
     project = write_project_fixture(tmp_path, "text-basic")
+    _patch_valid_quickstart_runtime(monkeypatch, tmp_path)
     generated_project = write_project_fixture(
         tmp_path,
         "text-basic",
@@ -631,32 +662,7 @@ def test_quickstart_subtitle_route_reuses_existing_cached_task(tmp_path, monkeyp
     monkeypatch.setattr(
         "openbbq.api.routes.quickstart.create_youtube_subtitle_job", fake_youtube_job
     )
-    monkeypatch.setenv("OPENBBQ_LLM_API_KEY", "sk-test")
-    monkeypatch.setattr(
-        "openbbq.application.quickstart.load_runtime_settings",
-        lambda: RuntimeSettings(
-            version=1,
-            config_path=tmp_path / "config.toml",
-            cache=CacheSettings(root=tmp_path / "cache"),
-            defaults=RuntimeDefaults(llm_provider="openai", asr_provider="faster-whisper"),
-            providers={
-                "openai": ProviderProfile(
-                    name="openai",
-                    type="openai_compatible",
-                    api_key="env:OPENBBQ_LLM_API_KEY",
-                    default_chat_model="gpt-4o-mini",
-                )
-            },
-            models=ModelsSettings(
-                faster_whisper=FasterWhisperSettings(
-                    cache_dir=tmp_path / "fw-cache",
-                    default_model="base",
-                    default_device="cpu",
-                    default_compute_type="int8",
-                )
-            ),
-        ),
-    )
+    _patch_valid_quickstart_runtime(monkeypatch, tmp_path)
     user_db_path = tmp_path / "user.db"
     client = TestClient(
         create_app(ApiAppSettings(project_root=project, token="token", user_db_path=user_db_path))
@@ -685,6 +691,7 @@ def test_quickstart_subtitle_route_reuses_existing_cached_task(tmp_path, monkeyp
 
 def test_quickstart_job_run_events_and_artifacts_are_trackable(tmp_path, monkeypatch):
     project = write_project_fixture(tmp_path, "text-basic")
+    _patch_valid_quickstart_runtime(monkeypatch, tmp_path)
     generated_project = write_project_fixture(
         tmp_path,
         "text-basic",
@@ -768,6 +775,7 @@ def test_quickstart_job_run_events_and_artifacts_are_trackable(tmp_path, monkeyp
 def test_quickstart_generated_run_is_trackable_from_uninitialized_workspace(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    _patch_valid_quickstart_runtime(monkeypatch, tmp_path)
     generated_project = write_project_fixture(
         tmp_path,
         "text-basic",
