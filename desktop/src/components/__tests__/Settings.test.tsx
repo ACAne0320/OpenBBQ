@@ -98,13 +98,27 @@ async function waitForDownloadPoll(milliseconds = 800) {
   });
 }
 
-function missingFasterWhisperModel(model: string): RuntimeModelStatus {
+function missingFasterWhisperModel(
+  model: string,
+  cacheDir = "C:/Users/alex/.cache/openbbq/models/faster-whisper"
+): RuntimeModelStatus {
   return {
     provider: "faster-whisper",
     model,
-    cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+    cacheDir,
     present: false,
     sizeBytes: 0,
+    error: null
+  };
+}
+
+function downloadedFasterWhisperModel(model: string, cacheDir: string): RuntimeModelStatus {
+  return {
+    provider: "faster-whisper",
+    model,
+    cacheDir,
+    present: true,
+    sizeBytes: 10,
     error: null
   };
 }
@@ -729,6 +743,59 @@ describe("Settings", () => {
       expect(screen.getByRole("button", { name: "Download tiny" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "Download base" })).toBeDisabled();
     });
+  });
+
+  it("does not replay completed model status after ASR cache directory changes", async () => {
+    const user = userEvent.setup();
+    const cacheA = "C:/Users/alex/.cache/openbbq/models/faster-whisper";
+    const cacheB = "D:/openbbq-cache/faster-whisper";
+    const baseA = downloadedFasterWhisperModel("base", cacheA);
+    const tinyB = downloadedFasterWhisperModel("tiny", cacheB);
+    const baseMissingB = missingFasterWhisperModel("base", cacheB);
+    const tinyMissingB = missingFasterWhisperModel("tiny", cacheB);
+    const loadModels = vi
+      .fn()
+      .mockResolvedValueOnce([missingFasterWhisperModel("base", cacheA), missingFasterWhisperModel("tiny", cacheA)])
+      .mockResolvedValueOnce([baseA, missingFasterWhisperModel("tiny", cacheA)])
+      .mockResolvedValueOnce([baseMissingB, tinyMissingB])
+      .mockResolvedValueOnce([baseMissingB, tinyB]);
+    const saveFasterWhisperDefaults = vi.fn().mockResolvedValue({
+      ...clone(settings),
+      fasterWhisper: {
+        ...settings.fasterWhisper,
+        cacheDir: cacheB
+      }
+    });
+    const downloadFasterWhisperModel = vi.fn().mockImplementation(async ({ model }: { model: string }) => {
+      return completedDownloadJob(model === "base" ? baseA : tinyB);
+    });
+
+    renderSettings({
+      downloadFasterWhisperModel,
+      loadModels,
+      saveFasterWhisperDefaults
+    });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    await user.click(screen.getByRole("button", { name: "Download base" }));
+    expect(await screen.findByText("Model downloaded.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download base" })).toBeDisabled();
+
+    await user.clear(screen.getByLabelText("Cache directory"));
+    await user.type(screen.getByLabelText("Cache directory"), cacheB);
+    await user.click(screen.getByRole("button", { name: "Save ASR defaults" }));
+
+    expect(await screen.findByText("ASR defaults saved.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download base" })).toBeEnabled();
+    expect(screen.queryByText(cacheA)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Download tiny" }));
+
+    expect(await screen.findByText("Model downloaded.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download tiny" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Download base" })).toBeEnabled();
+    expect(screen.queryByText(cacheA)).not.toBeInTheDocument();
   });
 
   it("keeps downloaded model status when refresh fails after download succeeds", async () => {

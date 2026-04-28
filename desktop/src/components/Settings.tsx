@@ -222,9 +222,22 @@ export function Settings({
   const inFlightDownloadPolls = useRef<Set<string>>(new Set());
   const appliedDownloadJobs = useRef<Set<string>>(new Set());
   const completedDownloadStatuses = useRef<Map<string, RuntimeModelStatus>>(new Map());
+  const downloadStateGeneration = useRef(0);
+
+  const resetDownloadState = useCallback(() => {
+    downloadStateGeneration.current += 1;
+    inFlightDownloadPolls.current.clear();
+    appliedDownloadJobs.current.clear();
+    completedDownloadStatuses.current.clear();
+    setDownloadJobs({});
+  }, []);
 
   const applyDownloadJob = useCallback(
-    async (job: RuntimeModelDownloadJob) => {
+    async (job: RuntimeModelDownloadJob, generation: number) => {
+      if (generation !== downloadStateGeneration.current) {
+        return;
+      }
+
       if (job.status === "failed") {
         setAsrMutationError(job.error ?? "Model download failed.");
         return;
@@ -243,6 +256,10 @@ export function Settings({
 
       try {
         const refreshed = await loadModels();
+        if (generation !== downloadStateGeneration.current) {
+          return;
+        }
+
         const hasDownloadedStatus = refreshed.some(
           (status) => status.provider === downloaded.provider && status.model === downloaded.model && status.present
         );
@@ -267,14 +284,21 @@ export function Settings({
         return;
       }
 
+      const generation = downloadStateGeneration.current;
       inFlightDownloadPolls.current.add(jobId);
 
       try {
         const nextJob = await getFasterWhisperModelDownload(jobId);
+        if (generation !== downloadStateGeneration.current) {
+          return;
+        }
+
         setDownloadJobs((current) => ({ ...current, [nextJob.model]: nextJob }));
-        await applyDownloadJob(nextJob);
+        await applyDownloadJob(nextJob, generation);
       } catch (pollError) {
-        setAsrMutationError(errorMessage(pollError, "Model download status could not be refreshed."));
+        if (generation === downloadStateGeneration.current) {
+          setAsrMutationError(errorMessage(pollError, "Model download status could not be refreshed."));
+        }
       } finally {
         inFlightDownloadPolls.current.delete(jobId);
       }
@@ -286,13 +310,20 @@ export function Settings({
     async (model: string) => {
       setAsrFeedback(null);
       setAsrMutationError(null);
+      const generation = downloadStateGeneration.current;
 
       try {
         const downloadJob = await downloadFasterWhisperModel({ model });
+        if (generation !== downloadStateGeneration.current) {
+          return;
+        }
+
         setDownloadJobs((current) => ({ ...current, [downloadJob.model]: downloadJob }));
-        await applyDownloadJob(downloadJob);
+        await applyDownloadJob(downloadJob, generation);
       } catch (downloadError) {
-        setAsrMutationError(errorMessage(downloadError, "Model could not be downloaded."));
+        if (generation === downloadStateGeneration.current) {
+          setAsrMutationError(errorMessage(downloadError, "Model could not be downloaded."));
+        }
       }
     },
     [applyDownloadJob, downloadFasterWhisperModel]
@@ -392,6 +423,7 @@ export function Settings({
             models={models}
             mutationError={asrMutationError}
             onDownloadModel={downloadModel}
+            onDownloadStateReset={resetDownloadState}
             onFeedbackChange={setAsrFeedback}
             onModelsChange={setModels}
             onMutationErrorChange={setAsrMutationError}
@@ -626,6 +658,7 @@ function AsrSection({
   models,
   mutationError,
   onDownloadModel,
+  onDownloadStateReset,
   onFeedbackChange,
   onModelsChange,
   onMutationErrorChange,
@@ -640,6 +673,7 @@ function AsrSection({
   mutationError: string | null;
   loadModels: SettingsProps["loadModels"];
   onDownloadModel(model: string): Promise<void>;
+  onDownloadStateReset(): void;
   onFeedbackChange(feedback: string | null): void;
   onModelsChange(update: ModelStatusUpdate): void;
   onMutationErrorChange(error: string | null): void;
@@ -662,6 +696,7 @@ function AsrSection({
         defaultComputeType: draft.defaultComputeType
       });
       setDraft(updated.fasterWhisper);
+      onDownloadStateReset();
       onSettingsChange(updated);
       try {
         onModelsChange(await loadModels());
