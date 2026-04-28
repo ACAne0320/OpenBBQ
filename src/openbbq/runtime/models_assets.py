@@ -99,16 +99,18 @@ def download_faster_whisper_model(
     _ = (device, compute_type)
     repo_id = _faster_whisper_repo_id(model)
     total_bytes = _faster_whisper_repository_size(HfApi(), repo_id)
+    progress_state = {"current_bytes": 0}
     if progress is not None:
         progress(percent=0, current_bytes=0, total_bytes=total_bytes)
     snapshot_download(
         repo_id,
         cache_dir=cache_dir,
         allow_patterns=list(FASTER_WHISPER_DOWNLOAD_ALLOW_PATTERNS),
-        tqdm_class=_progress_tqdm_class(base_tqdm, progress, total_bytes),
+        tqdm_class=_progress_tqdm_class(base_tqdm, progress, total_bytes, progress_state),
     )
     if progress is not None:
-        progress(percent=100, current_bytes=total_bytes, total_bytes=total_bytes)
+        current_bytes = total_bytes if total_bytes is not None else progress_state["current_bytes"]
+        progress(percent=100, current_bytes=current_bytes, total_bytes=total_bytes)
 
 
 def _default_first_faster_whisper_models(default_model: str) -> tuple[str, ...]:
@@ -142,10 +144,11 @@ def _faster_whisper_repository_size(api: Any, repo_id: str) -> int | None:
         filename = getattr(sibling, "rfilename", "")
         if not _matches_faster_whisper_download(filename):
             continue
+        matched = True
         size = getattr(sibling, "size", None)
-        if isinstance(size, int):
-            total += size
-            matched = True
+        if type(size) is not int:
+            return None
+        total += size
     if not matched:
         return None
     return total
@@ -159,6 +162,7 @@ def _progress_tqdm_class(
     base_tqdm: Any,
     progress: ProgressCallback | None,
     expected_total_bytes: int | None,
+    progress_state: dict[str, int] | None = None,
 ) -> Any:
     lock = Lock()
     cumulative_bytes = 0
@@ -206,6 +210,8 @@ def _progress_tqdm_class(
 
                 current_bytes = cumulative_bytes
                 total_bytes = expected_total_bytes
+                if progress_state is not None:
+                    progress_state["current_bytes"] = current_bytes
 
             percent = 0 if not total_bytes else (current_bytes / total_bytes) * 100
             progress(
