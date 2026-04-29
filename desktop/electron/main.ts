@@ -8,6 +8,8 @@ import { artifactFileResponse, artifactFileScheme } from "./mediaUrls.js";
 import { startSidecar, type ManagedSidecar } from "./sidecar.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// BrowserWindow requires an sRGB fallback for the DESIGN canvas OKLCH token.
+const canvasBackgroundColor = "#edf1f4";
 
 let sidecar: ManagedSidecar | null = null;
 let sidecarError: Error | null = null;
@@ -38,7 +40,7 @@ async function createWindow() {
     height: 860,
     minWidth: 980,
     minHeight: 700,
-    backgroundColor: "#f3ecd9",
+    backgroundColor: canvasBackgroundColor,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

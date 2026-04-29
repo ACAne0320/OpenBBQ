@@ -51,7 +51,7 @@ body {
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: oklch(54% 0.105 61);
+  background: oklch(47% 0.118 248);
 }
 
 *::-webkit-scrollbar-corner {

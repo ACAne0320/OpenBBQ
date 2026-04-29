@@ -344,16 +344,14 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
                 <video
                   ref={videoRef}
                   aria-label="Media playback"
-                  className="absolute inset-0 h-full w-full bg-black object-contain"
+                  className="absolute inset-0 h-full w-full bg-log-bg object-contain"
                   controls
                   onSeeked={handleVideoTimeUpdate}
                   onTimeUpdate={handleVideoTimeUpdate}
                   src={model.videoSrc}
                 />
               ) : (
-                <div
-                  className="absolute inset-0 bg-[linear-gradient(135deg,rgba(247,249,250,0.10),rgba(55,102,190,0.16)_55%,rgba(38,45,55,0.20))]"
-                />
+                <div className="absolute inset-0 bg-log-bg" />
               )}
               <div className="pointer-events-none absolute left-5 top-[18px] rounded-sm bg-log-bg/70 px-2 py-1 font-mono text-xs text-log-text">
                 {formatTimestamp(previewTime)} / {formatTimestamp(model.durationMs)}
@@ -361,7 +359,7 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
               <div className="pointer-events-none absolute left-5 top-14 text-xs uppercase text-log-muted">Preview</div>
               <div
                 data-testid="preview-subtitle-overlay"
-                className="pointer-events-none absolute inset-x-12 bottom-16 rounded-md bg-black/70 px-3 py-2 text-center text-[15px] leading-snug text-paper shadow-control"
+                className="pointer-events-none absolute inset-x-12 bottom-16 rounded-md bg-log-bg/80 px-3 py-2 text-center text-[15px] leading-snug text-paper shadow-control"
               >
                 {activeSegment?.translation}
               </div>
