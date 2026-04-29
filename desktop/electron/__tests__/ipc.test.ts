@@ -25,7 +25,7 @@ describe("desktop IPC actions", () => {
     vi.unstubAllGlobals();
   });
 
-  it("retries a run through the sidecar resume route", async () => {
+  it("retries a failed checkpoint through the sidecar retry route", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true, data: { id: "run_1" } }), {
         status: 200,
@@ -38,7 +38,7 @@ describe("desktop IPC actions", () => {
     await retryCheckpoint(sidecar, "run 1");
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://127.0.0.1:53124/runs/run%201/resume",
+      "http://127.0.0.1:53124/runs/run%201/retry-checkpoint",
       expect.objectContaining({ method: "POST" })
     );
   });

@@ -458,10 +458,9 @@ describe("App workflow flow", () => {
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 
-  it("keeps the current screen while Results loads without a task and then shows review", async () => {
+  it("does not request placeholder results when no task is selected", async () => {
     const user = userEvent.setup();
-    const review = createDeferred<typeof reviewModel>();
-    const getReview = vi.fn(() => review.promise);
+    const getReview = vi.fn().mockResolvedValue(reviewModel);
     const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), { getReview });
 
     render(<App client={client} />);
@@ -469,17 +468,10 @@ describe("App workflow flow", () => {
     await user.click(screen.getByRole("button", { name: "Results" }));
 
     expect(screen.getByRole("heading", { name: "Choose a source" })).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load review results: no task is selected");
     expect(screen.getAllByRole("main")).toHaveLength(1);
-    expect(getReview).toHaveBeenCalledWith("run_sample");
-
-    await act(async () => {
-      review.resolve(reviewModel);
-      await review.promise;
-    });
-
-    expect(await screen.findByText("Review results")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Results" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(getReview).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "New" })).toHaveAttribute("aria-current", "page");
   });
 
   it("shows an error when workflow template loading fails", async () => {
@@ -516,39 +508,42 @@ describe("App workflow flow", () => {
 
   it("shows an error when review loading fails", async () => {
     const user = userEvent.setup();
+    const getReview = vi.fn().mockRejectedValue(new Error("review unavailable"));
     const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
-      getReview: vi.fn().mockRejectedValue(new Error("review unavailable"))
+      getReview
     });
 
     render(<App client={client} />);
 
     await user.click(screen.getByRole("button", { name: "Results" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load review results: review unavailable");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load review results: no task is selected");
     expect(screen.getByRole("heading", { name: "Choose a source" })).toBeInTheDocument();
+    expect(getReview).not.toHaveBeenCalled();
   });
 
   it("surfaces real-client review loading errors without falling back to mock data", async () => {
     const user = userEvent.setup();
+    const getReview = vi.fn().mockRejectedValue(new Error("No readable review artifacts are available for this run."));
     const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
-      getReview: vi.fn().mockRejectedValue(new Error("No readable review artifacts are available for this run."))
+      getReview
     });
 
     render(<App client={client} />);
 
     await user.click(screen.getByRole("button", { name: "Results" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Could not load review results: No readable review artifacts are available for this run."
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load review results: no task is selected");
     expect(screen.queryByText("Each result is saved as an editable versioned segment.")).not.toBeInTheDocument();
+    expect(getReview).not.toHaveBeenCalled();
   });
 
-  it("keeps Results active when an earlier source template resolves after review", async () => {
+  it("does not open Results while source template loading has no run yet", async () => {
     const user = userEvent.setup();
     const sourceTemplate = createDeferred<WorkflowStep[]>();
+    const getReview = vi.fn().mockResolvedValue(reviewModel);
     const client = createTestClient(vi.fn(() => sourceTemplate.promise), {
-      getReview: vi.fn().mockResolvedValue(reviewModel)
+      getReview
     });
 
     render(<App client={client} />);
@@ -557,16 +552,16 @@ describe("App workflow flow", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await user.click(screen.getByRole("button", { name: "Results" }));
 
-    expect(await screen.findByText("Review results")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load review results: no task is selected");
+    expect(getReview).not.toHaveBeenCalled();
 
     await act(async () => {
       sourceTemplate.resolve(workflowSteps);
       await sourceTemplate.promise;
     });
 
-    expect(screen.getByText("Review results")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Results" })).toHaveAttribute("aria-current", "page");
-    expect(screen.queryByRole("heading", { name: "Arrange workflow" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Arrange workflow" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New" })).toHaveAttribute("aria-current", "page");
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 

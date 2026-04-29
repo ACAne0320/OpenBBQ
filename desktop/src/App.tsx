@@ -36,6 +36,7 @@ export function App({ client: providedClient }: AppProps = {}) {
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [task, setTask] = useState<TaskMonitorModel | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [review, setReview] = useState<ReviewModel | null>(null);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [retryPending, setRetryPending] = useState(false);
@@ -103,6 +104,7 @@ export function App({ client: providedClient }: AppProps = {}) {
     setSource(null);
     setSteps(workflowSteps);
     setTask(null);
+    setSelectedRunId(null);
     autoOpenedReviewRunId.current = null;
     setTasksError(null);
     setTasksLoading(false);
@@ -154,6 +156,7 @@ export function App({ client: providedClient }: AppProps = {}) {
         return;
       }
 
+      setSelectedRunId(nextTask.id);
       setTask(nextTask);
       setScreen("monitor");
     } catch (error) {
@@ -186,11 +189,13 @@ export function App({ client: providedClient }: AppProps = {}) {
         return;
       }
 
+      setSelectedRunId(started.runId);
       const nextTask = await client.getTaskMonitor(started.runId);
       if (requestId !== taskRequestId.current) {
         return;
       }
 
+      setSelectedRunId(nextTask.id);
       setTask(nextTask);
       setScreen("monitor");
       if (nextTask.status === "completed") {
@@ -282,7 +287,12 @@ export function App({ client: providedClient }: AppProps = {}) {
     }
 
     if (item === "Results") {
-      void openReview(task?.id ?? "run_sample");
+      const runId = task?.id ?? selectedRunId;
+      if (runId) {
+        void openReview(runId);
+        return;
+      }
+      setLoadError("Could not load review results: no task is selected");
       return;
     }
 

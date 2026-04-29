@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from openbbq.config.loader import load_project_config
-from openbbq.engine.service import run_workflow
+from openbbq.engine.service import retry_workflow_checkpoint, run_workflow
 from openbbq.engine.validation import validate_workflow
 from openbbq.errors import ExecutionError
 from openbbq.plugins.registry import discover_plugins
@@ -120,6 +120,40 @@ def test_retry_policy_exhaustion_marks_workflow_failed(tmp_path):
     state = store.read_workflow_state("demo")
     assert state.status == "failed"
     step_runs = [store.read_step_run("demo", step_run_id) for step_run_id in state.step_run_ids]
+    assert [step_run.status for step_run in step_runs] == ["failed", "failed"]
+
+
+def test_checkpoint_retry_reattempts_failed_current_step(tmp_path):
+    project = write_config(
+        tmp_path,
+        """
+  demo:
+    name: Demo
+    steps:
+      - id: seed
+        name: Seed
+        tool_ref: mock_text.always_fail
+        inputs: {}
+        outputs:
+          - name: text
+            type: text
+        parameters: {message: still failing}
+""",
+    )
+    config = load_project_config(project)
+    registry = discover_plugins(config.plugin_paths)
+
+    with pytest.raises(ExecutionError, match="still failing"):
+        run_workflow(config, registry, "demo")
+    with pytest.raises(ExecutionError, match="still failing"):
+        retry_workflow_checkpoint(config, registry, "demo")
+
+    store = ProjectStore(project / ".openbbq")
+    state = store.read_workflow_state("demo")
+    step_runs = [store.read_step_run("demo", step_run_id) for step_run_id in state.step_run_ids]
+    assert state.status == "failed"
+    assert state.current_step_id == "seed"
+    assert [step_run.step_id for step_run in step_runs] == ["seed", "seed"]
     assert [step_run.status for step_run in step_runs] == ["failed", "failed"]
 
 

@@ -142,7 +142,7 @@ export async function getTaskMonitor(sidecar: ManagedSidecar, runId: string) {
 }
 
 export async function retryCheckpoint(sidecar: ManagedSidecar, runId: string) {
-  await requestJson<ApiRunRecord>(sidecar.connection, `/runs/${encodeURIComponent(runId)}/resume`, {
+  await requestJson<ApiRunRecord>(sidecar.connection, `/runs/${encodeURIComponent(runId)}/retry-checkpoint`, {
     method: "POST"
   });
 }

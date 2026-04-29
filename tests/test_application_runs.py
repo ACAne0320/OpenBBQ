@@ -1,4 +1,11 @@
-from openbbq.application.runs import RunCreateRequest, abort_run, create_run, get_run, resume_run
+from openbbq.application.runs import (
+    RunCreateRequest,
+    abort_run,
+    create_run,
+    get_run,
+    resume_run,
+    retry_run_checkpoint,
+)
 from openbbq.application.workflows import workflow_status
 from openbbq.errors import ExecutionError
 from tests.helpers import write_project_fixture
@@ -119,3 +126,33 @@ def test_resume_run_can_submit_without_blocking(tmp_path, monkeypatch):
     assert resumed.status == "queued"
     assert submitted
     assert submitted[0][0].__name__ == "_execute_resume"
+
+
+def test_retry_run_checkpoint_can_submit_without_blocking(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    created = create_run(
+        RunCreateRequest(project_root=project, workflow_id="text-demo"),
+        execute_inline=True,
+    )
+    failed = created.model_copy(update={"status": "failed", "completed_at": "2026-04-29T00:00:00+00:00"})
+    from openbbq.storage.runs import write_run
+
+    write_run(project / ".openbbq", failed)
+    submitted = []
+
+    def capture_submit(function, *args):
+        submitted.append((function, args))
+
+        class Result:
+            pass
+
+        return Result()
+
+    monkeypatch.setattr("openbbq.application.runs._EXECUTOR.submit", capture_submit)
+
+    retried = retry_run_checkpoint(project_root=project, run_id=created.id, execute_inline=False)
+
+    assert retried.status == "queued"
+    assert retried.error is None
+    assert submitted
+    assert submitted[0][0].__name__ == "_execute_retry_checkpoint"

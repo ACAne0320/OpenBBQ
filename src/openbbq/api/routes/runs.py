@@ -23,7 +23,13 @@ from openbbq.api.routes.events import event_stream, streaming_response
 from openbbq.api.task_history import sync_quickstart_task_for_run
 from openbbq.application.artifacts import list_artifacts
 from openbbq.application.runs import RunCreateRequest as ApplicationRunCreateRequest
-from openbbq.application.runs import abort_run, create_run, list_project_runs, resume_run
+from openbbq.application.runs import (
+    abort_run,
+    create_run,
+    list_project_runs,
+    resume_run,
+    retry_run_checkpoint,
+)
 from openbbq.application.workflows import workflow_events
 from openbbq.errors import ValidationError
 
@@ -87,6 +93,21 @@ def resume_run_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
     settings = active_project_settings(request)
     _existing, reference = find_run_project(request, run_id)
     run = resume_run(
+        project_root=reference.project_root,
+        config_path=reference.config_path,
+        run_id=run_id,
+        execute_inline=settings.execute_runs_inline,
+    )
+    register_run_record(request, run)
+    sync_quickstart_task_for_run(request, run)
+    return ApiSuccess(data=api_model(RunRecord, run))
+
+
+@router.post("/runs/{run_id}/retry-checkpoint", response_model=ApiSuccess[RunRecord])
+def retry_run_checkpoint_route(run_id: str, request: Request) -> ApiSuccess[RunRecord]:
+    settings = active_project_settings(request)
+    _existing, reference = find_run_project(request, run_id)
+    run = retry_run_checkpoint(
         project_root=reference.project_root,
         config_path=reference.config_path,
         run_id=run_id,

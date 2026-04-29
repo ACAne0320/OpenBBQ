@@ -14,6 +14,7 @@ from openbbq.application.workflows import (
     WorkflowRunRequest,
     abort_workflow_command,
     resume_workflow_command,
+    retry_workflow_checkpoint_command,
     run_workflow_command,
 )
 from openbbq.application.project_context import load_project_context
@@ -139,6 +140,34 @@ def resume_run(
     return get_run(project_root=project_root, run_id=run_id, config_path=config_path)
 
 
+def retry_run_checkpoint(
+    *,
+    project_root: Path,
+    run_id: str,
+    config_path: Path | None = None,
+    execute_inline: bool = True,
+) -> RunRecord:
+    run = get_run(project_root=project_root, run_id=run_id, config_path=config_path)
+    request = RunCreateRequest(
+        project_root=project_root,
+        config_path=run.config_path,
+        plugin_paths=run.plugin_paths,
+        workflow_id=run.workflow_id,
+        created_by=run.created_by,
+    )
+    context = load_project_context(project_root, config_path=run.config_path)
+    store = context.store
+    write_run(
+        store.state_base,
+        run.model_copy(update={"status": "queued", "completed_at": None, "error": None}),
+    )
+    if execute_inline:
+        _execute_retry_checkpoint(run.id, request)
+    else:
+        _EXECUTOR.submit(_execute_retry_checkpoint, run.id, request)
+    return get_run(project_root=project_root, run_id=run_id, config_path=config_path)
+
+
 def _execute_run(run_id: str, request: RunCreateRequest) -> None:
     def command() -> _RunCommandResult:
         return run_workflow_command(
@@ -158,6 +187,20 @@ def _execute_run(run_id: str, request: RunCreateRequest) -> None:
 def _execute_resume(run_id: str, request: RunCreateRequest) -> None:
     def command() -> _RunCommandResult:
         return resume_workflow_command(
+            WorkflowCommandRequest(
+                project_root=request.project_root,
+                config_path=request.config_path,
+                plugin_paths=request.plugin_paths,
+                workflow_id=request.workflow_id,
+            )
+        )
+
+    _execute_run_lifecycle(run_id, request, command, clear_error_on_success=True)
+
+
+def _execute_retry_checkpoint(run_id: str, request: RunCreateRequest) -> None:
+    def command() -> _RunCommandResult:
+        return retry_workflow_checkpoint_command(
             WorkflowCommandRequest(
                 project_root=request.project_root,
                 config_path=request.config_path,

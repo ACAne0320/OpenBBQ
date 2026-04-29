@@ -230,6 +230,54 @@ def resume_workflow(
     )
 
 
+def retry_workflow_checkpoint(
+    config: ProjectConfig,
+    registry: PluginRegistry,
+    workflow_id: str,
+    *,
+    runtime_context: RuntimeContext | None = None,
+) -> WorkflowRunResult:
+    validate_workflow(config, registry, workflow_id)
+    workflow = config.workflows[workflow_id]
+    store = ProjectStore(
+        config.storage.root,
+        artifacts_root=config.storage.artifacts,
+        state_root=config.storage.state,
+    )
+    state = read_effective_workflow_state(store, workflow)
+    require_status(state, "failed", workflow.id)
+    current_hash = compute_workflow_config_hash(config, workflow.id)
+    if state.config_hash != current_hash:
+        raise ValidationError(
+            f"Workflow '{workflow.id}' changed after failure; checkpoint retry is not supported across config edits."
+        )
+    current_step_id = state.current_step_id
+    if not isinstance(current_step_id, str) or not current_step_id:
+        raise ExecutionError(
+            f"Workflow '{workflow.id}' does not have a retryable checkpoint.",
+            code="invalid_workflow_state",
+            exit_code=1,
+        )
+    step_run_ids = list(state.step_run_ids)
+    with WorkflowLock.acquire(store, workflow.id):
+        result = execute_workflow_from_resume(
+            config=config,
+            registry=registry,
+            store=store,
+            workflow=workflow,
+            current_step_id=current_step_id,
+            step_run_ids=step_run_ids,
+            output_bindings=rebuild_output_bindings(store, workflow.id, step_run_ids),
+            runtime_context=runtime_context,
+        )
+    return WorkflowRunResult(
+        workflow_id=result.workflow_id,
+        status=result.status,
+        step_count=result.step_count,
+        artifact_count=result.artifact_count,
+    )
+
+
 def abort_workflow(config: ProjectConfig, workflow_id: str) -> dict[str, object]:
     workflow = config.workflows.get(workflow_id)
     if workflow is None:

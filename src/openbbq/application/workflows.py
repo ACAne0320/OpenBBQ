@@ -10,6 +10,7 @@ from openbbq.engine.service import (
     abort_workflow,
     resume_workflow,
     run_workflow,
+    retry_workflow_checkpoint,
     unlock_workflow,
 )
 from openbbq.errors import ValidationError
@@ -66,6 +67,21 @@ def resume_workflow_command(request: WorkflowCommandRequest) -> WorkflowRunResul
     )
     registry = discover_plugins(config.plugin_paths)
     return resume_workflow(
+        config,
+        registry,
+        request.workflow_id,
+        runtime_context=build_runtime_context(load_runtime_settings()),
+    )
+
+
+def retry_workflow_checkpoint_command(request: WorkflowCommandRequest) -> WorkflowRunResult:
+    config = load_project_config(
+        request.project_root,
+        config_path=request.config_path,
+        extra_plugin_paths=request.plugin_paths,
+    )
+    registry = discover_plugins(config.plugin_paths)
+    return retry_workflow_checkpoint(
         config,
         registry,
         request.workflow_id,

@@ -1,3 +1,5 @@
+from openbbq.application.runs import get_run
+
 from tests.helpers import authed_client, write_project_fixture
 
 
@@ -36,6 +38,31 @@ def test_run_route_uses_sidecar_project_and_lists_runs(tmp_path):
     assert run.status_code == 200
     assert runs.status_code == 200
     assert [item["id"] for item in runs.json()["data"]["runs"]] == [run.json()["data"]["id"]]
+
+
+def test_retry_checkpoint_route_uses_run_project_reference(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project, execute_runs_inline=False)
+    captured = {}
+
+    def retry_checkpoint(**kwargs):
+        captured.update(kwargs)
+        return get_run(
+            project_root=kwargs["project_root"],
+            config_path=kwargs["config_path"],
+            run_id=kwargs["run_id"],
+        )
+
+    monkeypatch.setattr("openbbq.api.routes.runs.retry_run_checkpoint", retry_checkpoint)
+
+    run = client.post("/workflows/text-demo/runs", headers=headers, json={})
+    run_id = run.json()["data"]["id"]
+    response = client.post(f"/runs/{run_id}/retry-checkpoint", headers=headers)
+
+    assert response.status_code == 200
+    assert captured["run_id"] == run_id
+    assert captured["project_root"] == project.resolve()
+    assert captured["execute_inline"] is False
 
 
 def test_run_route_rejects_project_root_outside_sidecar_project(tmp_path):
