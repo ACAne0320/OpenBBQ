@@ -12,6 +12,7 @@ from openbbq.runtime.models import (
     DoctorCheck,
     ModelAssetStatus,
     ModelDownloadJob,
+    ProviderModel,
     ProviderProfile,
     RuntimeSettings,
 )
@@ -246,6 +247,22 @@ class ProviderAuthSetRequest(OpenBBQModel):
     display_name: str | None = None
 
 
+class ProviderSecretValueData(OpenBBQModel):
+    value: str
+
+
+class ProviderConnectionTestRequest(OpenBBQModel):
+    provider_name: str | None = None
+    base_url: str
+    api_key: str | None = None
+    model: str
+
+
+class ProviderConnectionTestData(OpenBBQModel):
+    ok: bool
+    message: str
+
+
 class SecretCheckRequest(OpenBBQModel):
     reference: str
 
@@ -257,6 +274,10 @@ class SecretSetRequest(OpenBBQModel):
 
 class ModelListData(OpenBBQModel):
     models: tuple[ModelAssetStatus, ...]
+
+
+class ProviderModelListData(OpenBBQModel):
+    models: tuple[ProviderModel, ...]
 
 
 class FasterWhisperDownloadData(OpenBBQModel):

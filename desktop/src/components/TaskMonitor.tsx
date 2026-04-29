@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from "react";
-import { AlertTriangle, Check, Copy, Minus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ArrowDown, Check, Copy, Minus, X } from "lucide-react";
 
 import type { ProgressStep, TaskMonitorModel, TaskProgressLogLine } from "../lib/types";
 import { Button } from "./Button";
@@ -14,6 +14,8 @@ type TaskMonitorProps = {
 
 const fallbackFailureMessage = "Task failed before OpenBBQ received detailed error information.";
 const cancelableStatuses = new Set<TaskMonitorModel["status"]>(["queued", "running", "paused"]);
+const logPinThresholdPx = 32;
+const jumpToLatestThresholdPx = 120;
 
 type RuntimeTextLogLine = TaskMonitorModel["logs"][number];
 type RuntimeLogRow =
@@ -172,8 +174,20 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
   const counts = progressCounts(progress);
   const runtimeRows = useMemo(() => runtimeLogRows(task), [task]);
   const runtimeLogRef = useRef<HTMLDivElement>(null);
+  const logPinnedRef = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const logText = runtimeRows.map(runtimeLogRowText).join("\n");
   const showCancel = Boolean(onCancel) && cancelableStatuses.has(task.status);
+
+  function distanceFromLogBottom(viewport: HTMLDivElement): number {
+    return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+  }
+
+  function updateLogPinState(viewport: HTMLDivElement) {
+    const distanceFromBottom = distanceFromLogBottom(viewport);
+    logPinnedRef.current = distanceFromBottom <= logPinThresholdPx;
+    setShowJumpToLatest(distanceFromBottom > jumpToLatestThresholdPx);
+  }
 
   useEffect(() => {
     const viewport = runtimeLogRef.current;
@@ -181,8 +195,32 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
       return;
     }
 
-    viewport.scrollTop = viewport.scrollHeight;
+    if (logPinnedRef.current) {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+
+    updateLogPinState(viewport);
   }, [runtimeRows]);
+
+  function handleRuntimeLogScroll() {
+    const viewport = runtimeLogRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    updateLogPinState(viewport);
+  }
+
+  function jumpToLatestLog() {
+    const viewport = runtimeLogRef.current;
+    if (!viewport) {
+      return;
+    }
+
+    logPinnedRef.current = true;
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+    setShowJumpToLatest(false);
+  }
 
   function copyLog() {
     if (!navigator.clipboard) {
@@ -272,56 +310,69 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
           </div>
         ) : null}
 
-        <div
-          ref={runtimeLogRef}
-          data-testid="runtime-log-scroll"
-          className="scrollbar-log h-[420px] min-h-0 overflow-y-auto overflow-x-hidden rounded-lg bg-log-bg p-3.5 font-mono text-xs leading-relaxed text-[#f8ead2] shadow-inner xl:h-[520px]"
-        >
-          {runtimeRows.map((row) => {
-            if (row.kind === "text") {
+        <div className="relative min-h-0">
+          <div
+            ref={runtimeLogRef}
+            data-testid="runtime-log-scroll"
+            onScroll={handleRuntimeLogScroll}
+            className="scrollbar-log h-[420px] min-h-0 overflow-y-auto overflow-x-hidden rounded-lg bg-log-bg p-3.5 font-mono text-xs leading-relaxed text-[#f8ead2] shadow-inner xl:h-[520px]"
+          >
+            {runtimeRows.map((row) => {
+              if (row.kind === "text") {
+                const line = row.line;
+                return (
+                  <div key={`text-${line.sequence}`} className="grid grid-cols-[132px_72px_minmax(0,1fr)] gap-2 py-0.5 md:grid-cols-[176px_72px_minmax(0,1fr)]">
+                    <span className="min-w-0 truncate text-[#c7aa7a]">{line.timestamp}</span>
+                    <span className={`rounded-sm px-1.5 text-center text-[10px] uppercase leading-5 ${logLevelClass(line.level)}`}>
+                      {line.level}
+                    </span>
+                    <span
+                      className={`min-w-0 whitespace-pre-wrap break-words ${line.level === "error" ? "text-[#ffbd96]" : line.level === "warning" ? "text-[#ffd08f]" : ""}`}
+                    >
+                      {line.message}
+                    </span>
+                  </div>
+                );
+              }
+
               const line = row.line;
+              const detail = progressDetail(line);
+              const visualPercent = clampedPercent(line.percent);
+              const percentText = roundedPercent(visualPercent);
+
               return (
-                <div key={`text-${line.sequence}`} className="grid grid-cols-[132px_72px_minmax(0,1fr)] gap-2 py-0.5 md:grid-cols-[176px_72px_minmax(0,1fr)]">
+                <div key={`progress-${line.sequence}`} className="grid grid-cols-[132px_88px_minmax(0,1fr)] gap-2 py-1.5 md:grid-cols-[176px_112px_minmax(0,1fr)]">
                   <span className="min-w-0 truncate text-[#c7aa7a]">{line.timestamp}</span>
-                  <span className={`rounded-sm px-1.5 text-center text-[10px] uppercase leading-5 ${logLevelClass(line.level)}`}>
-                    {line.level}
+                  <span className="rounded-sm bg-[#403329] px-1.5 text-center text-[10px] uppercase leading-5 text-[#d9c4a2]">
+                    progress
                   </span>
-                  <span
-                    className={`min-w-0 whitespace-pre-wrap break-words ${line.level === "error" ? "text-[#ffbd96]" : line.level === "warning" ? "text-[#ffd08f]" : ""}`}
-                  >
-                    {line.message}
-                  </span>
+                  <div aria-label={`${line.label} progress`} className="min-w-0">
+                    <p className="min-w-0 truncate font-semibold text-[#f8ead2]">{line.label}</p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <div
+                        aria-hidden="true"
+                        className="h-2 flex-1 overflow-hidden rounded-full bg-[#5a4627]"
+                      >
+                        <div className="h-full rounded-full bg-[#ffd08f]" style={{ width: `${visualPercent}%` }} />
+                      </div>
+                      <span className="w-10 text-right font-bold text-[#ffd08f]">{percentText}%</span>
+                    </div>
+                    {detail ? <p className="mt-1 text-[#c7aa7a]">{detail}</p> : null}
+                  </div>
                 </div>
               );
-            }
-
-            const line = row.line;
-            const detail = progressDetail(line);
-            const visualPercent = clampedPercent(line.percent);
-            const percentText = roundedPercent(visualPercent);
-
-            return (
-              <div key={`progress-${line.sequence}`} className="grid grid-cols-[132px_88px_minmax(0,1fr)] gap-2 py-1.5 md:grid-cols-[176px_112px_minmax(0,1fr)]">
-                <span className="min-w-0 truncate text-[#c7aa7a]">{line.timestamp}</span>
-                <span className="rounded-sm bg-[#403329] px-1.5 text-center text-[10px] uppercase leading-5 text-[#d9c4a2]">
-                  progress
-                </span>
-                <div aria-label={`${line.label} progress`} className="min-w-0">
-                  <p className="min-w-0 truncate font-semibold text-[#f8ead2]">{line.label}</p>
-                  <div className="mt-1 flex items-center gap-2">
-                    <div
-                      aria-hidden="true"
-                      className="h-2 flex-1 overflow-hidden rounded-full bg-[#5a4627]"
-                    >
-                      <div className="h-full rounded-full bg-[#ffd08f]" style={{ width: `${visualPercent}%` }} />
-                    </div>
-                    <span className="w-10 text-right font-bold text-[#ffd08f]">{percentText}%</span>
-                  </div>
-                  {detail ? <p className="mt-1 text-[#c7aa7a]">{detail}</p> : null}
-                </div>
-              </div>
-            );
-          })}
+            })}
+          </div>
+          <button
+            type="button"
+            aria-hidden={!showJumpToLatest}
+            aria-label="Jump to latest log"
+            tabIndex={showJumpToLatest ? 0 : -1}
+            onClick={jumpToLatestLog}
+            className={`absolute bottom-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#fff8ea] text-log-bg shadow-control outline-none transition-[opacity,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-log-bg active:scale-95 motion-reduce:transition-none ${showJumpToLatest ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none translate-y-1 opacity-0"}`}
+          >
+            <ArrowDown className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
       </section>
     </section>

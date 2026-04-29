@@ -389,15 +389,17 @@ export function App({ client: providedClient }: AppProps = {}) {
       ) : null}
       {screen === "settings" ? (
         <Settings
-          checkLlmProvider={client.checkLlmProvider}
           downloadFasterWhisperModel={client.downloadFasterWhisperModel}
           getFasterWhisperModelDownload={client.getFasterWhisperModelDownload}
+          getLlmProviderSecret={client.getLlmProviderSecret}
+          getLlmProviderModels={client.getLlmProviderModels}
           loadDiagnostics={client.getDiagnostics}
           loadModels={client.getRuntimeModels}
           loadSettings={client.getRuntimeSettings}
           saveFasterWhisperDefaults={client.saveFasterWhisperDefaults}
           saveLlmProvider={client.saveLlmProvider}
           saveRuntimeDefaults={client.saveRuntimeDefaults}
+          testLlmProviderConnection={client.testLlmProviderConnection}
         />
       ) : null}
     </AppShell>

@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Plus, X } from "lucide-react";
 
 import type {
   DiagnosticCheck,
   DownloadFasterWhisperModelInput,
   FasterWhisperSettingsModel,
   LlmProviderModel,
+  ProviderModelOption,
   RuntimeModelDownloadJob,
   RuntimeModelStatus,
-  RuntimeSettingsModel,
-  SecretStatus
+  RuntimeSettingsModel
 } from "../lib/types";
 import { Button } from "./Button";
 
@@ -32,7 +32,14 @@ export type SettingsProps = {
     apiKeyRef: string | null;
     displayName: string | null;
   }): Promise<LlmProviderModel>;
-  checkLlmProvider(name: string): Promise<SecretStatus>;
+  getLlmProviderSecret(name: string): Promise<string>;
+  getLlmProviderModels(name: string): Promise<ProviderModelOption[]>;
+  testLlmProviderConnection(input: {
+    providerName?: string | null;
+    baseUrl: string;
+    apiKey: string | null;
+    model: string;
+  }): Promise<{ ok: boolean; message: string }>;
   saveFasterWhisperDefaults(input: {
     cacheDir: string;
     defaultModel: string;
@@ -44,12 +51,47 @@ export type SettingsProps = {
 const fallbackFasterWhisperModels = ["tiny", "base", "small", "medium", "large-v3"];
 
 type ProviderDraft = {
-  displayName: string;
+  name: string;
   baseUrl: string;
   defaultChatModel: string;
   apiKeyRef: string;
   secretValue: string;
 };
+
+const providerPresets: LlmProviderModel[] = [
+  {
+    name: "openai",
+    type: "openai_compatible",
+    baseUrl: "https://api.openai.com/v1",
+    apiKeyRef: null,
+    defaultChatModel: null,
+    displayName: null
+  },
+  {
+    name: "deepseek",
+    type: "openai_compatible",
+    baseUrl: "https://api.deepseek.com",
+    apiKeyRef: null,
+    defaultChatModel: null,
+    displayName: null
+  },
+  {
+    name: "openrouter",
+    type: "openai_compatible",
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiKeyRef: null,
+    defaultChatModel: null,
+    displayName: null
+  },
+  {
+    name: "ollama",
+    type: "openai_compatible",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    apiKeyRef: null,
+    defaultChatModel: null,
+    displayName: null
+  }
+];
 
 function defaultApiKeyRef(name: string): string {
   return `sqlite:openbbq/providers/${name}/api_key`;
@@ -57,12 +99,24 @@ function defaultApiKeyRef(name: string): string {
 
 function providerDraft(provider: LlmProviderModel): ProviderDraft {
   return {
-    displayName: provider.displayName ?? provider.name,
+    name: providerDisplayName(provider),
     baseUrl: provider.baseUrl ?? "",
     defaultChatModel: provider.defaultChatModel ?? "",
     apiKeyRef: provider.apiKeyRef ?? "",
     secretValue: ""
   };
+}
+
+function providerDisplayName(provider: LlmProviderModel): string {
+  return provider.displayName ?? provider.name;
+}
+
+function providerStorageName(label: string): string {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function defaultLlmProvider(name: string): LlmProviderModel {
@@ -72,17 +126,26 @@ function defaultLlmProvider(name: string): LlmProviderModel {
     baseUrl: null,
     apiKeyRef: defaultApiKeyRef(name),
     defaultChatModel: null,
-    displayName: name
+    displayName: null
   };
 }
 
 function llmProviderOptions(settings: RuntimeSettingsModel): LlmProviderModel[] {
   const defaultName = settings.defaults.llmProvider;
-  if (settings.llmProviders.some((provider) => provider.name === defaultName)) {
-    return settings.llmProviders;
+  const providersByName = new Map<string, LlmProviderModel>();
+
+  for (const provider of providerPresets) {
+    providersByName.set(provider.name, provider);
+  }
+  for (const provider of settings.llmProviders) {
+    providersByName.set(provider.name, provider);
   }
 
-  return [defaultLlmProvider(defaultName), ...settings.llmProviders];
+  if (!providersByName.has(defaultName)) {
+    providersByName.set(defaultName, defaultLlmProvider(defaultName));
+  }
+
+  return [...providersByName.values()];
 }
 
 function upsertProvider(providers: LlmProviderModel[], saved: LlmProviderModel): LlmProviderModel[] {
@@ -201,15 +264,17 @@ function mergeRefreshedModelStatuses(
 }
 
 export function Settings({
-  checkLlmProvider,
   downloadFasterWhisperModel,
   getFasterWhisperModelDownload,
+  getLlmProviderSecret,
+  getLlmProviderModels,
   loadDiagnostics,
   loadModels,
   loadSettings,
   saveFasterWhisperDefaults,
   saveLlmProvider,
-  saveRuntimeDefaults
+  saveRuntimeDefaults,
+  testLlmProviderConnection
 }: SettingsProps) {
   const [section, setSection] = useState<SettingsSection>("llm");
   const [settings, setSettings] = useState<RuntimeSettingsModel | null>(null);
@@ -410,10 +475,12 @@ export function Settings({
       <div className="min-w-0">
         {section === "llm" ? (
           <LlmProviderSection
-            checkLlmProvider={checkLlmProvider}
+            getLlmProviderModels={getLlmProviderModels}
+            getLlmProviderSecret={getLlmProviderSecret}
             saveLlmProvider={saveLlmProvider}
             saveRuntimeDefaults={saveRuntimeDefaults}
             settings={settings}
+            testLlmProviderConnection={testLlmProviderConnection}
             onSettingsChange={setSettings}
           />
         ) : null}
@@ -455,17 +522,21 @@ function SectionButton({ active, children, onClick }: { active: boolean; childre
 }
 
 function LlmProviderSection({
-  checkLlmProvider,
+  getLlmProviderSecret,
+  getLlmProviderModels,
   onSettingsChange,
   saveLlmProvider,
   saveRuntimeDefaults,
-  settings
+  settings,
+  testLlmProviderConnection
 }: {
   settings: RuntimeSettingsModel;
   onSettingsChange(settings: RuntimeSettingsModel): void;
   saveRuntimeDefaults: SettingsProps["saveRuntimeDefaults"];
   saveLlmProvider: SettingsProps["saveLlmProvider"];
-  checkLlmProvider: SettingsProps["checkLlmProvider"];
+  getLlmProviderSecret: SettingsProps["getLlmProviderSecret"];
+  getLlmProviderModels: SettingsProps["getLlmProviderModels"];
+  testLlmProviderConnection: SettingsProps["testLlmProviderConnection"];
 }) {
   const [selectedName, setSelectedName] = useState(settings.defaults.llmProvider);
   const providers = useMemo(() => llmProviderOptions(settings), [settings]);
@@ -473,25 +544,43 @@ function LlmProviderSection({
     () => providers.find((provider) => provider.name === selectedName) ?? providers[0],
     [providers, selectedName]
   );
+  const [customDraft, setCustomDraft] = useState<ProviderDraft>({
+    name: "",
+    baseUrl: "",
+    defaultChatModel: "",
+    apiKeyRef: "",
+    secretValue: ""
+  });
+  const [customModalOpen, setCustomModalOpen] = useState(false);
+  const [customConnectionLoading, setCustomConnectionLoading] = useState(false);
+  const [customFeedback, setCustomFeedback] = useState<string | null>(null);
+  const [customMutationError, setCustomMutationError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ProviderDraft>(() =>
     selected
       ? providerDraft(selected)
-      : { displayName: "", baseUrl: "", defaultChatModel: "", apiKeyRef: "", secretValue: "" }
+      : { name: "", baseUrl: "", defaultChatModel: "", apiKeyRef: "", secretValue: "" }
   );
-  const [secretStatus, setSecretStatus] = useState<SecretStatus | null>(null);
+  const [providerModels, setProviderModels] = useState<ProviderModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [apiKeyDirty, setApiKeyDirty] = useState(false);
+  const [secretLoading, setSecretLoading] = useState(false);
+  const [connectionLoading, setConnectionLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const selectedConfigured = settings.llmProviders.some((provider) => provider.name === selected.name);
 
   useEffect(() => {
-    if (!selected) {
+    const nextSelected = providers.find((provider) => provider.name === selectedName) ?? providers[0];
+    if (!nextSelected) {
       return;
     }
 
-    setDraft(providerDraft(selected));
-    setSecretStatus(null);
+    setDraft(providerDraft(nextSelected));
+    setProviderModels([]);
+    setApiKeyDirty(false);
     setFeedback(null);
     setMutationError(null);
-  }, [selected]);
+  }, [providers, selectedName]);
 
   if (!selected) {
     return (
@@ -507,23 +596,31 @@ function LlmProviderSection({
     setMutationError(null);
 
     try {
-      const secretValue = emptyToNull(draft.secretValue);
+      const displayName = draft.name.trim();
+      const name = selectedConfigured ? selected.name : providerStorageName(displayName);
+      if (!displayName || !name) {
+        setMutationError("Provider name is required.");
+        return;
+      }
+
+      const secretValue = apiKeyDirty ? emptyToNull(draft.secretValue) : null;
       const saved = await saveLlmProvider({
-        name: selected.name,
+        name,
         type: "openai_compatible",
         baseUrl: emptyToNull(draft.baseUrl),
         defaultChatModel: emptyToNull(draft.defaultChatModel),
         secretValue,
         apiKeyRef: secretValue
-          ? defaultApiKeyRef(selected.name)
-          : (emptyToNull(draft.apiKeyRef) ?? defaultApiKeyRef(selected.name)),
-        displayName: emptyToNull(draft.displayName)
+          ? defaultApiKeyRef(name)
+          : (emptyToNull(draft.apiKeyRef) ?? defaultApiKeyRef(name)),
+        displayName: displayName === name ? null : displayName
       });
 
       onSettingsChange({
         ...settings,
         llmProviders: upsertProvider(settings.llmProviders, saved)
       });
+      setSelectedName(saved.name);
       setDraft((current) => ({ ...current, secretValue: "" }));
       setFeedback("Provider saved.");
     } catch (error) {
@@ -547,19 +644,123 @@ function LlmProviderSection({
     }
   }
 
-  async function checkSecret() {
-    setFeedback(null);
-    setMutationError(null);
+  async function saveCustomProvider() {
+    setCustomMutationError(null);
 
     try {
-      setSecretStatus(await checkLlmProvider(selected.name));
+      const displayName = customDraft.name.trim();
+      const name = providerStorageName(displayName);
+      if (!displayName || !name) {
+        setCustomMutationError("Provider name is required.");
+        return;
+      }
+
+      const secretValue = emptyToNull(customDraft.secretValue);
+      const saved = await saveLlmProvider({
+        name,
+        type: "openai_compatible",
+        baseUrl: emptyToNull(customDraft.baseUrl),
+        defaultChatModel: emptyToNull(customDraft.defaultChatModel),
+        secretValue,
+        apiKeyRef: secretValue
+          ? defaultApiKeyRef(name)
+          : (emptyToNull(customDraft.apiKeyRef) ?? defaultApiKeyRef(name)),
+        displayName: displayName === name ? null : displayName
+      });
+
+      onSettingsChange({
+        ...settings,
+        llmProviders: upsertProvider(settings.llmProviders, saved)
+      });
+      setSelectedName(saved.name);
+      setCustomDraft({ name: "", baseUrl: "", defaultChatModel: "", apiKeyRef: "", secretValue: "" });
+      setCustomModalOpen(false);
+      setFeedback("Provider saved.");
     } catch (error) {
-      setSecretStatus(null);
-      setMutationError(errorMessage(error, "Secret could not be checked."));
+      setCustomMutationError(errorMessage(error, "Provider could not be saved."));
+    }
+  }
+
+  async function fetchModels() {
+    setFeedback(null);
+    setMutationError(null);
+    setModelsLoading(true);
+
+    try {
+      const models = await getLlmProviderModels(selected.name);
+      setProviderModels(models);
+      const currentModel = draft.defaultChatModel.trim();
+      if (!currentModel && models[0]) {
+        setDraft((current) => ({ ...current, defaultChatModel: models[0].id }));
+      }
+      setFeedback(models.length > 0 ? "Models loaded." : "No models returned by this provider.");
+    } catch (error) {
+      setProviderModels([]);
+      setMutationError(errorMessage(error, "Models could not be loaded."));
+    } finally {
+      setModelsLoading(false);
+    }
+  }
+
+  async function revealSavedApiKey() {
+    if (apiKeyDirty || draft.secretValue || !selectedConfigured) {
+      return;
+    }
+
+    setSecretLoading(true);
+    setMutationError(null);
+    try {
+      const secretValue = await getLlmProviderSecret(selected.name);
+      setDraft((current) => ({ ...current, secretValue }));
+    } catch (error) {
+      setMutationError(errorMessage(error, "API key could not be loaded."));
+    } finally {
+      setSecretLoading(false);
+    }
+  }
+
+  async function testConnection() {
+    setFeedback(null);
+    setMutationError(null);
+    setConnectionLoading(true);
+
+    try {
+      const result = await testLlmProviderConnection({
+        providerName: selectedConfigured ? selected.name : null,
+        baseUrl: draft.baseUrl,
+        apiKey: emptyToNull(draft.secretValue),
+        model: draft.defaultChatModel
+      });
+      setFeedback(result.message);
+    } catch (error) {
+      setMutationError(errorMessage(error, "Connection test failed."));
+    } finally {
+      setConnectionLoading(false);
+    }
+  }
+
+  async function testCustomConnection() {
+    setCustomFeedback(null);
+    setCustomMutationError(null);
+    setCustomConnectionLoading(true);
+
+    try {
+      const result = await testLlmProviderConnection({
+        providerName: null,
+        baseUrl: customDraft.baseUrl,
+        apiKey: emptyToNull(customDraft.secretValue),
+        model: customDraft.defaultChatModel
+      });
+      setCustomFeedback(result.message);
+    } catch (error) {
+      setCustomMutationError(errorMessage(error, "Connection test failed."));
+    } finally {
+      setCustomConnectionLoading(false);
     }
   }
 
   return (
+    <>
     <section className="grid grid-cols-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)]" aria-label="LLM provider settings">
       <aside className="rounded-lg bg-paper-muted p-3 shadow-control">
         <p className="text-xs font-bold uppercase text-muted">Providers</p>
@@ -579,9 +780,11 @@ function LlmProviderSection({
                 }
               >
                 <span className="block text-sm font-extrabold text-ink-brown">
-                  {provider.displayName ?? provider.name}
+                  {providerDisplayName(provider)}
                 </span>
-                <span className="mt-1 block text-xs text-muted">{provider.name}</span>
+                <span className="mt-1 block text-xs text-muted">
+                  {settings.llmProviders.some((item) => item.name === provider.name) ? "Saved profile" : "Preset"}
+                </span>
                 {settings.defaults.llmProvider === provider.name ? (
                   <span className="mt-1 block text-xs font-bold text-ready">Default</span>
                 ) : null}
@@ -589,6 +792,18 @@ function LlmProviderSection({
             );
           })}
         </div>
+        <Button
+          variant="secondary"
+          className="mt-3 w-full justify-start px-3"
+          onClick={() => {
+            setCustomFeedback(null);
+            setCustomMutationError(null);
+            setCustomModalOpen(true);
+          }}
+        >
+          <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
+          Add custom provider
+        </Button>
       </aside>
 
       <section className="rounded-lg bg-paper-muted p-5 shadow-control">
@@ -597,39 +812,39 @@ function LlmProviderSection({
 
         <div className="mt-4 grid gap-3">
           <TextInput
-            label="Display name"
-            value={draft.displayName}
-            onChange={(displayName) => setDraft((current) => ({ ...current, displayName }))}
+            label="Provider name"
+            value={draft.name}
+            onChange={(name) => {
+              setDraft((current) => ({ ...current, name }));
+            }}
           />
           <TextInput
             label="Base URL"
             value={draft.baseUrl}
-            onChange={(baseUrl) => setDraft((current) => ({ ...current, baseUrl }))}
+            onChange={(baseUrl) => {
+              setDraft((current) => ({ ...current, baseUrl }));
+            }}
           />
-          <TextInput
+          <ModelInput
             label="Default chat model"
+            models={providerModels}
             value={draft.defaultChatModel}
-            onChange={(defaultChatModel) => setDraft((current) => ({ ...current, defaultChatModel }))}
+            onChange={(defaultChatModel) => {
+              setDraft((current) => ({ ...current, defaultChatModel }));
+            }}
           />
           <SecretInput
             label="API key"
             value={draft.secretValue}
-            onChange={(secretValue) => setDraft((current) => ({ ...current, secretValue }))}
+            loading={secretLoading}
+            onChange={(secretValue) => {
+              setApiKeyDirty(true);
+              setDraft((current) => ({ ...current, secretValue }));
+            }}
+            onBeforeReveal={revealSavedApiKey}
           />
         </div>
 
-        {secretStatus ? (
-          <div className="mt-4 rounded-md bg-paper px-3 py-2 text-sm shadow-control" aria-live="polite">
-            <span className="font-bold text-ink-brown">
-              {secretStatus.resolved ? "Secret resolved" : "Secret unresolved"}
-            </span>
-            <span className="ml-2 text-muted">
-              {secretStatus.resolved
-                ? (secretStatus.valuePreview ?? "configured")
-                : "API key is not configured."}
-            </span>
-          </div>
-        ) : null}
         {feedback ? (
           <p className="mt-3 text-sm font-semibold text-ready" aria-live="polite">
             {feedback}
@@ -641,15 +856,87 @@ function LlmProviderSection({
           <Button variant="primary" onClick={() => void saveProvider()}>
             Save provider
           </Button>
-          <Button variant="secondary" onClick={() => void setDefaultProvider()}>
+          <Button variant="secondary" disabled={!selectedConfigured} onClick={() => void setDefaultProvider()}>
             Set as default
           </Button>
-          <Button variant="secondary" onClick={() => void checkSecret()}>
-            Check secret
+          <Button variant="secondary" disabled={!selectedConfigured || modelsLoading} onClick={() => void fetchModels()}>
+            {modelsLoading ? "Fetching models" : "Fetch models"}
+          </Button>
+          <Button variant="secondary" disabled={connectionLoading} onClick={() => void testConnection()}>
+            {connectionLoading ? "Testing connection" : "Test connection"}
           </Button>
         </div>
       </section>
     </section>
+    {customModalOpen ? (
+      <div className="fixed inset-0 z-50 grid place-items-center bg-[#2d241d]/45 px-4 py-6" role="presentation">
+        <section
+          aria-label="Add custom provider"
+          aria-modal="true"
+          role="dialog"
+          className="w-full max-w-[560px] rounded-lg bg-paper-muted p-5 shadow-panel"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase text-muted">OpenAI-compatible profile</p>
+              <h2 className="mt-2 text-2xl font-extrabold leading-tight text-ink-brown">Add custom provider</h2>
+            </div>
+            <Button
+              aria-label="Close custom provider dialog"
+              className="shrink-0 px-0"
+              variant="secondary"
+              onClick={() => setCustomModalOpen(false)}
+            >
+              <X className="mx-auto h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
+
+          <div className="mt-4 grid gap-3">
+            <TextInput
+              label="Provider name"
+              value={customDraft.name}
+              onChange={(name) => setCustomDraft((current) => ({ ...current, name }))}
+            />
+            <TextInput
+              label="Base URL"
+              value={customDraft.baseUrl}
+              onChange={(baseUrl) => setCustomDraft((current) => ({ ...current, baseUrl }))}
+            />
+            <ModelInput
+              label="Default chat model"
+              models={[]}
+              value={customDraft.defaultChatModel}
+              onChange={(defaultChatModel) => setCustomDraft((current) => ({ ...current, defaultChatModel }))}
+            />
+            <SecretInput
+              label="API key"
+              value={customDraft.secretValue}
+              onChange={(secretValue) => setCustomDraft((current) => ({ ...current, secretValue }))}
+            />
+          </div>
+
+          {customFeedback ? (
+            <p className="mt-3 text-sm font-semibold text-ready" aria-live="polite">
+              {customFeedback}
+            </p>
+          ) : null}
+          {customMutationError ? <InlineError>{customMutationError}</InlineError> : null}
+
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" onClick={() => setCustomModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="secondary" disabled={customConnectionLoading} onClick={() => void testCustomConnection()}>
+              {customConnectionLoading ? "Testing connection" : "Test connection"}
+            </Button>
+            <Button variant="primary" onClick={() => void saveCustomProvider()}>
+              Save provider
+            </Button>
+          </div>
+        </section>
+      </div>
+    ) : null}
+    </>
   );
 }
 
@@ -936,16 +1223,27 @@ function SelectInput({
 
 function SecretInput({
   label,
+  loading = false,
+  onBeforeReveal,
   onChange,
   value
 }: {
   label: string;
   value: string;
+  loading?: boolean;
+  onBeforeReveal?(): Promise<void> | void;
   onChange(value: string): void;
 }) {
   const inputId = useId();
   const [visible, setVisible] = useState(false);
   const labelText = visible ? "Hide API key" : "Show API key";
+
+  async function toggleVisibility() {
+    if (!visible) {
+      await onBeforeReveal?.();
+    }
+    setVisible((current) => !current);
+  }
 
   return (
     <div className="grid gap-2 text-xs font-bold uppercase text-muted">
@@ -961,13 +1259,51 @@ function SecretInput({
         <Button
           variant="secondary"
           aria-label={labelText}
+          disabled={loading}
           className="rounded-l-none px-0"
-          onClick={() => setVisible((current) => !current)}
+          onClick={() => void toggleVisibility()}
         >
           {visible ? <EyeOff aria-hidden="true" className="mx-auto size-4" /> : <Eye aria-hidden="true" className="mx-auto size-4" />}
         </Button>
       </div>
     </div>
+  );
+}
+
+function ModelInput({
+  label,
+  models,
+  onChange,
+  value
+}: {
+  label: string;
+  value: string;
+  models: ProviderModelOption[];
+  onChange(value: string): void;
+}) {
+  const listId = useId();
+
+  return (
+    <label className="grid gap-2 text-xs font-bold uppercase text-muted">
+      {label}
+      <input
+        aria-label={label}
+        list={models.length > 0 ? listId : undefined}
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-h-11 min-w-0 rounded-md bg-paper px-3 text-sm font-normal normal-case text-ink shadow-control focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      />
+      {models.length > 0 ? (
+        <datalist id={listId}>
+          {models.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.label ?? model.ownedBy ?? model.id}
+            </option>
+          ))}
+        </datalist>
+      ) : null}
+    </label>
   );
 }
 

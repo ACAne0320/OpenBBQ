@@ -6,8 +6,7 @@ import type {
   DiagnosticCheck,
   RuntimeModelDownloadJob,
   RuntimeModelStatus,
-  RuntimeSettingsModel,
-  SecretStatus
+  RuntimeSettingsModel
 } from "../../lib/types";
 import { Settings, type SettingsProps } from "../Settings";
 
@@ -68,14 +67,6 @@ const diagnostics: DiagnosticCheck[] = [
     message: "Runtime cache root is writable."
   }
 ];
-
-const secretStatus: SecretStatus = {
-  reference: "env:OPENBBQ_LLM_API_KEY",
-  resolved: true,
-  display: "env:OPENBBQ_LLM_API_KEY",
-  valuePreview: "configured",
-  error: null
-};
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -178,7 +169,12 @@ function renderSettings(overrides: Partial<SettingsProps> = {}) {
       defaultChatModel: input.defaultChatModel,
       displayName: input.displayName
     })),
-    checkLlmProvider: vi.fn().mockResolvedValue(clone(secretStatus)),
+    getLlmProviderSecret: vi.fn().mockResolvedValue("sk-stored-secret"),
+    getLlmProviderModels: vi.fn().mockResolvedValue([
+      { id: "gpt-4o-mini", label: null, ownedBy: "openai", contextLength: null },
+      { id: "gpt-4.1-mini", label: null, ownedBy: "openai", contextLength: null }
+    ]),
+    testLlmProviderConnection: vi.fn().mockResolvedValue({ ok: true, message: "Connection test succeeded." }),
     saveFasterWhisperDefaults: vi.fn().mockImplementation(async (input) => ({
       ...clone(settings),
       fasterWhisper: input
@@ -202,7 +198,7 @@ describe("Settings", () => {
     expect(props.loadModels).toHaveBeenCalledTimes(1);
     expect(props.loadDiagnostics).toHaveBeenCalledTimes(1);
 
-    const defaultProvider = screen.getByRole("button", { name: /OpenAI-compatible openai-compatible Default/i });
+    const defaultProvider = screen.getByRole("button", { name: /openai-compatible Saved profile Default/i });
     expect(defaultProvider).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText("Base URL")).toHaveValue("https://api.openai.com/v1");
   });
@@ -240,7 +236,7 @@ describe("Settings", () => {
     renderSettings({ saveRuntimeDefaults });
 
     await screen.findByRole("heading", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: /Local gateway local-gateway/i }));
+    await user.click(screen.getByRole("button", { name: /Local gateway Saved profile/i }));
     await user.click(screen.getByRole("button", { name: "Set as default" }));
 
     expect(saveRuntimeDefaults).toHaveBeenCalledWith({
@@ -272,12 +268,11 @@ describe("Settings", () => {
     await user.click(screen.getByRole("button", { name: "Hide API key" }));
     expect(secretInput).toHaveAttribute("type", "password");
 
-    await user.clear(screen.getByLabelText("Display name"));
-    await user.type(screen.getByLabelText("Display name"), "Production LLM");
     await user.clear(screen.getByLabelText("Base URL"));
     await user.type(screen.getByLabelText("Base URL"), "https://llm.example.test/v1");
     await user.clear(screen.getByLabelText("Default chat model"));
     await user.type(screen.getByLabelText("Default chat model"), "gpt-4.1-mini");
+    await user.clear(secretInput);
     await user.type(secretInput, "sk-test-secret");
     await user.click(screen.getByRole("button", { name: "Save provider" }));
 
@@ -288,7 +283,7 @@ describe("Settings", () => {
       defaultChatModel: "gpt-4.1-mini",
       secretValue: "sk-test-secret",
       apiKeyRef: "sqlite:openbbq/providers/openai-compatible/api_key",
-      displayName: "Production LLM"
+      displayName: "OpenAI-compatible"
     });
     expect(secretInput).toHaveValue("");
   });
@@ -306,8 +301,8 @@ describe("Settings", () => {
     renderSettings({ saveLlmProvider });
 
     await screen.findByRole("heading", { name: "Settings" });
-    await user.clear(screen.getByLabelText("Display name"));
-    await user.type(screen.getByLabelText("Display name"), "Production LLM");
+    await user.clear(screen.getByLabelText("Base URL"));
+    await user.type(screen.getByLabelText("Base URL"), "https://api.openai.com/v1");
     await user.click(screen.getByRole("button", { name: "Save provider" }));
 
     expect(saveLlmProvider).toHaveBeenCalledWith({
@@ -317,7 +312,7 @@ describe("Settings", () => {
       defaultChatModel: "gpt-4o-mini",
       secretValue: null,
       apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
-      displayName: "Production LLM"
+      displayName: "OpenAI-compatible"
     });
   });
 
@@ -340,7 +335,7 @@ describe("Settings", () => {
     });
 
     await screen.findByRole("heading", { name: "Settings" });
-    expect(screen.getByRole("button", { name: /openai-compatible Default/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /openai-compatible Preset Default/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByLabelText("API key reference")).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Base URL"), "https://llm.example.test/v1");
@@ -355,42 +350,178 @@ describe("Settings", () => {
       defaultChatModel: "gpt-4.1-mini",
       secretValue: "sk-test-secret",
       apiKeyRef: "sqlite:openbbq/providers/openai-compatible/api_key",
-      displayName: "openai-compatible"
+      displayName: null
     });
   });
 
-  it("checks a provider secret without echoing the typed secret", async () => {
+  it("adds a custom provider to the provider list only after saving it", async () => {
     const user = userEvent.setup();
-    const checkLlmProvider = vi.fn().mockResolvedValue(clone(secretStatus));
-    renderSettings({ checkLlmProvider });
+    const testLlmProviderConnection = vi.fn().mockResolvedValue({ ok: true, message: "Connection test succeeded." });
+    const saveLlmProvider = vi.fn().mockImplementation(async (input) => ({
+      name: input.name,
+      type: input.type,
+      baseUrl: input.baseUrl,
+      apiKeyRef: input.apiKeyRef,
+      defaultChatModel: input.defaultChatModel,
+      displayName: input.displayName
+    }));
+    renderSettings({ saveLlmProvider, testLlmProviderConnection });
 
     await screen.findByRole("heading", { name: "Settings" });
-    await user.type(screen.getByLabelText("API key"), "sk-test-secret");
-    await user.click(screen.getByRole("button", { name: "Check secret" }));
+    expect(screen.queryByRole("button", { name: /company-gateway Saved profile/i })).not.toBeInTheDocument();
 
-    expect(checkLlmProvider).toHaveBeenCalledWith("openai-compatible");
-    expect(await screen.findByText("Secret resolved")).toBeInTheDocument();
-    expect(screen.getByText("configured")).toBeInTheDocument();
-    expect(screen.queryByText("sk-test-secret")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add custom provider" }));
+    const dialog = screen.getByRole("dialog", { name: "Add custom provider" });
+
+    await user.type(within(dialog).getByLabelText("Provider name"), "company-gateway");
+    await user.type(within(dialog).getByLabelText("Base URL"), "https://llm.example.test/v1");
+    await user.type(within(dialog).getByLabelText("Default chat model"), "company-chat");
+    await user.type(within(dialog).getByLabelText("API key"), "sk-company");
+    await user.click(within(dialog).getByRole("button", { name: "Test connection" }));
+
+    expect(testLlmProviderConnection).toHaveBeenCalledWith({
+      providerName: null,
+      baseUrl: "https://llm.example.test/v1",
+      apiKey: "sk-company",
+      model: "company-chat"
+    });
+    expect(await within(dialog).findByText("Connection test succeeded.")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Save provider" }));
+
+    expect(saveLlmProvider).toHaveBeenCalledWith({
+      name: "company-gateway",
+      type: "openai_compatible",
+      baseUrl: "https://llm.example.test/v1",
+      defaultChatModel: "company-chat",
+      secretValue: "sk-company",
+      apiKeyRef: "sqlite:openbbq/providers/company-gateway/api_key",
+      displayName: null
+    });
+    expect(await screen.findByRole("button", { name: /company-gateway Saved profile/i })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.queryByRole("dialog", { name: "Add custom provider" })).not.toBeInTheDocument();
   });
 
-  it("does not expose the API key reference when a provider secret is unresolved", async () => {
+  it("stores custom provider display names with spaces under a generated provider id", async () => {
     const user = userEvent.setup();
-    const checkLlmProvider = vi.fn().mockResolvedValue({
-      reference: "sqlite:openbbq/providers/openai-compatible/api_key",
-      resolved: false,
-      display: "sqlite:openbbq/providers/openai-compatible/api_key",
-      valuePreview: null,
-      error: "Secret sqlite:openbbq/providers/openai-compatible/api_key was not found."
-    });
-    renderSettings({ checkLlmProvider });
+    const saveLlmProvider = vi.fn().mockImplementation(async (input) => ({
+      name: input.name,
+      type: input.type,
+      baseUrl: input.baseUrl,
+      apiKeyRef: input.apiKeyRef,
+      defaultChatModel: input.defaultChatModel,
+      displayName: input.displayName
+    }));
+    renderSettings({ saveLlmProvider });
 
     await screen.findByRole("heading", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Check secret" }));
+    await user.click(screen.getByRole("button", { name: "Add custom provider" }));
+    const dialog = screen.getByRole("dialog", { name: "Add custom provider" });
 
-    expect(await screen.findByText("Secret unresolved")).toBeInTheDocument();
-    expect(screen.getByText("API key is not configured.")).toBeInTheDocument();
-    expect(screen.queryByText(/sqlite:openbbq\/providers\/openai-compatible\/api_key/)).not.toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText("Provider name"), "MIMO Plan Pro");
+    await user.type(within(dialog).getByLabelText("Base URL"), "https://token-plan-cn.xiaomimimo.com/v1");
+    await user.type(within(dialog).getByLabelText("Default chat model"), "mimo-v2.5-pro");
+    await user.type(within(dialog).getByLabelText("API key"), "sk-mimo");
+    await user.click(within(dialog).getByRole("button", { name: "Save provider" }));
+
+    expect(saveLlmProvider).toHaveBeenCalledWith({
+      name: "mimo-plan-pro",
+      type: "openai_compatible",
+      baseUrl: "https://token-plan-cn.xiaomimimo.com/v1",
+      defaultChatModel: "mimo-v2.5-pro",
+      secretValue: "sk-mimo",
+      apiKeyRef: "sqlite:openbbq/providers/mimo-plan-pro/api_key",
+      displayName: "MIMO Plan Pro"
+    });
+    expect(await screen.findByRole("button", { name: /MIMO Plan Pro Saved profile/i })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  });
+
+  it("fetches provider models and uses the first model when none is selected", async () => {
+    const user = userEvent.setup();
+    const getLlmProviderModels = vi.fn().mockResolvedValue([
+      { id: "gpt-4.1-mini", label: null, ownedBy: "openai", contextLength: null },
+      { id: "gpt-4o-mini", label: null, ownedBy: "openai", contextLength: null }
+    ]);
+    renderSettings({
+      loadSettings: vi.fn().mockResolvedValue({
+        ...clone(settings),
+        llmProviders: [
+          {
+            ...settings.llmProviders[0],
+            defaultChatModel: null
+          }
+        ]
+      }),
+      getLlmProviderModels
+    });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "Fetch models" }));
+
+    expect(getLlmProviderModels).toHaveBeenCalledWith("openai-compatible");
+    expect(await screen.findByText("Models loaded.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Default chat model")).toHaveValue("gpt-4.1-mini");
+  });
+
+  it("reveals a saved API key as plaintext without rewriting it on metadata save", async () => {
+    const user = userEvent.setup();
+    const getLlmProviderSecret = vi.fn().mockResolvedValue("sk-stored-secret");
+    const saveLlmProvider = vi.fn().mockImplementation(async (input) => ({
+      name: input.name,
+      type: input.type,
+      baseUrl: input.baseUrl,
+      apiKeyRef: input.apiKeyRef,
+      defaultChatModel: input.defaultChatModel,
+      displayName: input.displayName
+    }));
+    renderSettings({ getLlmProviderSecret, saveLlmProvider });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    const secretInput = screen.getByLabelText("API key");
+    expect(secretInput).toHaveAttribute("type", "password");
+
+    await user.click(screen.getByRole("button", { name: "Show API key" }));
+
+    expect(getLlmProviderSecret).toHaveBeenCalledWith("openai-compatible");
+    expect(secretInput).toHaveAttribute("type", "text");
+    expect(secretInput).toHaveValue("sk-stored-secret");
+
+    await user.click(screen.getByRole("button", { name: "Save provider" }));
+
+    expect(saveLlmProvider).toHaveBeenCalledWith({
+      name: "openai-compatible",
+      type: "openai_compatible",
+      baseUrl: "https://api.openai.com/v1",
+      defaultChatModel: "gpt-4o-mini",
+      secretValue: null,
+      apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
+      displayName: "OpenAI-compatible"
+    });
+  });
+
+  it("tests provider connection with the current form values", async () => {
+    const user = userEvent.setup();
+    const testLlmProviderConnection = vi.fn().mockResolvedValue({ ok: true, message: "Connection test succeeded." });
+    renderSettings({ testLlmProviderConnection });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.clear(screen.getByLabelText("API key"));
+    await user.type(screen.getByLabelText("API key"), "sk-live");
+    await user.click(screen.getByRole("button", { name: "Test connection" }));
+
+    expect(testLlmProviderConnection).toHaveBeenCalledWith({
+      providerName: "openai-compatible",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "sk-live",
+      model: "gpt-4o-mini"
+    });
+    expect(await screen.findByText("Connection test succeeded.")).toBeInTheDocument();
   });
 
   it("renders LLM mutation failures without throwing unhandled rejections", async () => {
@@ -403,21 +534,16 @@ describe("Settings", () => {
     expect(await screen.findByText("Provider write failed.")).toBeInTheDocument();
   });
 
-  it("renders default-provider and secret-check failures", async () => {
+  it("renders default-provider failures", async () => {
     const user = userEvent.setup();
     renderSettings({
-      saveRuntimeDefaults: vi.fn().mockRejectedValue(new Error("Defaults write failed.")),
-      checkLlmProvider: vi.fn().mockRejectedValue(new Error("Secret check failed."))
+      saveRuntimeDefaults: vi.fn().mockRejectedValue(new Error("Defaults write failed."))
     });
 
     await screen.findByRole("heading", { name: "Settings" });
     await user.click(screen.getByRole("button", { name: "Set as default" }));
 
     expect(await screen.findByText("Defaults write failed.")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Check secret" }));
-
-    expect(await screen.findByText("Secret check failed.")).toBeInTheDocument();
   });
 
   it("saves faster-whisper defaults", async () => {

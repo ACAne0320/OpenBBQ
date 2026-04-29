@@ -4,6 +4,9 @@ import type {
   DownloadFasterWhisperModelInput,
   LlmProviderModel,
   LocalMediaSelection,
+  ProviderConnectionTestInput,
+  ProviderConnectionTestResult,
+  ProviderModelOption,
   ReviewModel,
   RuntimeModelDownloadJob,
   RuntimeModelStatus,
@@ -32,6 +35,9 @@ export type OpenBBQClient = {
   saveRuntimeDefaults(input: SaveRuntimeDefaultsInput): Promise<RuntimeSettingsModel>;
   saveLlmProvider(input: SaveLlmProviderInput): Promise<LlmProviderModel>;
   checkLlmProvider(name: string): Promise<SecretStatus>;
+  getLlmProviderSecret(name: string): Promise<string>;
+  getLlmProviderModels(name: string): Promise<ProviderModelOption[]>;
+  testLlmProviderConnection(input: ProviderConnectionTestInput): Promise<ProviderConnectionTestResult>;
   saveFasterWhisperDefaults(input: SaveFasterWhisperDefaultsInput): Promise<RuntimeSettingsModel>;
   getRuntimeModels(): Promise<RuntimeModelStatus[]>;
   downloadFasterWhisperModel(input: DownloadFasterWhisperModelInput): Promise<RuntimeModelDownloadJob>;
@@ -182,6 +188,32 @@ export function createMockClient(): OpenBBQClient {
         valuePreview: reference.length > 0 ? "configured" : null,
         error: reference.length > 0 ? null : `Provider '${name}' does not define an API key reference.`
       };
+    },
+    async getLlmProviderSecret(name) {
+      const provider = runtimeSettings.llmProviders.find((item) => item.name === name);
+      if (!provider?.apiKeyRef) {
+        throw new Error(`Provider '${name}' does not define an API key reference.`);
+      }
+      return "sk-mock-secret";
+    },
+    async getLlmProviderModels(name) {
+      const provider = runtimeSettings.llmProviders.find((item) => item.name === name);
+      if (!provider) {
+        throw new Error(`Provider '${name}' is not configured.`);
+      }
+      if (provider.name === "local-gateway") {
+        return [{ id: "qwen2.5", label: null, ownedBy: "local", contextLength: null }];
+      }
+      return [
+        { id: "gpt-4o-mini", label: null, ownedBy: "openai", contextLength: null },
+        { id: "gpt-4.1-mini", label: null, ownedBy: "openai", contextLength: null }
+      ];
+    },
+    async testLlmProviderConnection(input) {
+      if (!input.baseUrl || !input.model) {
+        throw new Error("Base URL and model are required.");
+      }
+      return { ok: true, message: "Connection test succeeded." };
     },
     async saveFasterWhisperDefaults(input) {
       const cacheDirChanged = input.cacheDir !== runtimeSettings.fasterWhisper.cacheDir;

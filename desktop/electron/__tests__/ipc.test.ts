@@ -232,6 +232,98 @@ describe("desktop IPC actions", () => {
     );
   });
 
+  it("loads provider models through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            models: [
+              {
+                id: "openai/gpt-4.1-mini",
+                label: "GPT-4.1 Mini",
+                owned_by: "openai",
+                context_length: 1047576
+              }
+            ]
+          }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { getLlmProviderModels } = await import("../ipc");
+
+    await expect(getLlmProviderModels(sidecar, "openrouter")).resolves.toEqual([
+      {
+        id: "openai/gpt-4.1-mini",
+        label: "GPT-4.1 Mini",
+        ownedBy: "openai",
+        contextLength: 1047576
+      }
+    ]);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/runtime/providers/openrouter/models",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("loads provider secret plaintext through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, data: { value: "sk-local" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { getLlmProviderSecret } = await import("../ipc");
+
+    await expect(getLlmProviderSecret(sidecar, "openai")).resolves.toBe("sk-local");
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/runtime/providers/openai/secret",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("tests provider connection through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ ok: true, data: { ok: true, message: "Connection test succeeded." } }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { testLlmProviderConnection } = await import("../ipc");
+
+    await expect(
+      testLlmProviderConnection(sidecar, {
+        providerName: "openai",
+        baseUrl: "https://api.openai.com/v1",
+        apiKey: "sk-test",
+        model: "gpt-4.1-mini"
+      })
+    ).resolves.toEqual({ ok: true, message: "Connection test succeeded." });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/runtime/providers/test-connection",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          provider_name: "openai",
+          base_url: "https://api.openai.com/v1",
+          api_key: "sk-test",
+          model: "gpt-4.1-mini"
+        })
+      })
+    );
+  });
+
   it("downloads a faster-whisper model through the sidecar", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(

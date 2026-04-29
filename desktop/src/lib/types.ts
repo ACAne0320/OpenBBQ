@@ -127,6 +127,13 @@ export type LlmProviderModel = {
   displayName: string | null;
 };
 
+export type ProviderModelOption = {
+  id: string;
+  label: string | null;
+  ownedBy: string | null;
+  contextLength: number | null;
+};
+
 export type FasterWhisperSettingsModel = {
   cacheDir: string;
   defaultModel: string;
@@ -167,6 +174,18 @@ export type SecretStatus = {
   display: string;
   valuePreview: string | null;
   error: string | null;
+};
+
+export type ProviderConnectionTestInput = {
+  providerName?: string | null;
+  baseUrl: string;
+  apiKey: string | null;
+  model: string;
+};
+
+export type ProviderConnectionTestResult = {
+  ok: boolean;
+  message: string;
 };
 
 export type DiagnosticCheck = {

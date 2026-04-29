@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -167,6 +167,116 @@ describe("TaskMonitor", () => {
     } finally {
       if (scrollHeight) {
         Object.defineProperty(HTMLElement.prototype, "scrollHeight", scrollHeight);
+      }
+    }
+  });
+
+  it("does not force runtime logs back to the bottom after the user scrolls up", () => {
+    let currentScrollHeight = 1200;
+    const scrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+    const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get: () => currentScrollHeight
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      get: () => 420
+    });
+
+    try {
+      const { rerender } = render(
+        <TaskMonitor
+          task={{
+            ...failedTask,
+            logs: Array.from({ length: 40 }, (_, index) => ({
+              sequence: index + 1,
+              timestamp: `2026-04-28T10:00:${String(index).padStart(2, "0")}.000Z`,
+              level: "info" as const,
+              message: `Log line ${index + 1}`
+            }))
+          }}
+          onRetry={vi.fn()}
+        />
+      );
+
+      const viewport = screen.getByTestId("runtime-log-scroll");
+      viewport.scrollTop = 220;
+      fireEvent.scroll(viewport);
+      expect(screen.getByRole("button", { name: "Jump to latest log" })).toBeInTheDocument();
+
+      currentScrollHeight = 1400;
+      rerender(
+        <TaskMonitor
+          task={{
+            ...failedTask,
+            logs: Array.from({ length: 41 }, (_, index) => ({
+              sequence: index + 1,
+              timestamp: `2026-04-28T10:00:${String(index).padStart(2, "0")}.000Z`,
+              level: "info" as const,
+              message: `Log line ${index + 1}`
+            }))
+          }}
+          onRetry={vi.fn()}
+        />
+      );
+
+      expect(viewport.scrollTop).toBe(220);
+    } finally {
+      if (scrollHeight) {
+        Object.defineProperty(HTMLElement.prototype, "scrollHeight", scrollHeight);
+      }
+      if (clientHeight) {
+        Object.defineProperty(HTMLElement.prototype, "clientHeight", clientHeight);
+      }
+    }
+  });
+
+  it("jumps runtime logs to the latest row from the floating button", async () => {
+    const user = userEvent.setup();
+    const scrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+    const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get: () => 1200
+    });
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+      configurable: true,
+      get: () => 420
+    });
+
+    try {
+      render(
+        <TaskMonitor
+          task={{
+            ...failedTask,
+            logs: Array.from({ length: 40 }, (_, index) => ({
+              sequence: index + 1,
+              timestamp: `2026-04-28T10:00:${String(index).padStart(2, "0")}.000Z`,
+              level: "info" as const,
+              message: `Log line ${index + 1}`
+            }))
+          }}
+          onRetry={vi.fn()}
+        />
+      );
+
+      const viewport = screen.getByTestId("runtime-log-scroll");
+      const scrollTo = vi.fn();
+      viewport.scrollTo = scrollTo;
+      viewport.scrollTop = 180;
+      fireEvent.scroll(viewport);
+
+      await user.click(screen.getByRole("button", { name: "Jump to latest log" }));
+
+      expect(scrollTo).toHaveBeenCalledWith({ top: 1200, behavior: "smooth" });
+      expect(screen.queryByRole("button", { name: "Jump to latest log" })).not.toBeInTheDocument();
+    } finally {
+      if (scrollHeight) {
+        Object.defineProperty(HTMLElement.prototype, "scrollHeight", scrollHeight);
+      }
+      if (clientHeight) {
+        Object.defineProperty(HTMLElement.prototype, "clientHeight", clientHeight);
       }
     }
   });

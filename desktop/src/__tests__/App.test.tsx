@@ -138,6 +138,15 @@ function createTestClient(
         error: null
       };
     },
+    async getLlmProviderSecret() {
+      return "sk-test";
+    },
+    async getLlmProviderModels() {
+      return [{ id: "gpt-4o-mini", label: null, ownedBy: "openai", contextLength: null }];
+    },
+    async testLlmProviderConnection() {
+      return { ok: true, message: "Connection test succeeded." };
+    },
     async saveFasterWhisperDefaults(input) {
       return {
         configPath: "C:/Users/alex/.openbbq/config.toml",

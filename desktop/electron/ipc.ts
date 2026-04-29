@@ -8,6 +8,8 @@ import type {
   ApiModelAssetStatus,
   ApiModelDownloadData,
   ApiProviderProfile,
+  ApiProviderModel,
+  ApiProviderConnectionTestData,
   ApiQuickstartTaskRecord,
   ApiRunRecord,
   ApiRuntimeSettings,
@@ -24,6 +26,9 @@ import type {
   DiagnosticCheck,
   DownloadFasterWhisperModelInput,
   LlmProviderModel,
+  ProviderConnectionTestInput,
+  ProviderConnectionTestResult,
+  ProviderModelOption,
   RuntimeModelDownloadJob,
   RuntimeModelStatus,
   RuntimeSettingsModel,
@@ -60,6 +65,18 @@ export function registerOpenBBQIpc(context: IpcContext): () => void {
       async (_event, input) => saveLlmProvider(context.getSidecar(), input as SaveLlmProviderInput)
     ],
     ["openbbq:check-llm-provider", async (_event, name) => checkLlmProvider(context.getSidecar(), String(name))],
+    [
+      "openbbq:get-llm-provider-secret",
+      async (_event, name) => getLlmProviderSecret(context.getSidecar(), String(name))
+    ],
+    [
+      "openbbq:get-llm-provider-models",
+      async (_event, name) => getLlmProviderModels(context.getSidecar(), String(name))
+    ],
+    [
+      "openbbq:test-llm-provider-connection",
+      async (_event, input) => testLlmProviderConnection(context.getSidecar(), input as ProviderConnectionTestInput)
+    ],
     [
       "openbbq:save-faster-whisper-defaults",
       async (_event, input) => saveFasterWhisperDefaults(context.getSidecar(), input as SaveFasterWhisperDefaultsInput)
@@ -232,6 +249,15 @@ function toSecretStatus(secret: ApiSecretCheck): SecretStatus {
   };
 }
 
+function toProviderModelOption(model: ApiProviderModel): ProviderModelOption {
+  return {
+    id: model.id,
+    label: model.label ?? null,
+    ownedBy: model.owned_by ?? null,
+    contextLength: model.context_length ?? null
+  };
+}
+
 export async function getRuntimeSettings(sidecar: ManagedSidecar): Promise<RuntimeSettingsModel> {
   const data = await requestJson<{ settings: ApiRuntimeSettings }>(sidecar.connection, "/runtime/settings");
   return toRuntimeSettingsModel(data.settings);
@@ -276,6 +302,45 @@ export async function checkLlmProvider(sidecar: ManagedSidecar, name: string): P
     `/runtime/providers/${encodeURIComponent(name)}/check`
   );
   return toSecretStatus(data.secret);
+}
+
+export async function getLlmProviderSecret(sidecar: ManagedSidecar, name: string): Promise<string> {
+  const data = await requestJson<{ value: string }>(
+    sidecar.connection,
+    `/runtime/providers/${encodeURIComponent(name)}/secret`
+  );
+  return data.value;
+}
+
+export async function getLlmProviderModels(
+  sidecar: ManagedSidecar,
+  name: string
+): Promise<ProviderModelOption[]> {
+  const data = await requestJson<{ models: ApiProviderModel[] }>(
+    sidecar.connection,
+    `/runtime/providers/${encodeURIComponent(name)}/models`
+  );
+  return data.models.map(toProviderModelOption);
+}
+
+export async function testLlmProviderConnection(
+  sidecar: ManagedSidecar,
+  input: ProviderConnectionTestInput
+): Promise<ProviderConnectionTestResult> {
+  const data = await requestJson<ApiProviderConnectionTestData>(
+    sidecar.connection,
+    "/runtime/providers/test-connection",
+    {
+      method: "POST",
+      body: {
+        provider_name: input.providerName ?? null,
+        base_url: input.baseUrl,
+        api_key: input.apiKey,
+        model: input.model
+      }
+    }
+  );
+  return { ok: data.ok, message: data.message };
 }
 
 export async function saveFasterWhisperDefaults(

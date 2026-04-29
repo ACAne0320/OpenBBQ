@@ -12,6 +12,10 @@ from openbbq.api.schemas import (
     FasterWhisperSettingsSetRequest,
     ModelListData,
     ProviderAuthSetRequest,
+    ProviderConnectionTestData,
+    ProviderConnectionTestRequest,
+    ProviderModelListData,
+    ProviderSecretValueData,
     RuntimeDefaultsSetRequest,
     RuntimeSettingsData,
     RuntimeSettingsSetData,
@@ -32,6 +36,9 @@ from openbbq.application.runtime import (
     faster_whisper_download_status,
     faster_whisper_set,
     model_list,
+    provider_model_list,
+    provider_connection_test,
+    provider_secret_value,
     provider_set,
     secret_check,
     secret_set,
@@ -47,6 +54,9 @@ from openbbq.application.runtime import (
     RuntimeDefaultsSetRequest as ApplicationRuntimeDefaultsSetRequest,
 )
 from openbbq.application.runtime import SecretSetRequest as ApplicationSecretSetRequest
+from openbbq.application.runtime import (
+    ProviderConnectionTestRequest as ApplicationProviderConnectionTestRequest,
+)
 from openbbq.application.runtime import SecretCheckResult
 
 router = APIRouter(tags=["runtime"])
@@ -82,6 +92,36 @@ def put_provider(name: str, body: ProviderSetRequest) -> ApiSuccess[ProviderSetR
 @router.get("/runtime/providers/{name}/check", response_model=ApiSuccess[AuthCheckResult])
 def check_provider(name: str) -> ApiSuccess[AuthCheckResult]:
     return ApiSuccess(data=auth_check(name))
+
+
+@router.get("/runtime/providers/{name}/models", response_model=ApiSuccess[ProviderModelListData])
+def get_provider_models(name: str) -> ApiSuccess[ProviderModelListData]:
+    result = provider_model_list(name)
+    return ApiSuccess(data=ProviderModelListData(models=result.models))
+
+
+@router.get("/runtime/providers/{name}/secret", response_model=ApiSuccess[ProviderSecretValueData])
+def get_provider_secret(name: str) -> ApiSuccess[ProviderSecretValueData]:
+    result = provider_secret_value(name)
+    return ApiSuccess(data=ProviderSecretValueData(value=result.value))
+
+
+@router.post(
+    "/runtime/providers/test-connection",
+    response_model=ApiSuccess[ProviderConnectionTestData],
+)
+def post_provider_connection_test(
+    body: ProviderConnectionTestRequest,
+) -> ApiSuccess[ProviderConnectionTestData]:
+    result = provider_connection_test(
+        ApplicationProviderConnectionTestRequest(
+            provider_name=body.provider_name,
+            base_url=body.base_url,
+            api_key=body.api_key,
+            model=body.model,
+        )
+    )
+    return ApiSuccess(data=ProviderConnectionTestData(ok=result.ok, message=result.message))
 
 
 @router.put("/runtime/providers/{name}/auth", response_model=ApiSuccess[AuthSetResult])

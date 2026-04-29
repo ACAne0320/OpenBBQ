@@ -155,6 +155,16 @@ class ModelAssetStatus(OpenBBQModel):
         return model_payload(self)
 
 
+class ProviderModel(OpenBBQModel):
+    id: str
+    label: str | None = None
+    owned_by: str | None = None
+    context_length: int | None = None
+
+    def public_dict(self) -> JsonObject:
+        return model_payload(self)
+
+
 ModelDownloadStatus = Literal["queued", "running", "completed", "failed"]
 
 

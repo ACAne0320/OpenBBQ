@@ -53,6 +53,14 @@ describe("createDesktopClient", () => {
         valuePreview: "sk-...",
         error: null
       }),
+      getLlmProviderSecret: vi.fn().mockResolvedValue("sk-test"),
+      getLlmProviderModels: vi.fn().mockResolvedValue([
+        { id: "gpt-4o-mini", label: null, ownedBy: "openai", contextLength: null }
+      ]),
+      testLlmProviderConnection: vi.fn().mockResolvedValue({
+        ok: true,
+        message: "Connection test succeeded."
+      }),
       saveFasterWhisperDefaults: vi.fn().mockResolvedValue({
         configPath: "config.toml",
         cacheRoot: "cache",
@@ -136,6 +144,14 @@ describe("createDesktopClient", () => {
       displayName: null
     });
     await client.checkLlmProvider("openai-compatible");
+    await client.getLlmProviderSecret("openai-compatible");
+    await client.getLlmProviderModels("openai-compatible");
+    await client.testLlmProviderConnection({
+      providerName: "openai-compatible",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "sk-test",
+      model: "gpt-4o-mini"
+    });
     await client.saveFasterWhisperDefaults({
       cacheDir: "C:/models/fw",
       defaultModel: "small",
@@ -149,6 +165,9 @@ describe("createDesktopClient", () => {
     expect(api.saveRuntimeDefaults).toHaveBeenCalled();
     expect(api.saveLlmProvider).toHaveBeenCalled();
     expect(api.checkLlmProvider).toHaveBeenCalledWith("openai-compatible");
+    expect(api.getLlmProviderSecret).toHaveBeenCalledWith("openai-compatible");
+    expect(api.getLlmProviderModels).toHaveBeenCalledWith("openai-compatible");
+    expect(api.testLlmProviderConnection).toHaveBeenCalled();
     expect(api.saveFasterWhisperDefaults).toHaveBeenCalled();
     expect(api.getRuntimeModels).toHaveBeenCalled();
     expect(api.downloadFasterWhisperModel).toHaveBeenCalledWith({ model: "small" });

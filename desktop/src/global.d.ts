@@ -3,6 +3,9 @@ import type {
   DiagnosticCheck,
   DownloadFasterWhisperModelInput,
   LlmProviderModel,
+  ProviderConnectionTestInput,
+  ProviderConnectionTestResult,
+  ProviderModelOption,
   RuntimeModelDownloadJob,
   RuntimeModelStatus,
   RuntimeSettingsModel,
@@ -30,6 +33,9 @@ export type OpenBBQDesktopApi = {
   saveRuntimeDefaults(input: SaveRuntimeDefaultsInput): Promise<RuntimeSettingsModel>;
   saveLlmProvider(input: SaveLlmProviderInput): Promise<LlmProviderModel>;
   checkLlmProvider(name: string): Promise<SecretStatus>;
+  getLlmProviderSecret(name: string): Promise<string>;
+  getLlmProviderModels(name: string): Promise<ProviderModelOption[]>;
+  testLlmProviderConnection(input: ProviderConnectionTestInput): Promise<ProviderConnectionTestResult>;
   saveFasterWhisperDefaults(input: SaveFasterWhisperDefaultsInput): Promise<RuntimeSettingsModel>;
   getRuntimeModels(): Promise<RuntimeModelStatus[]>;
   downloadFasterWhisperModel(input: DownloadFasterWhisperModelInput): Promise<RuntimeModelDownloadJob>;

@@ -11,6 +11,7 @@ from openbbq.runtime.models import (
     FasterWhisperSettings,
     ModelAssetStatus,
     ModelDownloadJob,
+    ProviderModel,
     ProviderProfile,
     RuntimeDefaults,
     RuntimeSettings,
@@ -22,6 +23,8 @@ from openbbq.runtime.models_assets import (
     faster_whisper_model_statuses,
     require_supported_faster_whisper_model,
 )
+from openbbq.runtime.provider_models import fetch_provider_models
+from openbbq.runtime.provider_models import test_provider_connection
 from openbbq.runtime.secrets import SecretResolver
 from openbbq.runtime.settings import (
     load_runtime_settings,
@@ -104,6 +107,26 @@ class SecretSetRequest(OpenBBQModel):
 
 class ModelListResult(OpenBBQModel):
     models: tuple[ModelAssetStatus, ...]
+
+
+class ProviderModelListResult(OpenBBQModel):
+    models: tuple[ProviderModel, ...]
+
+
+class ProviderSecretValueResult(OpenBBQModel):
+    value: str
+
+
+class ProviderConnectionTestRequest(OpenBBQModel):
+    provider_name: str | None = None
+    base_url: str
+    api_key: str | None = None
+    model: str
+
+
+class ProviderConnectionTestResult(OpenBBQModel):
+    ok: bool
+    message: str
 
 
 class FasterWhisperDownloadResult(OpenBBQModel):
@@ -233,6 +256,54 @@ def secret_set(request: SecretSetRequest) -> SecretCheckResult:
 
 def model_list() -> ModelListResult:
     return ModelListResult(models=faster_whisper_model_statuses(load_runtime_settings()))
+
+
+def provider_model_list(name: str) -> ProviderModelListResult:
+    settings = load_runtime_settings()
+    provider = settings.providers.get(name)
+    if provider is None:
+        raise ValidationError(f"Provider '{name}' is not configured.")
+
+    api_key: str | None = None
+    if provider.api_key is not None:
+        secret = SecretResolver().resolve(provider.api_key)
+        if not secret.resolved:
+            raise ValidationError(secret.public.error or f"Provider '{name}' API key is unresolved.")
+        api_key = secret.value
+
+    return ProviderModelListResult(models=fetch_provider_models(provider, api_key=api_key))
+
+
+def provider_secret_value(name: str) -> ProviderSecretValueResult:
+    settings = load_runtime_settings()
+    provider = settings.providers.get(name)
+    if provider is None:
+        raise ValidationError(f"Provider '{name}' is not configured.")
+    if provider.api_key is None:
+        raise ValidationError(f"Provider '{name}' does not define an API key reference.")
+    secret = SecretResolver().resolve(provider.api_key)
+    if not secret.resolved or secret.value is None:
+        raise ValidationError(secret.public.error or f"Provider '{name}' API key is unresolved.")
+    return ProviderSecretValueResult(value=secret.value)
+
+
+def provider_connection_test(
+    request: ProviderConnectionTestRequest,
+) -> ProviderConnectionTestResult:
+    api_key = request.api_key
+    if (api_key is None or api_key == "") and request.provider_name:
+        settings = load_runtime_settings()
+        provider = settings.providers.get(request.provider_name)
+        if provider is not None and provider.api_key is not None:
+            secret = SecretResolver().resolve(provider.api_key)
+            if secret.resolved:
+                api_key = secret.value
+    message = test_provider_connection(
+        base_url=request.base_url,
+        api_key=api_key,
+        model=request.model,
+    )
+    return ProviderConnectionTestResult(ok=True, message=message)
 
 
 def faster_whisper_download(

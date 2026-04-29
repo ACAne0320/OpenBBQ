@@ -131,6 +131,18 @@ export type ApiProviderProfile = {
   display_name?: string | null;
 };
 
+export type ApiProviderModel = {
+  id: string;
+  label?: string | null;
+  owned_by?: string | null;
+  context_length?: number | null;
+};
+
+export type ApiProviderConnectionTestData = {
+  ok: boolean;
+  message: string;
+};
+
 export type ApiRuntimeSettings = {
   version: number;
   config_path: string;
