@@ -53,6 +53,7 @@ def write_youtube_subtitle_workflow(
     generated_root.mkdir(parents=True, exist_ok=True)
     config_path = generated_root / "openbbq.yaml"
     config = _youtube_subtitle_config(
+        run_id=run_id,
         url=url,
         source_lang=source_lang,
         target_lang=target_lang,
@@ -96,6 +97,7 @@ def write_local_subtitle_workflow(
     generated_root.mkdir(parents=True, exist_ok=True)
     config_path = generated_root / "openbbq.yaml"
     config = _local_subtitle_config(
+        run_id=run_id,
         video_selector=video_selector,
         source_lang=source_lang,
         target_lang=target_lang,
@@ -119,6 +121,7 @@ def write_local_subtitle_workflow(
 
 def _youtube_subtitle_config(
     *,
+    run_id: str,
     url: str,
     source_lang: str,
     target_lang: str,
@@ -133,7 +136,7 @@ def _youtube_subtitle_config(
     browser_profile: str | None,
 ) -> WorkflowTemplate:
     config = _load_youtube_subtitle_template()
-    config["storage"] = {"root": ".openbbq"}
+    config["storage"] = _generated_storage_config(run_id)
     steps = _steps_by_id(config, YOUTUBE_SUBTITLE_WORKFLOW_ID)
 
     download_parameters = steps["download"]["parameters"]
@@ -165,6 +168,7 @@ def _youtube_subtitle_config(
 
 def _local_subtitle_config(
     *,
+    run_id: str,
     video_selector: str,
     source_lang: str,
     target_lang: str,
@@ -175,7 +179,7 @@ def _local_subtitle_config(
     asr_compute_type: str,
 ) -> WorkflowTemplate:
     config = _load_local_subtitle_template()
-    config["storage"] = {"root": ".openbbq"}
+    config["storage"] = _generated_storage_config(run_id)
     steps = _steps_by_id(config, LOCAL_SUBTITLE_WORKFLOW_ID)
 
     extract_audio_inputs = steps["extract_audio"]["inputs"]
@@ -235,6 +239,14 @@ def _set_optional(parameters: WorkflowTemplate, name: str, value: str | None) ->
         parameters.pop(name, None)
         return
     parameters[name] = value
+
+
+def _generated_storage_config(run_id: str) -> WorkflowTemplate:
+    return {
+        "root": f"../../../r/{run_id}",
+        "artifacts": f"../../../a/{run_id}",
+        "state": f"../../../r/{run_id}/s",
+    }
 
 
 def _new_run_id() -> str:

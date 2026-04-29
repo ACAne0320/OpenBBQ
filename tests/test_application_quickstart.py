@@ -81,7 +81,11 @@ def test_direct_youtube_workflow_generation_renders_expected_config(tmp_path):
     assert generated.config_path == generated.project_root / "openbbq.yaml"
     assert generated.workflow_id == "youtube-to-srt"
     assert generated.run_id == "youtube-direct"
-    assert config["storage"] == {"root": ".openbbq"}
+    assert config["storage"] == {
+        "root": "../../../r/youtube-direct",
+        "artifacts": "../../../a/youtube-direct",
+        "state": "../../../r/youtube-direct/s",
+    }
 
     download = steps["download"]["parameters"]
     assert download["url"] == "https://www.youtube.com/watch?v=direct"
@@ -131,7 +135,11 @@ def test_direct_local_workflow_generation_renders_expected_config(tmp_path):
     assert generated.config_path == generated.project_root / "openbbq.yaml"
     assert generated.workflow_id == "local-to-srt"
     assert generated.run_id == "local-direct"
-    assert config["storage"] == {"root": ".openbbq"}
+    assert config["storage"] == {
+        "root": "../../../r/local-direct",
+        "artifacts": "../../../a/local-direct",
+        "state": "../../../r/local-direct/s",
+    }
     assert steps["extract_audio"]["inputs"]["video"] == "project.art_source_video"
 
     transcribe = steps["transcribe"]["parameters"]

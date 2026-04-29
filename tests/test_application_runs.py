@@ -134,7 +134,9 @@ def test_retry_run_checkpoint_can_submit_without_blocking(tmp_path, monkeypatch)
         RunCreateRequest(project_root=project, workflow_id="text-demo"),
         execute_inline=True,
     )
-    failed = created.model_copy(update={"status": "failed", "completed_at": "2026-04-29T00:00:00+00:00"})
+    failed = created.model_copy(
+        update={"status": "failed", "completed_at": "2026-04-29T00:00:00+00:00"}
+    )
     from openbbq.storage.runs import write_run
 
     write_run(project / ".openbbq", failed)

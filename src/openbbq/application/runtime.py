@@ -268,7 +268,9 @@ def provider_model_list(name: str) -> ProviderModelListResult:
     if provider.api_key is not None:
         secret = SecretResolver().resolve(provider.api_key)
         if not secret.resolved:
-            raise ValidationError(secret.public.error or f"Provider '{name}' API key is unresolved.")
+            raise ValidationError(
+                secret.public.error or f"Provider '{name}' API key is unresolved."
+            )
         api_key = secret.value
 
     return ProviderModelListResult(models=fetch_provider_models(provider, api_key=api_key))

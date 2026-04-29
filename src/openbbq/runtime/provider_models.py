@@ -35,7 +35,9 @@ def fetch_provider_models(
             f"Provider '{provider.name}' model list request failed with HTTP {exc.code}."
         ) from exc
     except URLError as exc:
-        raise ValidationError(f"Provider '{provider.name}' model list request failed: {exc}.") from exc
+        raise ValidationError(
+            f"Provider '{provider.name}' model list request failed: {exc}."
+        ) from exc
     except json.JSONDecodeError as exc:
         raise ValidationError(
             f"Provider '{provider.name}' model list response was not valid JSON."
