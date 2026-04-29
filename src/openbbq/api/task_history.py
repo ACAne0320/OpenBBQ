@@ -288,6 +288,7 @@ def _common_settings(body: SubtitleLocalJobRequest | SubtitleYouTubeJobRequest) 
         "asr_model": body.asr_model,
         "asr_device": body.asr_device,
         "asr_compute_type": body.asr_compute_type,
+        "correct_transcript": body.correct_transcript,
     }
 
 

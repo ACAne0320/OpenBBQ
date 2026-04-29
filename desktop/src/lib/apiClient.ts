@@ -55,14 +55,23 @@ function cloneModel<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function remoteFetchStep(source: Extract<SourceDraft, { kind: "remote_url" }>): WorkflowStep {
-  const parameters: StepParameter[] = [{ kind: "text", key: "url", label: "URL", value: source.url }];
+function remoteDownloadStep(source: Extract<SourceDraft, { kind: "remote_url" }>): WorkflowStep {
+  const parameters: StepParameter[] = [
+    { kind: "text", key: "url", label: "URL", value: source.url },
+    {
+      kind: "text",
+      key: "quality",
+      label: "Quality",
+      value: "best[ext=mp4][height<=720]/best[height<=720]/best"
+    },
+    { kind: "text", key: "auth", label: "Auth", value: "auto" }
+  ];
 
   return {
-    id: "fetch_source",
-    name: "Fetch Source",
-    toolRef: "source.fetch_remote",
-    summary: "url -> local media",
+    id: "download",
+    name: "Download Video",
+    toolRef: "remote_video.download",
+    summary: "url -> video",
     status: "locked",
     parameters
   };
@@ -70,7 +79,7 @@ function remoteFetchStep(source: Extract<SourceDraft, { kind: "remote_url" }>): 
 
 function workflowTemplateForSource(source: SourceDraft): WorkflowStep[] {
   if (source.kind === "remote_url") {
-    return [remoteFetchStep(source), ...workflowSteps];
+    return [remoteDownloadStep(source), ...workflowSteps];
   }
 
   return workflowSteps;

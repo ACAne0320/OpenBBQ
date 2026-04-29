@@ -160,6 +160,35 @@ def test_direct_local_workflow_generation_renders_expected_config(tmp_path):
     assert translation["model"] == "gpt-4.1-mini"
 
 
+def test_direct_local_workflow_generation_can_skip_correction(tmp_path):
+    generated = write_local_subtitle_workflow_direct(
+        workspace_root=tmp_path,
+        video_selector="project.art_source_video",
+        source_lang="ja",
+        target_lang="en",
+        provider="openai",
+        model="gpt-4.1-mini",
+        asr_model="small",
+        asr_device="cuda",
+        asr_compute_type="float16",
+        correct_transcript=False,
+        run_id="local-direct",
+    )
+
+    config = yaml.safe_load(generated.config_path.read_text(encoding="utf-8"))
+    workflow = config["workflows"]["local-to-srt"]
+    steps = _workflow_steps(config, "local-to-srt")
+
+    assert [step["id"] for step in workflow["steps"]] == [
+        "extract_audio",
+        "transcribe",
+        "segment",
+        "translate",
+        "subtitle",
+    ]
+    assert steps["segment"]["inputs"]["transcript"] == "transcribe.transcript"
+
+
 def _workflow_steps(config, workflow_id):
     return {step["id"]: step for step in config["workflows"][workflow_id]["steps"]}
 

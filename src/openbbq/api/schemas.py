@@ -150,6 +150,50 @@ class QuickstartTaskListData(OpenBBQModel):
     tasks: tuple[QuickstartTaskRecord, ...]
 
 
+class WorkflowTextParameterData(OpenBBQModel):
+    kind: Literal["text"]
+    key: str
+    label: str
+    value: str
+
+
+class WorkflowSelectParameterData(OpenBBQModel):
+    kind: Literal["select"]
+    key: str
+    label: str
+    value: str
+    options: tuple[str, ...]
+
+
+class WorkflowToggleParameterData(OpenBBQModel):
+    kind: Literal["toggle"]
+    key: str
+    label: str
+    description: str
+    value: bool
+
+
+WorkflowParameterData: TypeAlias = (
+    WorkflowTextParameterData | WorkflowSelectParameterData | WorkflowToggleParameterData
+)
+
+
+class SubtitleWorkflowStepData(OpenBBQModel):
+    id: str
+    name: str
+    tool_ref: str
+    summary: str
+    status: Literal["locked", "enabled", "disabled"]
+    selected: bool | None = None
+    parameters: tuple[WorkflowParameterData, ...]
+
+
+class SubtitleWorkflowTemplateData(OpenBBQModel):
+    template_id: str
+    workflow_id: str
+    steps: tuple[SubtitleWorkflowStepData, ...]
+
+
 class ArtifactVersionData(OpenBBQModel):
     record: ArtifactVersionRecord
     content: JsonValue | bytes
@@ -304,6 +348,7 @@ class SubtitleLocalJobRequest(OpenBBQModel):
     asr_model: str | None = None
     asr_device: str | None = None
     asr_compute_type: str | None = None
+    correct_transcript: bool = True
     output_path: Path | None = None
 
 
@@ -316,6 +361,7 @@ class SubtitleYouTubeJobRequest(OpenBBQModel):
     asr_model: str | None = None
     asr_device: str | None = None
     asr_compute_type: str | None = None
+    correct_transcript: bool = True
     quality: str = "best[ext=mp4][height<=720]/best[height<=720]/best"
     auth: str = "auto"
     browser: str | None = None

@@ -20,7 +20,7 @@ vi.mock("../components/WorkflowEditor", () => ({
     onContinue?: (steps: Array<{ id: string }>) => void;
   }) => {
     workflowEditorRender(initialSteps);
-    const remote = initialSteps[0]?.id === "fetch_source";
+    const remote = initialSteps[0]?.id === "download" || initialSteps[0]?.id === "fetch_source";
 
     return (
       <section aria-label="Mock workflow editor">
@@ -208,12 +208,21 @@ function createTestClient(
 function remoteStepsFor(url: string): WorkflowStep[] {
   return [
     {
-      id: "fetch_source",
-      name: "Fetch Source",
-      toolRef: "source.fetch_remote",
-      summary: "url -> local media",
+      id: "download",
+      name: "Download Video",
+      toolRef: "remote_video.download",
+      summary: "url -> video",
       status: "locked",
-      parameters: [{ kind: "text", key: "url", label: "URL", value: url }]
+      parameters: [
+        { kind: "text", key: "url", label: "URL", value: url },
+        {
+          kind: "text",
+          key: "quality",
+          label: "Quality",
+          value: "best[ext=mp4][height<=720]/best[height<=720]/best"
+        },
+        { kind: "text", key: "auth", label: "Auth", value: "auto" }
+      ]
     },
     ...workflowSteps
   ];
@@ -266,9 +275,9 @@ describe("App workflow flow", () => {
 
     expect(await screen.findByRole("heading", { name: "Arrange workflow" })).toBeInTheDocument();
     expect(screen.getByText("Remote video -> translated SRT")).toBeInTheDocument();
-    expect(screen.getByTestId("workflow-first-step")).toHaveTextContent("fetch_source");
+    expect(screen.getByTestId("workflow-first-step")).toHaveTextContent("download");
     expect(workflowEditorRender).toHaveBeenLastCalledWith(
-      expect.arrayContaining([expect.objectContaining({ id: "fetch_source" })])
+      expect.arrayContaining([expect.objectContaining({ id: "download" })])
     );
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
@@ -310,7 +319,7 @@ describe("App workflow flow", () => {
     expect(await screen.findByText("Task monitor")).toBeInTheDocument();
     expect(startSubtitleTask).toHaveBeenCalledWith({
       source: { kind: "remote_url", url: "https://example.com/video.mp4" },
-      steps: expect.arrayContaining([expect.objectContaining({ id: "fetch_source" })])
+      steps: expect.arrayContaining([expect.objectContaining({ id: "download" })])
     });
     expect(getTaskMonitor).toHaveBeenCalledWith("run_test");
   });
@@ -803,7 +812,7 @@ describe("App workflow flow", () => {
 
     expect(await screen.findByRole("heading", { name: "Arrange workflow" })).toBeInTheDocument();
     expect(screen.getByText("Remote video -> translated SRT")).toBeInTheDocument();
-    expect(screen.getByTestId("workflow-first-step")).toHaveTextContent("fetch_source");
+    expect(screen.getByTestId("workflow-first-step")).toHaveTextContent("download");
 
     const renderCountAfterLatestResponse = workflowEditorRender.mock.calls.length;
 
@@ -814,10 +823,10 @@ describe("App workflow flow", () => {
 
     expect(workflowEditorRender).toHaveBeenCalledTimes(renderCountAfterLatestResponse);
     expect(workflowEditorRender).toHaveBeenLastCalledWith(
-      expect.arrayContaining([expect.objectContaining({ id: "fetch_source" })])
+      expect.arrayContaining([expect.objectContaining({ id: "download" })])
     );
     expect(screen.getByText("Remote video -> translated SRT")).toBeInTheDocument();
-    expect(screen.getByTestId("workflow-first-step")).toHaveTextContent("fetch_source");
+    expect(screen.getByTestId("workflow-first-step")).toHaveTextContent("download");
     expect(screen.queryByText("Local video -> translated SRT")).not.toBeInTheDocument();
   });
 });

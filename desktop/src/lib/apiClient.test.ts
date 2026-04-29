@@ -52,9 +52,9 @@ describe("createMockClient", () => {
       url: "https://example.test/video"
     });
     expect(remoteWorkflow[0]).toMatchObject({
-      id: "fetch_source",
-      toolRef: "source.fetch_remote",
-      summary: "url -> local media"
+      id: "download",
+      toolRef: "remote_video.download",
+      summary: "url -> video"
     });
     expect(remoteWorkflow[1]).toMatchObject({ id: "extract_audio" });
   });

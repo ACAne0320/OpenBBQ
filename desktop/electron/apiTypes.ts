@@ -92,6 +92,27 @@ export type ApiQuickstartTaskRecord = {
   error?: { code: string; message: string } | null;
 };
 
+export type ApiWorkflowStepParameter =
+  | { kind: "text"; key: string; label: string; value: string }
+  | { kind: "select"; key: string; label: string; value: string; options: string[] }
+  | { kind: "toggle"; key: string; label: string; description: string; value: boolean };
+
+export type ApiSubtitleWorkflowStep = {
+  id: string;
+  name: string;
+  tool_ref: string;
+  summary: string;
+  status: "locked" | "enabled" | "disabled";
+  selected?: boolean | null;
+  parameters: ApiWorkflowStepParameter[];
+};
+
+export type ApiSubtitleWorkflowTemplateData = {
+  template_id: string;
+  workflow_id: string;
+  steps: ApiSubtitleWorkflowStep[];
+};
+
 export type ApiArtifactRecord = {
   id: string;
   type: string;

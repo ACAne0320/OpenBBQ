@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Request
 
 from openbbq.api.adapters import api_model
@@ -10,6 +12,7 @@ from openbbq.api.schemas import (
     QuickstartTaskListData,
     SubtitleJobData,
     SubtitleLocalJobRequest,
+    SubtitleWorkflowTemplateData,
     SubtitleYouTubeJobRequest,
 )
 from openbbq.api.task_history import (
@@ -27,8 +30,22 @@ from openbbq.application.quickstart import (
     resolve_local_subtitle_job_request,
     resolve_youtube_subtitle_job_request,
 )
+from openbbq.application.quickstart_workflows import subtitle_workflow_template_for_source
 
 router = APIRouter(tags=["quickstart"])
+
+
+@router.get(
+    "/quickstart/subtitle/template",
+    response_model=ApiSuccess[SubtitleWorkflowTemplateData],
+    response_model_exclude_none=True,
+)
+def get_subtitle_workflow_template(
+    source_kind: Literal["local_file", "remote_url"],
+    url: str | None = None,
+) -> ApiSuccess[SubtitleWorkflowTemplateData]:
+    template = subtitle_workflow_template_for_source(source_kind=source_kind, url=url)
+    return ApiSuccess(data=SubtitleWorkflowTemplateData(**template))
 
 
 @router.post("/quickstart/subtitle/local", response_model=ApiSuccess[SubtitleJobData])
@@ -48,6 +65,7 @@ def post_local_subtitle_job(
             asr_model=body.asr_model,
             asr_device=body.asr_device,
             asr_compute_type=body.asr_compute_type,
+            correct_transcript=body.correct_transcript,
             output_path=body.output_path,
             plugin_paths=settings.plugin_paths,
             created_by="api",
@@ -101,6 +119,7 @@ def post_youtube_subtitle_job(
             asr_model=body.asr_model,
             asr_device=body.asr_device,
             asr_compute_type=body.asr_compute_type,
+            correct_transcript=body.correct_transcript,
             quality=body.quality,
             auth=body.auth,
             browser=body.browser,

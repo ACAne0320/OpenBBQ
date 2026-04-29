@@ -20,6 +20,61 @@ LOCAL_SUBTITLE_WORKFLOW_ID = "local-to-srt"
 LOCAL_SUBTITLE_TEMPLATE_PACKAGE = "openbbq.workflow_templates.local_subtitle"
 LOCAL_SUBTITLE_TEMPLATE_NAME = "openbbq.yaml"
 WorkflowTemplate: TypeAlias = JsonObject
+SubtitleSourceKind: TypeAlias = str
+
+_PARAMETER_LABELS = {
+    "url": "URL",
+    "format": "Format",
+    "quality": "Quality",
+    "auth": "Auth",
+    "browser": "Browser",
+    "browser_profile": "Browser profile",
+    "sample_rate": "Sample rate",
+    "channels": "Channels",
+    "model": "Model",
+    "device": "Device",
+    "compute_type": "Compute",
+    "language": "Language",
+    "word_timestamps": "Word timestamps",
+    "vad_filter": "VAD filter",
+    "source_lang": "Source language",
+    "target_lang": "Target language",
+    "temperature": "Temperature",
+    "max_duration_seconds": "Max duration seconds",
+    "max_lines": "Max lines",
+    "max_chars_per_line": "Max chars per line",
+}
+
+_SELECT_PARAMETER_OPTIONS = {
+    ("ffmpeg.extract_audio", "format"): ("wav",),
+    ("faster_whisper.transcribe", "language"): ("en", "auto"),
+    ("faster_whisper.transcribe", "model"): (
+        "tiny",
+        "base",
+        "small",
+        "medium",
+        "large-v3",
+    ),
+    ("faster_whisper.transcribe", "device"): ("cpu", "cuda"),
+    ("faster_whisper.transcribe", "compute_type"): ("int8", "float16", "float32"),
+    ("subtitle.export", "format"): ("srt",),
+}
+
+_TOGGLE_DESCRIPTIONS = {
+    "word_timestamps": "Include word-level timing details.",
+    "vad_filter": "Filter non-speech sections before transcription.",
+}
+
+_HIDDEN_DESKTOP_PARAMETERS = {"provider", "model"}
+
+_OUTPUT_LABELS = {
+    "video": "video",
+    "audio": "audio",
+    "asr_transcript": "transcript",
+    "subtitle_segments": "subtitle segments",
+    "translation": "translation",
+    "subtitle": "SRT",
+}
 
 
 class GeneratedWorkflow(OpenBBQModel):
@@ -27,6 +82,31 @@ class GeneratedWorkflow(OpenBBQModel):
     config_path: Path
     workflow_id: str
     run_id: str
+
+
+def subtitle_workflow_template_for_source(
+    *,
+    source_kind: SubtitleSourceKind,
+    url: str | None = None,
+) -> WorkflowTemplate:
+    if source_kind == "local_file":
+        template_id = LOCAL_SUBTITLE_TEMPLATE_ID
+        workflow_id = LOCAL_SUBTITLE_WORKFLOW_ID
+        config = _load_local_subtitle_template()
+    elif source_kind == "remote_url":
+        template_id = YOUTUBE_SUBTITLE_TEMPLATE_ID
+        workflow_id = YOUTUBE_SUBTITLE_WORKFLOW_ID
+        config = _load_youtube_subtitle_template()
+        steps = _steps_by_id(config, workflow_id)
+        steps["download"]["parameters"]["url"] = url or "about:blank"
+    else:
+        raise ValueError(f"Unsupported subtitle source kind: {source_kind}")
+
+    return {
+        "template_id": template_id,
+        "workflow_id": workflow_id,
+        "steps": tuple(_desktop_step(step) for step in config["workflows"][workflow_id]["steps"]),
+    }
 
 
 def write_youtube_subtitle_workflow(
@@ -44,6 +124,7 @@ def write_youtube_subtitle_workflow(
     auth: str,
     browser: str | None,
     browser_profile: str | None,
+    correct_transcript: bool = True,
     run_id: str | None = None,
 ) -> GeneratedWorkflow:
     run_id = run_id or _new_run_id()
@@ -62,6 +143,7 @@ def write_youtube_subtitle_workflow(
         asr_model=asr_model,
         asr_device=asr_device,
         asr_compute_type=asr_compute_type,
+        correct_transcript=correct_transcript,
         quality=quality,
         auth=auth,
         browser=browser,
@@ -90,6 +172,7 @@ def write_local_subtitle_workflow(
     asr_model: str,
     asr_device: str,
     asr_compute_type: str,
+    correct_transcript: bool = True,
     run_id: str | None = None,
 ) -> GeneratedWorkflow:
     run_id = run_id or _new_run_id()
@@ -106,6 +189,7 @@ def write_local_subtitle_workflow(
         asr_model=asr_model,
         asr_device=asr_device,
         asr_compute_type=asr_compute_type,
+        correct_transcript=correct_transcript,
     )
     config_path.write_text(
         yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
@@ -130,6 +214,7 @@ def _youtube_subtitle_config(
     asr_model: str,
     asr_device: str,
     asr_compute_type: str,
+    correct_transcript: bool,
     quality: str,
     auth: str,
     browser: str | None,
@@ -156,6 +241,8 @@ def _youtube_subtitle_config(
     correction_parameters["provider"] = provider
     correction_parameters["source_lang"] = source_lang
     _set_optional(correction_parameters, "model", model)
+    if not correct_transcript:
+        _remove_transcript_correction(config, YOUTUBE_SUBTITLE_WORKFLOW_ID)
 
     translation_parameters = steps["translate"]["parameters"]
     translation_parameters["provider"] = provider
@@ -177,6 +264,7 @@ def _local_subtitle_config(
     asr_model: str,
     asr_device: str,
     asr_compute_type: str,
+    correct_transcript: bool,
 ) -> WorkflowTemplate:
     config = _load_local_subtitle_template()
     config["storage"] = _generated_storage_config(run_id)
@@ -195,6 +283,8 @@ def _local_subtitle_config(
     correction_parameters["provider"] = provider
     correction_parameters["source_lang"] = source_lang
     _set_optional(correction_parameters, "model", model)
+    if not correct_transcript:
+        _remove_transcript_correction(config, LOCAL_SUBTITLE_WORKFLOW_ID)
 
     translation_parameters = steps["translate"]["parameters"]
     translation_parameters["provider"] = provider
@@ -232,6 +322,73 @@ def _load_template(*, package: str, name: str, description: str) -> WorkflowTemp
 def _steps_by_id(config: WorkflowTemplate, workflow_id: str) -> dict[str, WorkflowTemplate]:
     workflow = config["workflows"][workflow_id]
     return {step["id"]: step for step in workflow["steps"]}
+
+
+def _remove_transcript_correction(config: WorkflowTemplate, workflow_id: str) -> None:
+    workflow = config["workflows"][workflow_id]
+    workflow["steps"] = [step for step in workflow["steps"] if step["id"] != "correct"]
+    steps = _steps_by_id(config, workflow_id)
+    steps["segment"]["inputs"]["transcript"] = "transcribe.transcript"
+
+
+def _desktop_step(step: WorkflowTemplate) -> WorkflowTemplate:
+    step_id = str(step["id"])
+    data: WorkflowTemplate = {
+        "id": step_id,
+        "name": str(step["name"]),
+        "tool_ref": str(step["tool_ref"]),
+        "summary": _desktop_step_summary(step),
+        "status": "enabled" if step_id == "correct" else "locked",
+        "parameters": tuple(
+            _desktop_parameter(str(step["tool_ref"]), key, value)
+            for key, value in step.get("parameters", {}).items()
+            if key not in _HIDDEN_DESKTOP_PARAMETERS
+        ),
+    }
+    if step_id == "transcribe":
+        data["selected"] = True
+    return data
+
+
+def _desktop_parameter(tool_ref: str, key: str, value: object) -> WorkflowTemplate:
+    label = _PARAMETER_LABELS.get(key, key.replace("_", " ").title())
+    if isinstance(value, bool):
+        return {
+            "kind": "toggle",
+            "key": key,
+            "label": label,
+            "description": _TOGGLE_DESCRIPTIONS.get(key, label),
+            "value": value,
+        }
+    options = _SELECT_PARAMETER_OPTIONS.get((tool_ref, key))
+    if options is not None:
+        return {
+            "kind": "select",
+            "key": key,
+            "label": label,
+            "value": str(value),
+            "options": options,
+        }
+    return {
+        "kind": "text",
+        "key": key,
+        "label": label,
+        "value": str(value),
+    }
+
+
+def _desktop_step_summary(step: WorkflowTemplate) -> str:
+    tool_ref = str(step["tool_ref"])
+    if tool_ref == "remote_video.download":
+        source = "url"
+    else:
+        source = next(iter(step.get("inputs", {}) or {}), "input")
+    outputs = step.get("outputs", ())
+    output = "output"
+    if outputs:
+        output_type = str(outputs[0].get("type", "output"))
+        output = _OUTPUT_LABELS.get(output_type, output_type.replace("_", " "))
+    return f"{source} -> {output}"
 
 
 def _set_optional(parameters: WorkflowTemplate, name: str, value: str | None) -> None:

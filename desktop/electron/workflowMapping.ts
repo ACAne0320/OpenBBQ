@@ -8,6 +8,10 @@ export type QuickstartRequest =
         input_path: string;
         source_lang: string;
         target_lang: string;
+        asr_model: string;
+        asr_device: string;
+        asr_compute_type: string;
+        correct_transcript: boolean;
       };
     }
   | {
@@ -16,6 +20,10 @@ export type QuickstartRequest =
         url: string;
         source_lang: string;
         target_lang: string;
+        asr_model: string;
+        asr_device: string;
+        asr_compute_type: string;
+        correct_transcript: boolean;
         quality: string;
         auth: string;
         browser: string | null;
@@ -27,21 +35,30 @@ function cloneSteps(steps: WorkflowStep[]): WorkflowStep[] {
   return JSON.parse(JSON.stringify(steps)) as WorkflowStep[];
 }
 
-function remoteFetchStep(source: Extract<SourceDraft, { kind: "remote_url" }>): WorkflowStep {
+function remoteDownloadStep(source: Extract<SourceDraft, { kind: "remote_url" }>): WorkflowStep {
   return {
-    id: "fetch_source",
-    name: "Fetch Source",
-    toolRef: "source.fetch_remote",
-    summary: "url -> local media",
+    id: "download",
+    name: "Download Video",
+    toolRef: "remote_video.download",
+    summary: "url -> video",
     status: "locked",
-    parameters: [{ kind: "text", key: "url", label: "URL", value: source.url }]
+    parameters: [
+      { kind: "text", key: "url", label: "URL", value: source.url },
+      {
+        kind: "text",
+        key: "quality",
+        label: "Quality",
+        value: "best[ext=mp4][height<=720]/best[height<=720]/best"
+      },
+      { kind: "text", key: "auth", label: "Auth", value: "auto" }
+    ]
   };
 }
 
 export function workflowTemplateForSource(source: SourceDraft): WorkflowStep[] {
   const steps = cloneSteps(workflowSteps);
   if (source.kind === "remote_url") {
-    return [remoteFetchStep(source), ...steps];
+    return [remoteDownloadStep(source), ...steps];
   }
 
   return steps;
@@ -91,7 +108,11 @@ export function buildQuickstartRequest(source: SourceDraft, steps: WorkflowStep[
   const targetLang = languageCode(parameterValue(steps, "translate", "target_lang", "zh"));
   const common = {
     source_lang: sourceLang,
-    target_lang: targetLang
+    target_lang: targetLang,
+    asr_model: parameterValue(steps, "transcribe", "model", "base"),
+    asr_device: parameterValue(steps, "transcribe", "device", "cpu"),
+    asr_compute_type: parameterValue(steps, "transcribe", "compute_type", "int8"),
+    correct_transcript: enabledStep(steps, "correct") !== undefined
   };
 
   if (source.kind === "local_file") {
@@ -104,15 +125,16 @@ export function buildQuickstartRequest(source: SourceDraft, steps: WorkflowStep[
     };
   }
 
+  const remoteSourceStepId = steps.some((step) => step.id === "download") ? "download" : "fetch_source";
   return {
     route: "/quickstart/subtitle/youtube",
     body: {
       url: source.url,
       ...common,
-      quality: parameterValue(steps, "fetch_source", "quality", "best[ext=mp4][height<=720]/best[height<=720]/best"),
-      auth: parameterValue(steps, "fetch_source", "auth", "auto"),
-      browser: optionalParameterValue(steps, "fetch_source", "browser"),
-      browser_profile: optionalParameterValue(steps, "fetch_source", "browser_profile")
+      quality: parameterValue(steps, remoteSourceStepId, "quality", "best[ext=mp4][height<=720]/best[height<=720]/best"),
+      auth: parameterValue(steps, remoteSourceStepId, "auth", "auto"),
+      browser: optionalParameterValue(steps, remoteSourceStepId, "browser"),
+      browser_profile: optionalParameterValue(steps, remoteSourceStepId, "browser_profile")
     }
   };
 }

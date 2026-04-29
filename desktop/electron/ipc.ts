@@ -15,13 +15,14 @@ import type {
   ApiRuntimeSettings,
   ApiSecretCheck,
   ApiSubtitleJobData,
+  ApiSubtitleWorkflowTemplateData,
   ApiWorkflowEvent
 } from "./apiTypes.js";
 import { requestJson } from "./http.js";
 import { toReviewModel } from "./reviewMapping.js";
 import type { ManagedSidecar } from "./sidecar.js";
 import { toTaskMonitorModel, toTaskSummaryModel } from "./taskMapping.js";
-import { buildQuickstartRequest, workflowTemplateForSource } from "./workflowMapping.js";
+import { buildQuickstartRequest } from "./workflowMapping.js";
 import type {
   DiagnosticCheck,
   DownloadFasterWhisperModelInput,
@@ -37,7 +38,8 @@ import type {
   SaveRuntimeDefaultsInput,
   SecretStatus,
   SourceDraft,
-  StartSubtitleTaskInput
+  StartSubtitleTaskInput,
+  WorkflowStep
 } from "../src/lib/types.js";
 
 type IpcContext = {
@@ -50,7 +52,7 @@ type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => Promise<unk
 export function registerOpenBBQIpc(context: IpcContext): () => void {
   const handlers: Array<[string, IpcHandler]> = [
     ["openbbq:choose-local-media", async () => chooseLocalMedia(context.window)],
-    ["openbbq:get-workflow-template", async (_event, source) => workflowTemplateForSource(source as SourceDraft)],
+    ["openbbq:get-workflow-template", async (_event, source) => getWorkflowTemplate(context.getSidecar(), source as SourceDraft)],
     ["openbbq:start-subtitle-task", async (_event, input) => startSubtitleTask(context.getSidecar(), input as StartSubtitleTaskInput)],
     ["openbbq:list-tasks", async () => listTasks(context.getSidecar())],
     ["openbbq:get-task-monitor", async (_event, runId) => getTaskMonitor(context.getSidecar(), String(runId))],
@@ -129,6 +131,26 @@ async function chooseLocalMedia(window: BrowserWindow) {
     path,
     displayName: path.split(/[\\/]/).pop() ?? path
   };
+}
+
+export async function getWorkflowTemplate(sidecar: ManagedSidecar, source: SourceDraft): Promise<WorkflowStep[]> {
+  const parameters = new URLSearchParams({ source_kind: source.kind });
+  if (source.kind === "remote_url") {
+    parameters.set("url", source.url);
+  }
+  const data = await requestJson<ApiSubtitleWorkflowTemplateData>(
+    sidecar.connection,
+    `/quickstart/subtitle/template?${parameters.toString()}`
+  );
+  return data.steps.map((step) => ({
+    id: step.id,
+    name: step.name,
+    toolRef: step.tool_ref,
+    summary: step.summary,
+    status: step.status,
+    selected: step.selected ?? undefined,
+    parameters: step.parameters
+  }));
 }
 
 async function startSubtitleTask(sidecar: ManagedSidecar, input: StartSubtitleTaskInput) {

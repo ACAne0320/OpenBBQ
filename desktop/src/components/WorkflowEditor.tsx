@@ -23,7 +23,9 @@ function statusLabel(step: WorkflowStep) {
 }
 
 function templateTitleForSteps(steps: WorkflowStep[]) {
-  return steps[0]?.id === "fetch_source" ? "Remote video -> translated SRT" : "Local video -> translated SRT";
+  return steps[0]?.id === "download" || steps[0]?.id === "fetch_source"
+    ? "Remote video -> translated SRT"
+    : "Local video -> translated SRT";
 }
 
 type ParameterFieldProps = {

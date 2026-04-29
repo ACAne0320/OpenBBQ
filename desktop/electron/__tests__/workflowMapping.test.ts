@@ -16,11 +16,11 @@ describe("workflowTemplateForSource", () => {
     expect(findParam(steps, "translate", "target_lang")).toMatchObject({ value: "zh" });
   });
 
-  it("adds fetch source for remote URLs", () => {
+  it("adds the backend download step for remote URLs", () => {
     const steps = workflowTemplateForSource({ kind: "remote_url", url: "https://example.test/watch" });
 
-    expect(steps[0]).toMatchObject({ id: "fetch_source", toolRef: "source.fetch_remote" });
-    expect(findParam(steps, "fetch_source", "url")).toMatchObject({ value: "https://example.test/watch" });
+    expect(steps[0]).toMatchObject({ id: "download", toolRef: "remote_video.download" });
+    expect(findParam(steps, "download", "url")).toMatchObject({ value: "https://example.test/watch" });
   });
 });
 
@@ -34,18 +34,32 @@ describe("buildQuickstartRequest", () => {
       body: {
         input_path: "C:/video/sample.mp4",
         source_lang: "en",
-        target_lang: "zh"
+        target_lang: "zh",
+        asr_model: "base",
+        asr_device: "cpu",
+        asr_compute_type: "int8",
+        correct_transcript: true
       }
     });
     expect(request.body).not.toHaveProperty("provider");
     expect(request.body).not.toHaveProperty("model");
-    expect(request.body).not.toHaveProperty("asr_model");
-    expect(request.body).not.toHaveProperty("asr_device");
-    expect(request.body).not.toHaveProperty("asr_compute_type");
   });
 
   it("maps remote workflow parameters to the YouTube quickstart request", () => {
-    const steps = workflowTemplateForSource({ kind: "remote_url", url: "https://example.test/watch" });
+    const steps = workflowTemplateForSource({ kind: "remote_url", url: "https://example.test/watch" }).map((step) =>
+      step.id === "download"
+        ? {
+            ...step,
+            parameters: step.parameters.map((parameter) =>
+              parameter.key === "quality"
+                ? { ...parameter, value: "bestvideo" }
+                : parameter.key === "auth"
+                  ? { ...parameter, value: "browser" }
+                  : parameter
+            )
+          }
+        : step
+    );
     const request = buildQuickstartRequest({ kind: "remote_url", url: "https://example.test/watch" }, steps);
 
     expect(request.route).toBe("/quickstart/subtitle/youtube");
@@ -53,14 +67,15 @@ describe("buildQuickstartRequest", () => {
       url: "https://example.test/watch",
       source_lang: "en",
       target_lang: "zh",
-      quality: "best[ext=mp4][height<=720]/best[height<=720]/best",
-      auth: "auto"
+      asr_model: "base",
+      asr_device: "cpu",
+      asr_compute_type: "int8",
+      correct_transcript: true,
+      quality: "bestvideo",
+      auth: "browser"
     });
     expect(request.body).not.toHaveProperty("provider");
     expect(request.body).not.toHaveProperty("model");
-    expect(request.body).not.toHaveProperty("asr_model");
-    expect(request.body).not.toHaveProperty("asr_device");
-    expect(request.body).not.toHaveProperty("asr_compute_type");
   });
 
   it("uses edited workflow parameters", () => {
@@ -77,6 +92,16 @@ describe("buildQuickstartRequest", () => {
 
     expect(buildQuickstartRequest({ kind: "remote_url", url: "https://example.test/watch" }, steps).body).toMatchObject({
       target_lang: "ja"
+    });
+  });
+
+  it("passes disabled correction through to quickstart requests", () => {
+    const steps = workflowTemplateForSource({ kind: "local_file", path: "C:/video/sample.mp4", displayName: "sample.mp4" }).map((step) =>
+      step.id === "correct" ? { ...step, status: "disabled" as const } : step
+    );
+
+    expect(buildQuickstartRequest({ kind: "local_file", path: "C:/video/sample.mp4", displayName: "sample.mp4" }, steps).body).toMatchObject({
+      correct_transcript: false
     });
   });
 });
