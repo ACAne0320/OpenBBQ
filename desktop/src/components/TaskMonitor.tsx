@@ -156,10 +156,28 @@ function clampedPercent(percent: number): number {
   return Math.min(100, Math.max(0, percent));
 }
 
+function progressRowKey(line: TaskProgressLogLine): string {
+  return [line.stepId, line.attempt ?? "", line.phase].join("\u0000");
+}
+
+function latestProgressLogs(progressLogs: TaskProgressLogLine[]): TaskProgressLogLine[] {
+  const latestByProgress = new Map<string, TaskProgressLogLine>();
+
+  for (const line of progressLogs) {
+    const key = progressRowKey(line);
+    const previous = latestByProgress.get(key);
+    if (!previous || line.sequence >= previous.sequence) {
+      latestByProgress.set(key, line);
+    }
+  }
+
+  return [...latestByProgress.values()];
+}
+
 function runtimeLogRows(task: TaskMonitorModel): RuntimeLogRow[] {
   const progressSequences = new Set(task.progressLogs.map((line) => line.sequence));
   return [
-    ...task.progressLogs.map((line) => ({ kind: "progress" as const, sequence: line.sequence, line })),
+    ...latestProgressLogs(task.progressLogs).map((line) => ({ kind: "progress" as const, sequence: line.sequence, line })),
     ...task.logs
       .filter((line) => !progressSequences.has(line.sequence))
       .map((line) => ({ kind: "text" as const, sequence: line.sequence, line }))
@@ -358,7 +376,7 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
               const percentText = roundedPercent(visualPercent);
 
               return (
-                <div key={`progress-${line.sequence}`} className="grid grid-cols-[132px_88px_minmax(0,1fr)] gap-2 py-1.5 md:grid-cols-[176px_112px_minmax(0,1fr)]">
+                <div key={`progress-${line.sequence}`} className="grid grid-cols-[132px_72px_minmax(0,1fr)] items-center gap-2 py-1.5 md:grid-cols-[176px_72px_minmax(0,1fr)]">
                   <span className="min-w-0 truncate text-log-muted">{line.timestamp}</span>
                   <span className="rounded-sm bg-log-panel px-1.5 text-center text-[10px] uppercase leading-5 text-log-muted">
                     progress

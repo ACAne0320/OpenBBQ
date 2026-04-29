@@ -82,6 +82,37 @@ describe("TaskMonitor", () => {
     expect(screen.getByText("84 / 200 seconds")).toBeInTheDocument();
   });
 
+  it("keeps progress log metadata columns aligned with text log rows", () => {
+    render(
+      <TaskMonitor
+        task={{
+          ...failedTask,
+          status: "running",
+          progressLogs: [
+            {
+              sequence: 6,
+              timestamp: "2026-04-28T10:00:00.000Z",
+              stepId: "download",
+              attempt: 1,
+              phase: "video_download",
+              label: "Download video",
+              percent: 42,
+              current: 84,
+              total: 200,
+              unit: "bytes"
+            }
+          ]
+        }}
+        onRetry={vi.fn()}
+      />
+    );
+
+    const progressRow = screen.getByLabelText("Download video progress").closest(".grid");
+    expect(progressRow).toHaveClass("items-center");
+    expect(progressRow).toHaveClass("grid-cols-[132px_72px_minmax(0,1fr)]");
+    expect(progressRow).toHaveClass("md:grid-cols-[176px_72px_minmax(0,1fr)]");
+  });
+
   it("renders progress events once in the merged terminal log", () => {
     render(
       <TaskMonitor
@@ -134,6 +165,79 @@ describe("TaskMonitor", () => {
     expect(within(log).getByText("Workflow started.")).toBeInTheDocument();
     expect(within(log).getByText("Resolving output.")).toBeInTheDocument();
     expect(within(log).queryByText("Download video 3%")).not.toBeInTheDocument();
+  });
+
+  it("updates a matching progress row instead of appending another row", () => {
+    render(
+      <TaskMonitor
+        task={{
+          ...failedTask,
+          status: "running",
+          progressLogs: [
+            {
+              sequence: 2,
+              timestamp: "2026-04-28T10:00:00.000Z",
+              stepId: "download",
+              attempt: 1,
+              phase: "video_download",
+              label: "Download video",
+              percent: 12,
+              current: 120,
+              total: 1000,
+              unit: "bytes"
+            },
+            {
+              sequence: 4,
+              timestamp: "2026-04-28T10:00:02.000Z",
+              stepId: "download",
+              attempt: 1,
+              phase: "video_download",
+              label: "Download video",
+              percent: 68,
+              current: 680,
+              total: 1000,
+              unit: "bytes"
+            }
+          ],
+          logs: [
+            {
+              sequence: 1,
+              timestamp: "2026-04-28T09:59:59.000Z",
+              level: "info",
+              message: "Workflow started."
+            },
+            {
+              sequence: 2,
+              timestamp: "2026-04-28T10:00:00.000Z",
+              level: "info",
+              message: "Download video 12%"
+            },
+            {
+              sequence: 3,
+              timestamp: "2026-04-28T10:00:01.000Z",
+              level: "info",
+              message: "Still running."
+            },
+            {
+              sequence: 4,
+              timestamp: "2026-04-28T10:00:02.000Z",
+              level: "info",
+              message: "Download video 68%"
+            }
+          ]
+        }}
+        onRetry={vi.fn()}
+      />
+    );
+
+    const log = screen.getByLabelText("Runtime log");
+    expect(within(log).getAllByLabelText("Download video progress")).toHaveLength(1);
+    expect(within(log).getByText("68%")).toBeInTheDocument();
+    expect(within(log).getByText("680 / 1000 bytes")).toBeInTheDocument();
+    expect(within(log).queryByText("12%")).not.toBeInTheDocument();
+    expect(within(log).queryByText("Download video 12%")).not.toBeInTheDocument();
+    expect(within(log).queryByText("Download video 68%")).not.toBeInTheDocument();
+    expect(within(log).getByText("Still running.")).toBeInTheDocument();
   });
 
   it("keeps runtime logs in a fixed internal viewport pinned to the latest row", () => {
