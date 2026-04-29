@@ -164,6 +164,7 @@ def test_alembic_revision_is_packaged_with_storage_models() -> None:
     assert [revision.name for revision in revisions] == [
         "0001_initial_sqlalchemy_schema.py",
         "0002_user_quickstart_tasks.py",
+        "0003_user_provider_enabled.py",
     ]
 
 

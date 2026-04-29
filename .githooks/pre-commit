@@ -1,0 +1,32 @@
+#!/bin/sh
+
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
+python_modified=false
+
+for file in $staged_files
+do
+    case "$file" in
+        *.py)
+            python_modified=true
+            break
+            ;;
+    esac
+done
+
+if ! $python_modified; then
+    exit 0
+fi
+
+echo "Running Ruff format check before commit..."
+uv run ruff format --check . || {
+    status=$?
+    echo "Ruff format check failed. Run 'uv run ruff format .' and stage the changes."
+    exit $status
+}
+
+echo "Running Ruff lint before commit..."
+uv run ruff check . || {
+    status=$?
+    echo "Ruff lint failed. Fix the reported issues before committing."
+    exit $status
+}

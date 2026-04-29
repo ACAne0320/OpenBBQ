@@ -21,7 +21,8 @@ const settings: RuntimeSettingsModel = {
       baseUrl: "https://api.openai.com/v1",
       apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
       defaultChatModel: "gpt-4o-mini",
-      displayName: "OpenAI-compatible"
+      displayName: "OpenAI-compatible",
+      enabled: true
     },
     {
       name: "local-gateway",
@@ -29,14 +30,16 @@ const settings: RuntimeSettingsModel = {
       baseUrl: "http://127.0.0.1:11434/v1",
       apiKeyRef: "sqlite:openbbq/providers/local-gateway/api_key",
       defaultChatModel: "qwen2.5",
-      displayName: "Local gateway"
+      displayName: "Local gateway",
+      enabled: true
     }
   ],
   fasterWhisper: {
     cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
     defaultModel: "base",
     defaultDevice: "cpu",
-    defaultComputeType: "int8"
+    defaultComputeType: "int8",
+    enabled: true
   }
 };
 
@@ -167,7 +170,8 @@ function renderSettings(overrides: Partial<SettingsProps> = {}) {
       baseUrl: input.baseUrl,
       apiKeyRef: input.apiKeyRef,
       defaultChatModel: input.defaultChatModel,
-      displayName: input.displayName
+      displayName: input.displayName,
+      enabled: input.enabled
     })),
     getLlmProviderSecret: vi.fn().mockResolvedValue("sk-stored-secret"),
     getLlmProviderModels: vi.fn().mockResolvedValue([
@@ -190,6 +194,107 @@ function renderSettings(overrides: Partial<SettingsProps> = {}) {
 }
 
 describe("Settings", () => {
+  it("saves general defaults from enabled LLM and ASR providers", async () => {
+    const user = userEvent.setup();
+    const saveRuntimeDefaults = vi.fn().mockResolvedValue({
+      ...clone(settings),
+      defaults: { llmProvider: "local-gateway", asrProvider: "faster-whisper" }
+    });
+    renderSettings({ saveRuntimeDefaults });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "General" }));
+    await user.selectOptions(screen.getByLabelText("Default LLM provider"), "local-gateway");
+    await user.selectOptions(screen.getByLabelText("Default ASR provider"), "faster-whisper");
+    await user.click(screen.getByRole("button", { name: "Save defaults" }));
+
+    expect(saveRuntimeDefaults).toHaveBeenCalledWith({
+      llmProvider: "local-gateway",
+      asrProvider: "faster-whisper"
+    });
+    expect(await screen.findByText("Defaults saved.")).toBeInTheDocument();
+  });
+
+  it("only offers enabled providers in general defaults", async () => {
+    const user = userEvent.setup();
+    renderSettings({
+      loadSettings: vi.fn().mockResolvedValue({
+        ...clone(settings),
+        defaults: { llmProvider: "local-gateway", asrProvider: "faster-whisper" },
+        llmProviders: [
+          settings.llmProviders[0],
+          {
+            ...settings.llmProviders[1],
+            enabled: false
+          }
+        ],
+        fasterWhisper: {
+          ...settings.fasterWhisper,
+          enabled: false
+        }
+      })
+    });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "General" }));
+
+    expect(within(screen.getByLabelText("Default LLM provider")).queryByRole("option", { name: "Local gateway" })).not.toBeInTheDocument();
+    expect(screen.getByText("The current default LLM provider is disabled. Enable it or choose another provider.")).toBeInTheDocument();
+    expect(screen.getByText("Enable at least one ASR provider before choosing a default.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save defaults" })).toBeDisabled();
+  });
+
+  it("toggles LLM providers from the provider list", async () => {
+    const user = userEvent.setup();
+    const saveLlmProvider = vi.fn().mockImplementation(async (input) => ({
+      name: input.name,
+      type: input.type,
+      baseUrl: input.baseUrl,
+      apiKeyRef: input.apiKeyRef,
+      defaultChatModel: input.defaultChatModel,
+      displayName: input.displayName,
+      enabled: input.enabled
+    }));
+    renderSettings({ saveLlmProvider });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("switch", { name: "Disable Local gateway" }));
+
+    expect(saveLlmProvider).toHaveBeenCalledWith({
+      name: "local-gateway",
+      type: "openai_compatible",
+      baseUrl: "http://127.0.0.1:11434/v1",
+      defaultChatModel: "qwen2.5",
+      secretValue: null,
+      apiKeyRef: "sqlite:openbbq/providers/local-gateway/api_key",
+      displayName: "Local gateway",
+      enabled: false
+    });
+    expect(await screen.findByRole("switch", { name: "Enable Local gateway" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("toggles the ASR provider from the provider list", async () => {
+    const user = userEvent.setup();
+    const saveFasterWhisperDefaults = vi.fn().mockImplementation(async (input) => ({
+      ...clone(settings),
+      fasterWhisper: input
+    }));
+    renderSettings({ saveFasterWhisperDefaults });
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await user.click(screen.getByRole("button", { name: "ASR model" }));
+    await user.click(screen.getByRole("switch", { name: "Disable faster-whisper" }));
+
+    expect(saveFasterWhisperDefaults).toHaveBeenCalledWith({
+      cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
+      defaultModel: "base",
+      defaultDevice: "cpu",
+      defaultComputeType: "int8",
+      enabled: false
+    });
+    expect(await screen.findByRole("switch", { name: "Enable faster-whisper" })).toHaveAttribute("aria-checked", "false");
+  });
+
   it("loads settings and marks the default LLM provider", async () => {
     const props = renderSettings();
 
@@ -198,7 +303,7 @@ describe("Settings", () => {
     expect(props.loadModels).toHaveBeenCalledTimes(1);
     expect(props.loadDiagnostics).toHaveBeenCalledTimes(1);
 
-    const defaultProvider = screen.getByRole("button", { name: /openai-compatible Saved profile Default/i });
+    const defaultProvider = screen.getByRole("button", { name: /OpenAI-compatible Saved profile Enabled Default/i });
     expect(defaultProvider).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText("Base URL")).toHaveValue("https://api.openai.com/v1");
   });
@@ -227,24 +332,6 @@ describe("Settings", () => {
     expect(screen.getByText("Downloaded")).toBeInTheDocument();
   });
 
-  it("selects another provider and saves runtime defaults with the current ASR provider", async () => {
-    const user = userEvent.setup();
-    const saveRuntimeDefaults = vi.fn().mockResolvedValue({
-      ...clone(settings),
-      defaults: { llmProvider: "local-gateway", asrProvider: "faster-whisper" }
-    });
-    renderSettings({ saveRuntimeDefaults });
-
-    await screen.findByRole("heading", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: /Local gateway Saved profile/i }));
-    await user.click(screen.getByRole("button", { name: "Set as default" }));
-
-    expect(saveRuntimeDefaults).toHaveBeenCalledWith({
-      llmProvider: "local-gateway",
-      asrProvider: "faster-whisper"
-    });
-  });
-
   it("edits and saves an LLM provider with a typed API key and existing API key reference", async () => {
     const user = userEvent.setup();
     const saveLlmProvider = vi.fn().mockImplementation(async (input) => ({
@@ -253,7 +340,8 @@ describe("Settings", () => {
       baseUrl: input.baseUrl,
       apiKeyRef: input.apiKeyRef,
       defaultChatModel: input.defaultChatModel,
-      displayName: input.displayName
+      displayName: input.displayName,
+      enabled: input.enabled
     }));
     renderSettings({ saveLlmProvider });
 
@@ -283,7 +371,8 @@ describe("Settings", () => {
       defaultChatModel: "gpt-4.1-mini",
       secretValue: "sk-test-secret",
       apiKeyRef: "sqlite:openbbq/providers/openai-compatible/api_key",
-      displayName: "OpenAI-compatible"
+      displayName: "OpenAI-compatible",
+      enabled: true
     });
     expect(secretInput).toHaveValue("");
   });
@@ -296,7 +385,8 @@ describe("Settings", () => {
       baseUrl: input.baseUrl,
       apiKeyRef: input.apiKeyRef,
       defaultChatModel: input.defaultChatModel,
-      displayName: input.displayName
+      displayName: input.displayName,
+      enabled: input.enabled
     }));
     renderSettings({ saveLlmProvider });
 
@@ -312,7 +402,8 @@ describe("Settings", () => {
       defaultChatModel: "gpt-4o-mini",
       secretValue: null,
       apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
-      displayName: "OpenAI-compatible"
+      displayName: "OpenAI-compatible",
+      enabled: true
     });
   });
 
@@ -324,7 +415,8 @@ describe("Settings", () => {
       baseUrl: input.baseUrl,
       apiKeyRef: input.apiKeyRef,
       defaultChatModel: input.defaultChatModel,
-      displayName: input.displayName
+      displayName: input.displayName,
+      enabled: input.enabled
     }));
     renderSettings({
       loadSettings: vi.fn().mockResolvedValue({
@@ -335,7 +427,7 @@ describe("Settings", () => {
     });
 
     await screen.findByRole("heading", { name: "Settings" });
-    expect(screen.getByRole("button", { name: /openai-compatible Preset Default/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /openai-compatible Preset Enabled Default/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByLabelText("API key reference")).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Base URL"), "https://llm.example.test/v1");
@@ -350,7 +442,8 @@ describe("Settings", () => {
       defaultChatModel: "gpt-4.1-mini",
       secretValue: "sk-test-secret",
       apiKeyRef: "sqlite:openbbq/providers/openai-compatible/api_key",
-      displayName: null
+      displayName: null,
+      enabled: true
     });
   });
 
@@ -363,7 +456,8 @@ describe("Settings", () => {
       baseUrl: input.baseUrl,
       apiKeyRef: input.apiKeyRef,
       defaultChatModel: input.defaultChatModel,
-      displayName: input.displayName
+      displayName: input.displayName,
+      enabled: input.enabled
     }));
     renderSettings({ saveLlmProvider, testLlmProviderConnection });
 
@@ -396,7 +490,8 @@ describe("Settings", () => {
       defaultChatModel: "company-chat",
       secretValue: "sk-company",
       apiKeyRef: "sqlite:openbbq/providers/company-gateway/api_key",
-      displayName: null
+      displayName: null,
+      enabled: true
     });
     expect(await screen.findByRole("button", { name: /company-gateway Saved profile/i })).toHaveAttribute(
       "aria-pressed",
@@ -413,7 +508,8 @@ describe("Settings", () => {
       baseUrl: input.baseUrl,
       apiKeyRef: input.apiKeyRef,
       defaultChatModel: input.defaultChatModel,
-      displayName: input.displayName
+      displayName: input.displayName,
+      enabled: input.enabled
     }));
     renderSettings({ saveLlmProvider });
 
@@ -434,7 +530,8 @@ describe("Settings", () => {
       defaultChatModel: "mimo-v2.5-pro",
       secretValue: "sk-mimo",
       apiKeyRef: "sqlite:openbbq/providers/mimo-plan-pro/api_key",
-      displayName: "MIMO Plan Pro"
+      displayName: "MIMO Plan Pro",
+      enabled: true
     });
     expect(await screen.findByRole("button", { name: /MIMO Plan Pro Saved profile/i })).toHaveAttribute(
       "aria-pressed",
@@ -478,7 +575,8 @@ describe("Settings", () => {
       baseUrl: input.baseUrl,
       apiKeyRef: input.apiKeyRef,
       defaultChatModel: input.defaultChatModel,
-      displayName: input.displayName
+      displayName: input.displayName,
+      enabled: input.enabled
     }));
     renderSettings({ getLlmProviderSecret, saveLlmProvider });
 
@@ -501,7 +599,8 @@ describe("Settings", () => {
       defaultChatModel: "gpt-4o-mini",
       secretValue: null,
       apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
-      displayName: "OpenAI-compatible"
+      displayName: "OpenAI-compatible",
+      enabled: true
     });
   });
 
@@ -541,7 +640,8 @@ describe("Settings", () => {
     });
 
     await screen.findByRole("heading", { name: "Settings" });
-    await user.click(screen.getByRole("button", { name: "Set as default" }));
+    await user.click(screen.getByRole("button", { name: "General" }));
+    await user.click(screen.getByRole("button", { name: "Save defaults" }));
 
     expect(await screen.findByText("Defaults write failed.")).toBeInTheDocument();
   });
@@ -565,7 +665,8 @@ describe("Settings", () => {
       cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
       defaultModel: "small",
       defaultDevice: "cpu",
-      defaultComputeType: "float16"
+      defaultComputeType: "float16",
+      enabled: true
     });
   });
 

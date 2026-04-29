@@ -43,6 +43,112 @@ describe("desktop IPC actions", () => {
     );
   });
 
+  it("loads source workflow templates through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            template_id: "youtube-subtitle",
+            workflow_id: "youtube-to-srt",
+            steps: [
+              {
+                id: "download",
+                name: "Download Video",
+                tool_ref: "remote_video.download",
+                summary: "url -> video",
+                status: "locked",
+                parameters: [
+                  { kind: "text", key: "url", label: "URL", value: "https://example.test/watch" },
+                  { kind: "text", key: "quality", label: "Quality", value: "best" }
+                ]
+              }
+            ]
+          }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { getWorkflowTemplate } = await import("../ipc");
+
+    await expect(getWorkflowTemplate(sidecar, { kind: "remote_url", url: "https://example.test/watch" })).resolves.toEqual([
+      {
+        id: "download",
+        name: "Download Video",
+        toolRef: "remote_video.download",
+        summary: "url -> video",
+        status: "locked",
+        parameters: [
+          { kind: "text", key: "url", label: "URL", value: "https://example.test/watch" },
+          { kind: "text", key: "quality", label: "Quality", value: "best" }
+        ]
+      }
+    ]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/quickstart/subtitle/template?source_kind=remote_url&url=https%3A%2F%2Fexample.test%2Fwatch",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("loads workflow tool catalog through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            tools: [
+              {
+                tool_ref: "translation.qa",
+                name: "Translation QA",
+                description: "Check translated segments.",
+                inputs: {
+                  translation: {
+                    artifact_types: ["translation"],
+                    required: true,
+                    multiple: false
+                  }
+                },
+                outputs: [{ name: "qa", type: "translation_qa" }],
+                parameters: [{ kind: "text", key: "max_lines", label: "Max lines", value: "2" }]
+              }
+            ]
+          }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { getWorkflowTools } = await import("../ipc");
+
+    await expect(getWorkflowTools(sidecar)).resolves.toEqual([
+      {
+        toolRef: "translation.qa",
+        name: "Translation QA",
+        description: "Check translated segments.",
+        inputs: {
+          translation: {
+            artifactTypes: ["translation"],
+            required: true,
+            multiple: false
+          }
+        },
+        outputs: [{ name: "qa", type: "translation_qa" }],
+        parameters: [{ kind: "text", key: "max_lines", label: "Max lines", value: "2" }]
+      }
+    ]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/quickstart/subtitle/tools",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("lists persisted quickstart tasks through the sidecar", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(

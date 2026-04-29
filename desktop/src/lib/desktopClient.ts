@@ -5,6 +5,7 @@ export function createDesktopClient(api: OpenBBQDesktopApi): OpenBBQClient {
   return {
     chooseLocalMedia: () => api.chooseLocalMedia(),
     getWorkflowTemplate: (source) => api.getWorkflowTemplate(source),
+    getWorkflowTools: () => api.getWorkflowTools(),
     startSubtitleTask: (input) => api.startSubtitleTask(input),
     listTasks: () => api.listTasks(),
     getTaskMonitor: (runId) => api.getTaskMonitor(runId),

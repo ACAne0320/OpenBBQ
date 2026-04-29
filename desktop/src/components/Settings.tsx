@@ -13,8 +13,9 @@ import type {
   RuntimeSettingsModel
 } from "../lib/types";
 import { Button } from "./Button";
+import { Toggle } from "./Toggle";
 
-type SettingsSection = "llm" | "asr" | "diagnostics" | "advanced";
+type SettingsSection = "general" | "llm" | "asr" | "diagnostics" | "advanced";
 type ModelStatusUpdate = RuntimeModelStatus[] | ((current: RuntimeModelStatus[]) => RuntimeModelStatus[]);
 
 export type SettingsProps = {
@@ -32,6 +33,7 @@ export type SettingsProps = {
     secretValue: string | null;
     apiKeyRef: string | null;
     displayName: string | null;
+    enabled: boolean;
   }): Promise<LlmProviderModel>;
   getLlmProviderSecret(name: string): Promise<string>;
   getLlmProviderModels(name: string): Promise<ProviderModelOption[]>;
@@ -46,6 +48,7 @@ export type SettingsProps = {
     defaultModel: string;
     defaultDevice: string;
     defaultComputeType: string;
+    enabled: boolean;
   }): Promise<RuntimeSettingsModel>;
 };
 
@@ -66,7 +69,8 @@ const providerPresets: LlmProviderModel[] = [
     baseUrl: "https://api.openai.com/v1",
     apiKeyRef: null,
     defaultChatModel: null,
-    displayName: null
+    displayName: null,
+    enabled: false
   },
   {
     name: "deepseek",
@@ -74,7 +78,8 @@ const providerPresets: LlmProviderModel[] = [
     baseUrl: "https://api.deepseek.com",
     apiKeyRef: null,
     defaultChatModel: null,
-    displayName: null
+    displayName: null,
+    enabled: false
   },
   {
     name: "openrouter",
@@ -82,7 +87,8 @@ const providerPresets: LlmProviderModel[] = [
     baseUrl: "https://openrouter.ai/api/v1",
     apiKeyRef: null,
     defaultChatModel: null,
-    displayName: null
+    displayName: null,
+    enabled: false
   },
   {
     name: "ollama",
@@ -90,7 +96,8 @@ const providerPresets: LlmProviderModel[] = [
     baseUrl: "http://127.0.0.1:11434/v1",
     apiKeyRef: null,
     defaultChatModel: null,
-    displayName: null
+    displayName: null,
+    enabled: false
   }
 ];
 
@@ -127,8 +134,13 @@ function defaultLlmProvider(name: string): LlmProviderModel {
     baseUrl: null,
     apiKeyRef: defaultApiKeyRef(name),
     defaultChatModel: null,
-    displayName: null
+    displayName: null,
+    enabled: true
   };
+}
+
+function providerEnabled(provider: LlmProviderModel): boolean {
+  return provider.enabled;
 }
 
 function llmProviderOptions(settings: RuntimeSettingsModel): LlmProviderModel[] {
@@ -466,6 +478,9 @@ export function Settings({
       <div className="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="rounded-xl bg-paper-side p-3 shadow-control">
           <nav className="grid grid-cols-2 gap-2 xl:grid-cols-1" aria-label="Settings sections">
+          <SectionButton active={section === "general"} onClick={() => setSection("general")}>
+            General
+          </SectionButton>
           <SectionButton active={section === "llm"} onClick={() => setSection("llm")}>
             LLM provider
           </SectionButton>
@@ -482,12 +497,18 @@ export function Settings({
       </aside>
 
         <div className="min-w-0 overflow-hidden">
+        {section === "general" ? (
+          <GeneralSection
+            saveRuntimeDefaults={saveRuntimeDefaults}
+            settings={settings}
+            onSettingsChange={setSettings}
+          />
+        ) : null}
         {section === "llm" ? (
           <LlmProviderSection
             getLlmProviderModels={getLlmProviderModels}
             getLlmProviderSecret={getLlmProviderSecret}
             saveLlmProvider={saveLlmProvider}
-            saveRuntimeDefaults={saveRuntimeDefaults}
             settings={settings}
             testLlmProviderConnection={testLlmProviderConnection}
             onSettingsChange={setSettings}
@@ -534,18 +555,127 @@ function SectionButton({ active, children, onClick }: { active: boolean; childre
   );
 }
 
+function GeneralSection({
+  onSettingsChange,
+  saveRuntimeDefaults,
+  settings
+}: {
+  settings: RuntimeSettingsModel;
+  onSettingsChange(settings: RuntimeSettingsModel): void;
+  saveRuntimeDefaults: SettingsProps["saveRuntimeDefaults"];
+}) {
+  const enabledLlmProviders = useMemo(() => settings.llmProviders.filter(providerEnabled), [settings.llmProviders]);
+  const enabledAsrProviders = useMemo(
+    () => (settings.fasterWhisper.enabled ? ["faster-whisper"] : []),
+    [settings.fasterWhisper.enabled]
+  );
+  const llmOptionLabels = useMemo(
+    () => new Map(enabledLlmProviders.map((provider) => [provider.name, providerDisplayName(provider)])),
+    [enabledLlmProviders]
+  );
+  const llmDefaultEnabled = enabledLlmProviders.some((provider) => provider.name === settings.defaults.llmProvider);
+  const asrDefaultEnabled = enabledAsrProviders.includes(settings.defaults.asrProvider);
+  const [llmProvider, setLlmProvider] = useState(
+    llmDefaultEnabled ? settings.defaults.llmProvider : (enabledLlmProviders[0]?.name ?? "")
+  );
+  const [asrProvider, setAsrProvider] = useState(
+    asrDefaultEnabled ? settings.defaults.asrProvider : (enabledAsrProviders[0] ?? "")
+  );
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const canSave = llmProvider.length > 0 && asrProvider.length > 0;
+
+  useEffect(() => {
+    setLlmProvider(llmDefaultEnabled ? settings.defaults.llmProvider : (enabledLlmProviders[0]?.name ?? ""));
+    setAsrProvider(asrDefaultEnabled ? settings.defaults.asrProvider : (enabledAsrProviders[0] ?? ""));
+  }, [
+    asrDefaultEnabled,
+    enabledAsrProviders,
+    enabledLlmProviders,
+    llmDefaultEnabled,
+    settings.defaults.asrProvider,
+    settings.defaults.llmProvider
+  ]);
+
+  async function saveDefaults() {
+    setFeedback(null);
+    setMutationError(null);
+    if (!canSave) {
+      return;
+    }
+
+    try {
+      const updated = await saveRuntimeDefaults({ llmProvider, asrProvider });
+      onSettingsChange(updated);
+      setFeedback("Defaults saved.");
+    } catch (error) {
+      setMutationError(errorMessage(error, "Defaults could not be saved."));
+    }
+  }
+
+  return (
+    <section aria-label="General settings" className="rounded-lg bg-paper-muted p-5 shadow-control">
+      <p className="text-xs font-bold uppercase text-muted">Runtime defaults</p>
+      <h2 className="mt-2 text-2xl font-extrabold leading-tight text-ink-brown">General</h2>
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-2">
+        <SelectInput
+          label="Default LLM provider"
+          options={enabledLlmProviders.map((provider) => provider.name)}
+          optionLabels={llmOptionLabels}
+          value={llmProvider}
+          disabled={enabledLlmProviders.length === 0}
+          onChange={setLlmProvider}
+        />
+        <SelectInput
+          label="Default ASR provider"
+          options={enabledAsrProviders}
+          value={asrProvider}
+          disabled={enabledAsrProviders.length === 0}
+          onChange={setAsrProvider}
+        />
+      </div>
+
+      {enabledLlmProviders.length === 0 ? (
+        <p className="mt-3 text-sm font-semibold text-accent">Enable at least one LLM provider before choosing a default.</p>
+      ) : !llmDefaultEnabled ? (
+        <p className="mt-3 text-sm font-semibold text-accent">
+          The current default LLM provider is disabled. Enable it or choose another provider.
+        </p>
+      ) : null}
+      {enabledAsrProviders.length === 0 ? (
+        <p className="mt-3 text-sm font-semibold text-accent">Enable at least one ASR provider before choosing a default.</p>
+      ) : !asrDefaultEnabled ? (
+        <p className="mt-3 text-sm font-semibold text-accent">
+          The current default ASR provider is disabled. Enable it or choose another provider.
+        </p>
+      ) : null}
+      {feedback ? (
+        <p className="mt-3 text-sm font-semibold text-ready" aria-live="polite">
+          {feedback}
+        </p>
+      ) : null}
+      {mutationError ? <InlineError>{mutationError}</InlineError> : null}
+
+      <div className="mt-5">
+        <Button variant="primary" disabled={!canSave} onClick={() => void saveDefaults()}>
+          Save defaults
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function LlmProviderSection({
   getLlmProviderSecret,
   getLlmProviderModels,
   onSettingsChange,
   saveLlmProvider,
-  saveRuntimeDefaults,
   settings,
   testLlmProviderConnection
 }: {
   settings: RuntimeSettingsModel;
   onSettingsChange(settings: RuntimeSettingsModel): void;
-  saveRuntimeDefaults: SettingsProps["saveRuntimeDefaults"];
   saveLlmProvider: SettingsProps["saveLlmProvider"];
   getLlmProviderSecret: SettingsProps["getLlmProviderSecret"];
   getLlmProviderModels: SettingsProps["getLlmProviderModels"];
@@ -626,7 +756,8 @@ function LlmProviderSection({
         apiKeyRef: secretValue
           ? defaultApiKeyRef(name)
           : (emptyToNull(draft.apiKeyRef) ?? defaultApiKeyRef(name)),
-        displayName: displayName === name ? null : displayName
+        displayName: displayName === name ? null : displayName,
+        enabled: selected.enabled
       });
 
       onSettingsChange({
@@ -638,22 +769,6 @@ function LlmProviderSection({
       setFeedback("Provider saved.");
     } catch (error) {
       setMutationError(errorMessage(error, "Provider could not be saved."));
-    }
-  }
-
-  async function setDefaultProvider() {
-    setFeedback(null);
-    setMutationError(null);
-
-    try {
-      const updated = await saveRuntimeDefaults({
-        llmProvider: selected.name,
-        asrProvider: settings.defaults.asrProvider
-      });
-      onSettingsChange(updated);
-      setFeedback("Default provider updated.");
-    } catch (error) {
-      setMutationError(errorMessage(error, "Default provider could not be updated."));
     }
   }
 
@@ -678,7 +793,8 @@ function LlmProviderSection({
         apiKeyRef: secretValue
           ? defaultApiKeyRef(name)
           : (emptyToNull(customDraft.apiKeyRef) ?? defaultApiKeyRef(name)),
-        displayName: displayName === name ? null : displayName
+        displayName: displayName === name ? null : displayName,
+        enabled: true
       });
 
       onSettingsChange({
@@ -772,6 +888,31 @@ function LlmProviderSection({
     }
   }
 
+  async function setProviderEnabled(provider: LlmProviderModel, enabled: boolean) {
+    setFeedback(null);
+    setMutationError(null);
+
+    try {
+      const saved = await saveLlmProvider({
+        name: provider.name,
+        type: provider.type,
+        baseUrl: provider.baseUrl,
+        defaultChatModel: provider.defaultChatModel,
+        secretValue: null,
+        apiKeyRef: provider.apiKeyRef,
+        displayName: provider.displayName,
+        enabled
+      });
+      onSettingsChange({
+        ...settings,
+        llmProviders: upsertProvider(settings.llmProviders, saved)
+      });
+      setFeedback(enabled ? "Provider enabled." : "Provider disabled.");
+    } catch (error) {
+      setMutationError(errorMessage(error, "Provider state could not be updated."));
+    }
+  }
+
   return (
     <>
     <section className="grid grid-cols-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)]" aria-label="LLM provider settings">
@@ -780,28 +921,42 @@ function LlmProviderSection({
         <div className="mt-3 grid gap-2">
           {providers.map((provider) => {
             const selectedProvider = provider.name === selected.name;
+            const enabled = providerEnabled(provider);
             return (
-              <button
+              <div
                 key={provider.name}
-                type="button"
-                aria-pressed={selectedProvider}
-                onClick={() => setSelectedName(provider.name)}
                 className={
                   selectedProvider
-                    ? "min-h-[74px] rounded-md bg-paper-selected px-3 py-2 text-left shadow-selected transition-transform duration-150 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                    : "min-h-[74px] rounded-md bg-paper px-3 py-2 text-left shadow-control transition-transform duration-150 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [@media(hover:hover)]:hover:bg-paper-selected"
+                    ? "grid min-h-[74px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-paper-selected px-3 py-2 shadow-selected"
+                    : "grid min-h-[74px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-paper px-3 py-2 shadow-control [@media(hover:hover)]:hover:bg-paper-selected"
                 }
               >
-                <span className="block text-sm font-extrabold text-ink-brown">
-                  {providerDisplayName(provider)}
-                </span>
-                <span className="mt-1 block text-xs text-muted">
-                  {settings.llmProviders.some((item) => item.name === provider.name) ? "Saved profile" : "Preset"}
-                </span>
-                {settings.defaults.llmProvider === provider.name ? (
-                  <span className="mt-1 block text-xs font-bold text-ready">Default</span>
-                ) : null}
-              </button>
+                <button
+                  type="button"
+                  aria-pressed={selectedProvider}
+                  onClick={() => setSelectedName(provider.name)}
+                  className="min-w-0 text-left transition-transform duration-150 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                >
+                  <span className={enabled ? "block text-sm font-extrabold text-ink-brown" : "block text-sm font-extrabold text-muted"}>
+                    {providerDisplayName(provider)}
+                  </span>
+                  <span className="mt-1 block text-xs text-muted">
+                    {settings.llmProviders.some((item) => item.name === provider.name) ? "Saved profile" : "Preset"}
+                  </span>
+                  <span className={enabled ? "mt-1 block text-xs font-bold text-ready" : "mt-1 block text-xs font-bold text-muted"}>
+                    {enabled ? "Enabled" : "Disabled"}
+                  </span>
+                  {settings.defaults.llmProvider === provider.name ? (
+                    <span className="mt-1 block text-xs font-bold text-ready">Default</span>
+                  ) : null}
+                </button>
+                <Toggle
+                  aria-label={`${enabled ? "Disable" : "Enable"} ${providerDisplayName(provider)}`}
+                  checked={enabled}
+                  className="h-8 w-12 shrink-0"
+                  onChange={(checked) => void setProviderEnabled(provider, checked)}
+                />
+              </div>
             );
           })}
         </div>
@@ -868,9 +1023,6 @@ function LlmProviderSection({
         <div className="mt-5 flex flex-wrap gap-2">
           <Button variant="primary" onClick={() => void saveProvider()}>
             Save provider
-          </Button>
-          <Button variant="secondary" disabled={!selectedConfigured} onClick={() => void setDefaultProvider()}>
-            Set as default
           </Button>
           <Button variant="secondary" disabled={!selectedConfigured || modelsLoading} onClick={() => void fetchModels()}>
             {modelsLoading ? "Fetching models" : "Fetch models"}
@@ -995,7 +1147,8 @@ function AsrSection({
         cacheDir: draft.cacheDir,
         defaultModel: draft.defaultModel,
         defaultDevice: draft.defaultDevice,
-        defaultComputeType: draft.defaultComputeType
+        defaultComputeType: draft.defaultComputeType,
+        enabled: draft.enabled
       });
       setDraft(updated.fasterWhisper);
       onDownloadStateReset();
@@ -1012,13 +1165,48 @@ function AsrSection({
     }
   }
 
+  async function setFasterWhisperEnabled(enabled: boolean) {
+    onFeedbackChange(null);
+    onMutationErrorChange(null);
+
+    try {
+      const updated = await saveFasterWhisperDefaults({
+        cacheDir: draft.cacheDir,
+        defaultModel: draft.defaultModel,
+        defaultDevice: draft.defaultDevice,
+        defaultComputeType: draft.defaultComputeType,
+        enabled
+      });
+      setDraft(updated.fasterWhisper);
+      onSettingsChange(updated);
+      onFeedbackChange(enabled ? "ASR provider enabled." : "ASR provider disabled.");
+    } catch (error) {
+      onMutationErrorChange(errorMessage(error, "ASR provider state could not be updated."));
+    }
+  }
+
   return (
     <section className="grid grid-cols-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)]" aria-label="ASR model settings">
       <aside className="rounded-lg bg-paper-muted p-3 shadow-control">
         <p className="text-xs font-bold uppercase text-muted">ASR providers</p>
-        <div className="mt-3 min-h-[74px] rounded-md bg-paper-selected px-3 py-2 shadow-selected">
-          <span className="block text-sm font-extrabold text-ink-brown">faster-whisper</span>
-          <span className="mt-1 block text-xs font-bold text-ready">Default</span>
+        <div className="mt-3 grid min-h-[74px] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-paper-selected px-3 py-2 shadow-selected">
+          <div className="min-w-0">
+            <span className={draft.enabled ? "block text-sm font-extrabold text-ink-brown" : "block text-sm font-extrabold text-muted"}>
+              faster-whisper
+            </span>
+            <span className={draft.enabled ? "mt-1 block text-xs font-bold text-ready" : "mt-1 block text-xs font-bold text-muted"}>
+              {draft.enabled ? "Enabled" : "Disabled"}
+            </span>
+            {settings.defaults.asrProvider === "faster-whisper" ? (
+              <span className="mt-1 block text-xs font-bold text-ready">Default</span>
+            ) : null}
+          </div>
+          <Toggle
+            aria-label={`${draft.enabled ? "Disable" : "Enable"} faster-whisper`}
+            checked={draft.enabled}
+            className="h-8 w-12 shrink-0"
+            onChange={(checked) => void setFasterWhisperEnabled(checked)}
+          />
         </div>
       </aside>
 
@@ -1206,14 +1394,18 @@ function AdvancedSection({ settings }: { settings: RuntimeSettingsModel }) {
 }
 
 function SelectInput({
+  disabled = false,
   label,
   onChange,
+  optionLabels,
   options,
   value
 }: {
   label: string;
   value: string;
   options: string[];
+  optionLabels?: Map<string, string>;
+  disabled?: boolean;
   onChange(value: string): void;
 }) {
   return (
@@ -1221,12 +1413,13 @@ function SelectInput({
       {label}
       <select
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="min-h-11 min-w-0 rounded-md bg-paper px-3 text-sm font-normal normal-case text-ink shadow-control focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        className="min-h-11 min-w-0 rounded-md bg-paper px-3 text-sm font-normal normal-case text-ink shadow-control focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-paper-side disabled:text-muted"
       >
         {options.map((option) => (
           <option key={option} value={option}>
-            {option}
+            {optionLabels?.get(option) ?? option}
           </option>
         ))}
       </select>

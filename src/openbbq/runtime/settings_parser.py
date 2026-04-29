@@ -113,6 +113,10 @@ def _faster_whisper_settings(
             fw_raw.get("default_compute_type", "int8"),
             "models.faster_whisper.default_compute_type",
         ),
+        enabled=_optional_bool(
+            fw_raw.get("enabled", True),
+            "models.faster_whisper.enabled",
+        ),
     )
 
 
@@ -143,6 +147,9 @@ def _provider_profiles(raw: JsonObject) -> ProviderMap:
                 ),
                 display_name=_optional_string(
                     profile_raw.get("display_name"), f"providers.{name}.display_name"
+                ),
+                enabled=_optional_bool(
+                    profile_raw.get("enabled", True), f"providers.{name}.enabled"
                 ),
             )
         except PydanticValidationError as exc:
@@ -214,3 +221,9 @@ def _optional_string(value: Any, field_path: str) -> str | None:
     if value is None:
         return None
     return _required_string(value, field_path)
+
+
+def _optional_bool(value: Any, field_path: str) -> bool:
+    if type(value) is bool:
+        return value
+    raise ValidationError(f"{field_path} must be a boolean.")

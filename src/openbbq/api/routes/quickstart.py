@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Request
 
 from openbbq.api.adapters import api_model
@@ -10,6 +12,8 @@ from openbbq.api.schemas import (
     QuickstartTaskListData,
     SubtitleJobData,
     SubtitleLocalJobRequest,
+    SubtitleWorkflowTemplateData,
+    SubtitleWorkflowToolCatalogData,
     SubtitleYouTubeJobRequest,
 )
 from openbbq.api.task_history import (
@@ -27,8 +31,38 @@ from openbbq.application.quickstart import (
     resolve_local_subtitle_job_request,
     resolve_youtube_subtitle_job_request,
 )
+from openbbq.application.quickstart_workflows import (
+    subtitle_workflow_template_for_source,
+    subtitle_workflow_tool_catalog,
+)
+from openbbq.config.loader import BUILTIN_PLUGIN_ROOT
 
 router = APIRouter(tags=["quickstart"])
+
+
+@router.get(
+    "/quickstart/subtitle/template",
+    response_model=ApiSuccess[SubtitleWorkflowTemplateData],
+    response_model_exclude_none=True,
+)
+def get_subtitle_workflow_template(
+    source_kind: Literal["local_file", "remote_url"],
+    url: str | None = None,
+) -> ApiSuccess[SubtitleWorkflowTemplateData]:
+    template = subtitle_workflow_template_for_source(source_kind=source_kind, url=url)
+    return ApiSuccess(data=SubtitleWorkflowTemplateData(**template))
+
+
+@router.get(
+    "/quickstart/subtitle/tools",
+    response_model=ApiSuccess[SubtitleWorkflowToolCatalogData],
+)
+def get_subtitle_workflow_tools(request: Request) -> ApiSuccess[SubtitleWorkflowToolCatalogData]:
+    settings = active_project_settings(request)
+    catalog = subtitle_workflow_tool_catalog(
+        plugin_paths=(*settings.plugin_paths, BUILTIN_PLUGIN_ROOT)
+    )
+    return ApiSuccess(data=SubtitleWorkflowToolCatalogData(**catalog))
 
 
 @router.post("/quickstart/subtitle/local", response_model=ApiSuccess[SubtitleJobData])
@@ -48,6 +82,9 @@ def post_local_subtitle_job(
             asr_model=body.asr_model,
             asr_device=body.asr_device,
             asr_compute_type=body.asr_compute_type,
+            correct_transcript=body.correct_transcript,
+            step_order=body.step_order,
+            extra_steps=tuple(step.model_dump(mode="json") for step in body.extra_steps),
             output_path=body.output_path,
             plugin_paths=settings.plugin_paths,
             created_by="api",
@@ -101,6 +138,9 @@ def post_youtube_subtitle_job(
             asr_model=body.asr_model,
             asr_device=body.asr_device,
             asr_compute_type=body.asr_compute_type,
+            correct_transcript=body.correct_transcript,
+            step_order=body.step_order,
+            extra_steps=tuple(step.model_dump(mode="json") for step in body.extra_steps),
             quality=body.quality,
             auth=body.auth,
             browser=body.browser,

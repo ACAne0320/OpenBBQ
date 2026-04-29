@@ -23,6 +23,13 @@ Use `uv` from the repository root:
 uv sync
 ```
 
+Enable the repository git hooks to block commits when staged Python changes are
+not Ruff-formatted:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 For real video, audio, download, LLM, and keychain support, install the optional
 dependency groups you need:
 

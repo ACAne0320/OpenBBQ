@@ -786,6 +786,7 @@ def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monk
     _patch_valid_quickstart_runtime(monkeypatch, tmp_path)
 
     def fake_local_job(request):
+        assert request.correct_transcript is False
         return SubtitleJobResult(
             generated_project_root=tmp_path / "generated-local",
             generated_config_path=tmp_path / "generated-local" / "openbbq.yaml",
@@ -828,6 +829,7 @@ def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monk
             "source_lang": "en",
             "target_lang": "zh",
             "provider": "openai",
+            "correct_transcript": False,
             "output_path": str(tmp_path / "out.local.srt"),
         },
     )
@@ -848,6 +850,112 @@ def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monk
     assert local.json()["data"]["source_artifact_id"] == "art_source"
     assert youtube.status_code == 200
     assert youtube.json()["data"]["workflow_id"] == "youtube-to-srt"
+
+
+def test_quickstart_subtitle_template_route_returns_packaged_workflow_steps(tmp_path):
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project)
+
+    local = client.get(
+        "/quickstart/subtitle/template",
+        headers=headers,
+        params={"source_kind": "local_file"},
+    )
+    remote = client.get(
+        "/quickstart/subtitle/template",
+        headers=headers,
+        params={"source_kind": "remote_url", "url": "https://example.test/watch"},
+    )
+
+    assert local.status_code == 200
+    local_data = local.json()["data"]
+    assert local_data["template_id"] == "local-subtitle"
+    assert local_data["workflow_id"] == "local-to-srt"
+    assert [step["id"] for step in local_data["steps"]] == [
+        "extract_audio",
+        "transcribe",
+        "correct",
+        "segment",
+        "translate",
+        "subtitle",
+    ]
+    assert local_data["steps"][0]["tool_ref"] == "ffmpeg.extract_audio"
+    assert local_data["steps"][2]["status"] == "enabled"
+    assert local_data["steps"][4]["parameters"] == [
+        {
+            "kind": "text",
+            "key": "source_lang",
+            "label": "Source language",
+            "value": "en",
+        },
+        {
+            "kind": "text",
+            "key": "target_lang",
+            "label": "Target language",
+            "value": "zh",
+        },
+        {
+            "kind": "text",
+            "key": "temperature",
+            "label": "Temperature",
+            "value": "0",
+        },
+    ]
+
+    assert remote.status_code == 200
+    remote_data = remote.json()["data"]
+    assert remote_data["template_id"] == "youtube-subtitle"
+    assert remote_data["workflow_id"] == "youtube-to-srt"
+    assert remote_data["steps"][0]["id"] == "download"
+    assert remote_data["steps"][0]["tool_ref"] == "remote_video.download"
+    assert remote_data["steps"][0]["parameters"][0] == {
+        "kind": "text",
+        "key": "url",
+        "label": "URL",
+        "value": "https://example.test/watch",
+    }
+
+
+def test_quickstart_subtitle_tool_catalog_lists_addable_workflow_tools(tmp_path):
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project)
+
+    response = client.get("/quickstart/subtitle/tools", headers=headers)
+
+    assert response.status_code == 200
+    tools = response.json()["data"]["tools"]
+    qa_tool = next(tool for tool in tools if tool["tool_ref"] == "translation.qa")
+    assert qa_tool["name"] == "Translation QA"
+    assert qa_tool["inputs"] == {
+        "translation": {
+            "artifact_types": ["translation"],
+            "required": True,
+            "multiple": False,
+        }
+    }
+    assert qa_tool["outputs"] == [
+        {"name": "qa", "type": "translation_qa"},
+    ]
+    assert qa_tool["parameters"] == [
+        {
+            "kind": "text",
+            "key": "max_lines",
+            "label": "Max lines",
+            "value": "2",
+        },
+        {
+            "kind": "text",
+            "key": "max_chars_per_line",
+            "label": "Max chars per line",
+            "value": "42",
+        },
+        {
+            "kind": "text",
+            "key": "max_chars_per_second",
+            "label": "Max chars per second",
+            "value": "20",
+        },
+    ]
 
 
 def test_quickstart_subtitle_route_persists_task_history(tmp_path, monkeypatch):

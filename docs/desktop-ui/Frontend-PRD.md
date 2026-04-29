@@ -1140,6 +1140,8 @@ Design constraints:
 | Workflow details | `GET /workflows/{workflow_id}` |
 | Validate workflow | `POST /workflows/{workflow_id}/validate` |
 | Create generic run | `POST /workflows/{workflow_id}/runs` |
+| Subtitle workflow template | `GET /quickstart/subtitle/template` |
+| Subtitle workflow tool catalog | `GET /quickstart/subtitle/tools` |
 | Local subtitle quickstart | `POST /quickstart/subtitle/local` |
 | YouTube subtitle quickstart | `POST /quickstart/subtitle/youtube` |
 | List tasks | `GET /runs` |

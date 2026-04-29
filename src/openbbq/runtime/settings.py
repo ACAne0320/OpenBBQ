@@ -72,6 +72,7 @@ def runtime_settings_to_toml(settings: RuntimeSettings) -> str:
                 lines.append(f'default_chat_model = "{_escape_toml(provider.default_chat_model)}"')
             if provider.display_name is not None:
                 lines.append(f'display_name = "{_escape_toml(provider.display_name)}"')
+            lines.append(f"enabled = {_toml_bool(provider.enabled)}")
             lines.append("")
     if settings.models is not None:
         model = settings.models.faster_whisper
@@ -80,6 +81,7 @@ def runtime_settings_to_toml(settings: RuntimeSettings) -> str:
         lines.append(f'default_model = "{_escape_toml(model.default_model)}"')
         lines.append(f'default_device = "{_escape_toml(model.default_device)}"')
         lines.append(f'default_compute_type = "{_escape_toml(model.default_compute_type)}"')
+        lines.append(f"enabled = {_toml_bool(model.enabled)}")
         lines.append("")
     return "\n".join(lines)
 
@@ -114,3 +116,7 @@ def with_faster_whisper_settings(
 
 def _escape_toml(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _toml_bool(value: bool) -> str:
+    return "true" if value else "false"

@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 const api = {
   chooseLocalMedia: () => ipcRenderer.invoke("openbbq:choose-local-media"),
   getWorkflowTemplate: (source: unknown) => ipcRenderer.invoke("openbbq:get-workflow-template", source),
+  getWorkflowTools: () => ipcRenderer.invoke("openbbq:get-workflow-tools"),
   startSubtitleTask: (input: unknown) => ipcRenderer.invoke("openbbq:start-subtitle-task", input),
   listTasks: () => ipcRenderer.invoke("openbbq:list-tasks"),
   getTaskMonitor: (runId: string) => ipcRenderer.invoke("openbbq:get-task-monitor", runId),

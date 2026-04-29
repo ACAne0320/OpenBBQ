@@ -15,13 +15,15 @@ import type {
   ApiRuntimeSettings,
   ApiSecretCheck,
   ApiSubtitleJobData,
+  ApiSubtitleWorkflowTemplateData,
+  ApiWorkflowToolCatalogData,
   ApiWorkflowEvent
 } from "./apiTypes.js";
 import { requestJson } from "./http.js";
 import { toReviewModel } from "./reviewMapping.js";
 import type { ManagedSidecar } from "./sidecar.js";
 import { toTaskMonitorModel, toTaskSummaryModel } from "./taskMapping.js";
-import { buildQuickstartRequest, workflowTemplateForSource } from "./workflowMapping.js";
+import { buildQuickstartRequest } from "./workflowMapping.js";
 import type {
   DiagnosticCheck,
   DownloadFasterWhisperModelInput,
@@ -37,7 +39,9 @@ import type {
   SaveRuntimeDefaultsInput,
   SecretStatus,
   SourceDraft,
-  StartSubtitleTaskInput
+  StartSubtitleTaskInput,
+  WorkflowTool,
+  WorkflowStep
 } from "../src/lib/types.js";
 
 type IpcContext = {
@@ -50,7 +54,8 @@ type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => Promise<unk
 export function registerOpenBBQIpc(context: IpcContext): () => void {
   const handlers: Array<[string, IpcHandler]> = [
     ["openbbq:choose-local-media", async () => chooseLocalMedia(context.window)],
-    ["openbbq:get-workflow-template", async (_event, source) => workflowTemplateForSource(source as SourceDraft)],
+    ["openbbq:get-workflow-template", async (_event, source) => getWorkflowTemplate(context.getSidecar(), source as SourceDraft)],
+    ["openbbq:get-workflow-tools", async () => getWorkflowTools(context.getSidecar())],
     ["openbbq:start-subtitle-task", async (_event, input) => startSubtitleTask(context.getSidecar(), input as StartSubtitleTaskInput)],
     ["openbbq:list-tasks", async () => listTasks(context.getSidecar())],
     ["openbbq:get-task-monitor", async (_event, runId) => getTaskMonitor(context.getSidecar(), String(runId))],
@@ -131,6 +136,52 @@ async function chooseLocalMedia(window: BrowserWindow) {
   };
 }
 
+export async function getWorkflowTemplate(sidecar: ManagedSidecar, source: SourceDraft): Promise<WorkflowStep[]> {
+  const parameters = new URLSearchParams({ source_kind: source.kind });
+  if (source.kind === "remote_url") {
+    parameters.set("url", source.url);
+  }
+  const data = await requestJson<ApiSubtitleWorkflowTemplateData>(
+    sidecar.connection,
+    `/quickstart/subtitle/template?${parameters.toString()}`
+  );
+  return data.steps.map((step) => ({
+    id: step.id,
+    name: step.name,
+    toolRef: step.tool_ref,
+    summary: step.summary,
+    status: step.status,
+    selected: step.selected ?? undefined,
+    inputs: step.inputs ?? undefined,
+    outputs: step.outputs ?? undefined,
+    parameters: step.parameters
+  }));
+}
+
+export async function getWorkflowTools(sidecar: ManagedSidecar): Promise<WorkflowTool[]> {
+  const data = await requestJson<ApiWorkflowToolCatalogData>(
+    sidecar.connection,
+    "/quickstart/subtitle/tools"
+  );
+  return data.tools.map((tool) => ({
+    toolRef: tool.tool_ref,
+    name: tool.name,
+    description: tool.description,
+    inputs: Object.fromEntries(
+      Object.entries(tool.inputs).map(([name, spec]) => [
+        name,
+        {
+          artifactTypes: spec.artifact_types,
+          required: spec.required,
+          multiple: spec.multiple
+        }
+      ])
+    ),
+    outputs: tool.outputs,
+    parameters: tool.parameters
+  }));
+}
+
 async function startSubtitleTask(sidecar: ManagedSidecar, input: StartSubtitleTaskInput) {
   const request = buildQuickstartRequest(input.source, input.steps);
   const data = await requestJson<ApiSubtitleJobData>(sidecar.connection, request.route, {
@@ -190,7 +241,8 @@ function toLlmProviderModel(provider: ApiProviderProfile): LlmProviderModel {
     baseUrl: provider.base_url ?? null,
     apiKeyRef: provider.api_key ?? null,
     defaultChatModel: provider.default_chat_model ?? null,
-    displayName: provider.display_name ?? null
+    displayName: provider.display_name ?? null,
+    enabled: provider.enabled ?? true
   };
 }
 
@@ -207,7 +259,8 @@ function toRuntimeSettingsModel(settings: ApiRuntimeSettings): RuntimeSettingsMo
       cacheDir: settings.models.faster_whisper.cache_dir,
       defaultModel: settings.models.faster_whisper.default_model,
       defaultDevice: settings.models.faster_whisper.default_device,
-      defaultComputeType: settings.models.faster_whisper.default_compute_type
+      defaultComputeType: settings.models.faster_whisper.default_compute_type,
+      enabled: settings.models.faster_whisper.enabled ?? true
     }
   };
 }
@@ -289,7 +342,8 @@ export async function saveLlmProvider(
         default_chat_model: input.defaultChatModel,
         secret_value: input.secretValue,
         api_key_ref: input.apiKeyRef,
-        display_name: input.displayName
+        display_name: input.displayName,
+        enabled: input.enabled
       }
     }
   );
@@ -356,7 +410,8 @@ export async function saveFasterWhisperDefaults(
         cache_dir: input.cacheDir,
         default_model: input.defaultModel,
         default_device: input.defaultDevice,
-        default_compute_type: input.defaultComputeType
+        default_compute_type: input.defaultComputeType,
+        enabled: input.enabled
       }
     }
   );

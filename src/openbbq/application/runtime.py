@@ -55,6 +55,7 @@ class FasterWhisperSetRequest(OpenBBQModel):
     default_model: str
     default_device: str
     default_compute_type: str
+    enabled: bool = True
 
 
 class FasterWhisperDownloadRequest(OpenBBQModel):
@@ -68,6 +69,7 @@ class ProviderSetRequest(OpenBBQModel):
     api_key: str | None = None
     default_chat_model: str | None = None
     display_name: str | None = None
+    enabled: bool = True
 
 
 class ProviderSetResult(OpenBBQModel):
@@ -83,6 +85,7 @@ class AuthSetRequest(OpenBBQModel):
     secret_value: str | None = None
     default_chat_model: str | None = None
     display_name: str | None = None
+    enabled: bool = True
 
 
 class AuthSetResult(OpenBBQModel):
@@ -174,6 +177,7 @@ def faster_whisper_set(request: FasterWhisperSetRequest) -> RuntimeSettingsSetRe
         default_model=request.default_model,
         default_device=request.default_device,
         default_compute_type=request.default_compute_type,
+        enabled=request.enabled,
     )
     updated = with_faster_whisper_settings(settings, faster_whisper)
     write_runtime_settings(updated)
@@ -189,6 +193,7 @@ def provider_set(request: ProviderSetRequest) -> ProviderSetResult:
             api_key=request.api_key,
             default_chat_model=request.default_chat_model,
             display_name=request.display_name,
+            enabled=request.enabled,
         )
     except PydanticValidationError as exc:
         raise ValidationError(format_pydantic_error(f"providers.{request.name}", exc)) from exc
@@ -215,6 +220,7 @@ def auth_set(request: AuthSetRequest) -> AuthSetResult:
         api_key=api_key_ref,
         default_chat_model=request.default_chat_model,
         display_name=request.display_name,
+        enabled=request.enabled,
     )
     settings = load_runtime_settings()
     updated = with_provider_profile(settings, provider)

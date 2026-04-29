@@ -58,6 +58,7 @@ class UserRuntimeDatabase:
             row.api_key = provider.api_key
             row.default_chat_model = provider.default_chat_model
             row.display_name = provider.display_name
+            row.enabled = provider.enabled
         return provider
 
     def list_providers(self) -> tuple[ProviderProfile, ...]:
@@ -71,6 +72,7 @@ class UserRuntimeDatabase:
                     api_key=row.api_key,
                     default_chat_model=row.default_chat_model,
                     display_name=row.display_name,
+                    enabled=row.enabled,
                 )
                 for row in rows
             )

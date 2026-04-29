@@ -13,6 +13,26 @@ export type StartSubtitleTaskResult = {
   runId: string;
 };
 
+export type WorkflowOutput = {
+  name: string;
+  type: string;
+};
+
+export type WorkflowInputSpec = {
+  artifactTypes: string[];
+  required: boolean;
+  multiple: boolean;
+};
+
+export type WorkflowTool = {
+  toolRef: string;
+  name: string;
+  description: string;
+  inputs: Record<string, WorkflowInputSpec>;
+  outputs: WorkflowOutput[];
+  parameters: StepParameter[];
+};
+
 export type LocalMediaSelection = Extract<SourceDraft, { kind: "local_file" }>;
 
 export type StepStatus = "locked" | "enabled" | "disabled";
@@ -24,6 +44,8 @@ export type WorkflowStep = {
   summary: string;
   status: StepStatus;
   selected?: boolean;
+  inputs?: Record<string, string>;
+  outputs?: WorkflowOutput[];
   parameters: StepParameter[];
 };
 
@@ -125,6 +147,7 @@ export type LlmProviderModel = {
   apiKeyRef: string | null;
   defaultChatModel: string | null;
   displayName: string | null;
+  enabled: boolean;
 };
 
 export type ProviderModelOption = {
@@ -139,6 +162,7 @@ export type FasterWhisperSettingsModel = {
   defaultModel: string;
   defaultDevice: string;
   defaultComputeType: string;
+  enabled: boolean;
 };
 
 export type RuntimeModelStatus = {
@@ -208,6 +232,7 @@ export type SaveLlmProviderInput = {
   secretValue: string | null;
   apiKeyRef: string | null;
   displayName: string | null;
+  enabled: boolean;
 };
 
 export type SaveFasterWhisperDefaultsInput = {
@@ -215,4 +240,5 @@ export type SaveFasterWhisperDefaultsInput = {
   defaultModel: string;
   defaultDevice: string;
   defaultComputeType: string;
+  enabled: boolean;
 };

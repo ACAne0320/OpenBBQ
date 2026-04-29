@@ -150,6 +150,80 @@ class QuickstartTaskListData(OpenBBQModel):
     tasks: tuple[QuickstartTaskRecord, ...]
 
 
+class WorkflowTextParameterData(OpenBBQModel):
+    kind: Literal["text"]
+    key: str
+    label: str
+    value: str
+
+
+class WorkflowSelectParameterData(OpenBBQModel):
+    kind: Literal["select"]
+    key: str
+    label: str
+    value: str
+    options: tuple[str, ...]
+
+
+class WorkflowToggleParameterData(OpenBBQModel):
+    kind: Literal["toggle"]
+    key: str
+    label: str
+    description: str
+    value: bool
+
+
+WorkflowParameterData: TypeAlias = (
+    WorkflowTextParameterData | WorkflowSelectParameterData | WorkflowToggleParameterData
+)
+
+
+class SubtitleWorkflowStepData(OpenBBQModel):
+    id: str
+    name: str
+    tool_ref: str
+    summary: str
+    status: Literal["locked", "enabled", "disabled"]
+    selected: bool | None = None
+    inputs: dict[str, str] | None = None
+    outputs: tuple[StepOutput, ...] | None = None
+    parameters: tuple[WorkflowParameterData, ...]
+
+
+class SubtitleWorkflowTemplateData(OpenBBQModel):
+    template_id: str
+    workflow_id: str
+    steps: tuple[SubtitleWorkflowStepData, ...]
+
+
+class WorkflowToolInputData(OpenBBQModel):
+    artifact_types: tuple[str, ...]
+    required: bool
+    multiple: bool
+
+
+class SubtitleWorkflowToolData(OpenBBQModel):
+    tool_ref: str
+    name: str
+    description: str
+    inputs: dict[str, WorkflowToolInputData]
+    outputs: tuple[StepOutput, ...]
+    parameters: tuple[WorkflowParameterData, ...]
+
+
+class SubtitleWorkflowToolCatalogData(OpenBBQModel):
+    tools: tuple[SubtitleWorkflowToolData, ...]
+
+
+class SubtitleExtraStepRequest(OpenBBQModel):
+    id: str
+    name: str
+    tool_ref: str
+    inputs: dict[str, str]
+    outputs: tuple[StepOutput, ...]
+    parameters: JsonObject = Field(default_factory=dict)
+
+
 class ArtifactVersionData(OpenBBQModel):
     record: ArtifactVersionRecord
     content: JsonValue | bytes
@@ -232,6 +306,7 @@ class FasterWhisperSettingsSetRequest(OpenBBQModel):
     default_model: str
     default_device: str
     default_compute_type: str
+    enabled: bool = True
 
 
 class FasterWhisperDownloadRequest(OpenBBQModel):
@@ -245,6 +320,7 @@ class ProviderAuthSetRequest(OpenBBQModel):
     secret_value: str | None = None
     default_chat_model: str | None = None
     display_name: str | None = None
+    enabled: bool = True
 
 
 class ProviderSecretValueData(OpenBBQModel):
@@ -302,6 +378,9 @@ class SubtitleLocalJobRequest(OpenBBQModel):
     asr_model: str | None = None
     asr_device: str | None = None
     asr_compute_type: str | None = None
+    correct_transcript: bool = True
+    step_order: tuple[str, ...] = ()
+    extra_steps: tuple[SubtitleExtraStepRequest, ...] = ()
     output_path: Path | None = None
 
 
@@ -314,6 +393,9 @@ class SubtitleYouTubeJobRequest(OpenBBQModel):
     asr_model: str | None = None
     asr_device: str | None = None
     asr_compute_type: str | None = None
+    correct_transcript: bool = True
+    step_order: tuple[str, ...] = ()
+    extra_steps: tuple[SubtitleExtraStepRequest, ...] = ()
     quality: str = "best[ext=mp4][height<=720]/best[height<=720]/best"
     auth: str = "auto"
     browser: str | None = None

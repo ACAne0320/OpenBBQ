@@ -7,6 +7,7 @@ export const workflowSteps: WorkflowStep[] = [
     toolRef: "ffmpeg.extract_audio",
     summary: "video -> audio",
     status: "locked",
+    outputs: [{ name: "audio", type: "audio" }],
     parameters: [
       { kind: "select", key: "format", label: "Format", value: "wav", options: ["wav"] },
       { kind: "text", key: "sample_rate", label: "Sample rate", value: "16000" }
@@ -19,6 +20,8 @@ export const workflowSteps: WorkflowStep[] = [
     summary: "audio -> transcript",
     status: "locked",
     selected: true,
+    inputs: { audio: "extract_audio.audio" },
+    outputs: [{ name: "transcript", type: "asr_transcript" }],
     parameters: [
       { kind: "select", key: "language", label: "Language", value: "English", options: ["English", "Auto"] },
       { kind: "select", key: "model", label: "Model", value: "base", options: ["tiny", "base", "small", "medium"] },
@@ -46,6 +49,8 @@ export const workflowSteps: WorkflowStep[] = [
     toolRef: "transcript.correct",
     summary: "cleanup before segmentation",
     status: "enabled",
+    inputs: { transcript: "transcribe.transcript" },
+    outputs: [{ name: "transcript", type: "asr_transcript" }],
     parameters: [
       { kind: "text", key: "source_lang", label: "Source language", value: "en" },
       { kind: "text", key: "temperature", label: "Temperature", value: "0" }
@@ -57,6 +62,8 @@ export const workflowSteps: WorkflowStep[] = [
     toolRef: "transcript.segment",
     summary: "transcript -> subtitle segments",
     status: "locked",
+    inputs: { transcript: "correct.transcript" },
+    outputs: [{ name: "subtitle_segments", type: "subtitle_segments" }],
     parameters: [
       { kind: "text", key: "max_duration_seconds", label: "Max duration seconds", value: "6" },
       { kind: "text", key: "max_lines", label: "Max lines", value: "2" }
@@ -68,6 +75,8 @@ export const workflowSteps: WorkflowStep[] = [
     toolRef: "translation.translate",
     summary: "segments -> translation",
     status: "locked",
+    inputs: { subtitle_segments: "segment.subtitle_segments" },
+    outputs: [{ name: "translation", type: "translation" }],
     parameters: [
       { kind: "text", key: "source_lang", label: "Source language", value: "en" },
       { kind: "text", key: "target_lang", label: "Target language", value: "zh" }
@@ -79,6 +88,8 @@ export const workflowSteps: WorkflowStep[] = [
     toolRef: "subtitle.export",
     summary: "translation -> SRT",
     status: "locked",
+    inputs: { translation: "translate.translation" },
+    outputs: [{ name: "subtitle", type: "subtitle" }],
     parameters: [{ kind: "select", key: "format", label: "Format", value: "srt", options: ["srt"] }]
   }
 ];

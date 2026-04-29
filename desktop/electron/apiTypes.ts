@@ -92,6 +92,48 @@ export type ApiQuickstartTaskRecord = {
   error?: { code: string; message: string } | null;
 };
 
+export type ApiWorkflowStepParameter =
+  | { kind: "text"; key: string; label: string; value: string }
+  | { kind: "select"; key: string; label: string; value: string; options: string[] }
+  | { kind: "toggle"; key: string; label: string; description: string; value: boolean };
+
+export type ApiSubtitleWorkflowStep = {
+  id: string;
+  name: string;
+  tool_ref: string;
+  summary: string;
+  status: "locked" | "enabled" | "disabled";
+  selected?: boolean | null;
+  inputs?: Record<string, string> | null;
+  outputs?: Array<{ name: string; type: string }> | null;
+  parameters: ApiWorkflowStepParameter[];
+};
+
+export type ApiSubtitleWorkflowTemplateData = {
+  template_id: string;
+  workflow_id: string;
+  steps: ApiSubtitleWorkflowStep[];
+};
+
+export type ApiWorkflowToolInputSpec = {
+  artifact_types: string[];
+  required: boolean;
+  multiple: boolean;
+};
+
+export type ApiWorkflowTool = {
+  tool_ref: string;
+  name: string;
+  description: string;
+  inputs: Record<string, ApiWorkflowToolInputSpec>;
+  outputs: Array<{ name: string; type: string }>;
+  parameters: ApiWorkflowStepParameter[];
+};
+
+export type ApiWorkflowToolCatalogData = {
+  tools: ApiWorkflowTool[];
+};
+
 export type ApiArtifactRecord = {
   id: string;
   type: string;
@@ -129,6 +171,7 @@ export type ApiProviderProfile = {
   api_key?: string | null;
   default_chat_model?: string | null;
   display_name?: string | null;
+  enabled?: boolean | null;
 };
 
 export type ApiProviderModel = {
@@ -155,6 +198,7 @@ export type ApiRuntimeSettings = {
       default_model: string;
       default_device: string;
       default_compute_type: string;
+      enabled?: boolean | null;
     };
   };
 };

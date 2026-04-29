@@ -8,6 +8,7 @@ describe("createDesktopClient", () => {
     const api = {
       chooseLocalMedia: vi.fn().mockResolvedValue({ kind: "local_file", path: "C:/video/sample.mp4", displayName: "sample.mp4" }),
       getWorkflowTemplate: vi.fn().mockResolvedValue(workflowSteps),
+      getWorkflowTools: vi.fn().mockResolvedValue([]),
       startSubtitleTask: vi.fn().mockResolvedValue({ runId: "run_1" }),
       listTasks: vi.fn().mockResolvedValue([]),
       getTaskMonitor: vi.fn(),
@@ -23,7 +24,8 @@ describe("createDesktopClient", () => {
           cacheDir: "cache/models/faster-whisper",
           defaultModel: "base",
           defaultDevice: "cpu",
-          defaultComputeType: "int8"
+          defaultComputeType: "int8",
+          enabled: true
         }
       }),
       saveRuntimeDefaults: vi.fn().mockResolvedValue({
@@ -35,7 +37,8 @@ describe("createDesktopClient", () => {
           cacheDir: "cache/models/faster-whisper",
           defaultModel: "base",
           defaultDevice: "cpu",
-          defaultComputeType: "int8"
+          defaultComputeType: "int8",
+          enabled: true
         }
       }),
       saveLlmProvider: vi.fn().mockResolvedValue({
@@ -44,7 +47,8 @@ describe("createDesktopClient", () => {
         baseUrl: null,
         apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
         defaultChatModel: "gpt-4o-mini",
-        displayName: null
+        displayName: null,
+        enabled: true
       }),
       checkLlmProvider: vi.fn().mockResolvedValue({
         reference: "env:OPENBBQ_LLM_API_KEY",
@@ -70,7 +74,8 @@ describe("createDesktopClient", () => {
           cacheDir: "C:/models/fw",
           defaultModel: "small",
           defaultDevice: "cpu",
-          defaultComputeType: "int8"
+          defaultComputeType: "int8",
+          enabled: true
         }
       }),
       getRuntimeModels: vi.fn().mockResolvedValue([
@@ -128,6 +133,8 @@ describe("createDesktopClient", () => {
       })
     ).resolves.toEqual({ runId: "run_1" });
     expect(api.startSubtitleTask).toHaveBeenCalled();
+    await expect(client.getWorkflowTools()).resolves.toEqual([]);
+    expect(api.getWorkflowTools).toHaveBeenCalled();
     await expect(client.listTasks()).resolves.toEqual([]);
     expect(api.listTasks).toHaveBeenCalled();
     await expect(client.getRuntimeSettings()).resolves.toMatchObject({
@@ -141,7 +148,8 @@ describe("createDesktopClient", () => {
       defaultChatModel: "gpt-4o-mini",
       secretValue: null,
       apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
-      displayName: null
+      displayName: null,
+      enabled: true
     });
     await client.checkLlmProvider("openai-compatible");
     await client.getLlmProviderSecret("openai-compatible");
@@ -156,7 +164,8 @@ describe("createDesktopClient", () => {
       cacheDir: "C:/models/fw",
       defaultModel: "small",
       defaultDevice: "cpu",
-      defaultComputeType: "int8"
+      defaultComputeType: "int8",
+      enabled: true
     });
     await client.getRuntimeModels();
     await client.downloadFasterWhisperModel({ model: "small" });

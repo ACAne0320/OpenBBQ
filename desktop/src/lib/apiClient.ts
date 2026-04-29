@@ -21,12 +21,14 @@ import type {
   StepParameter,
   TaskSummary,
   TaskMonitorModel,
+  WorkflowTool,
   WorkflowStep
 } from "./types";
 
 export type OpenBBQClient = {
   chooseLocalMedia?(): Promise<LocalMediaSelection | null>;
   getWorkflowTemplate(source: SourceDraft): Promise<WorkflowStep[]>;
+  getWorkflowTools(): Promise<WorkflowTool[]>;
   startSubtitleTask(input: StartSubtitleTaskInput): Promise<StartSubtitleTaskResult>;
   listTasks(): Promise<TaskSummary[]>;
   getTaskMonitor(runId: string): Promise<TaskMonitorModel>;
@@ -55,28 +57,53 @@ function cloneModel<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function remoteFetchStep(source: Extract<SourceDraft, { kind: "remote_url" }>): WorkflowStep {
-  const parameters: StepParameter[] = [{ kind: "text", key: "url", label: "URL", value: source.url }];
+function remoteDownloadStep(source: Extract<SourceDraft, { kind: "remote_url" }>): WorkflowStep {
+  const parameters: StepParameter[] = [
+    { kind: "text", key: "url", label: "URL", value: source.url },
+    {
+      kind: "text",
+      key: "quality",
+      label: "Quality",
+      value: "best[ext=mp4][height<=720]/best[height<=720]/best"
+    },
+    { kind: "text", key: "auth", label: "Auth", value: "auto" }
+  ];
 
   return {
-    id: "fetch_source",
-    name: "Fetch Source",
-    toolRef: "source.fetch_remote",
-    summary: "url -> local media",
+    id: "download",
+    name: "Download Video",
+    toolRef: "remote_video.download",
+    summary: "url -> video",
     status: "locked",
+    outputs: [{ name: "video", type: "video" }],
     parameters
   };
 }
 
 function workflowTemplateForSource(source: SourceDraft): WorkflowStep[] {
   if (source.kind === "remote_url") {
-    return [remoteFetchStep(source), ...workflowSteps];
+    return [remoteDownloadStep(source), ...workflowSteps];
   }
 
   return workflowSteps;
 }
 
 const fasterWhisperModelNames = ["base", "tiny", "small", "medium", "large-v3"];
+
+const workflowTools: WorkflowTool[] = [
+  {
+    toolRef: "translation.qa",
+    name: "Translation QA",
+    description: "Check translated segments for terminology misses, numeric drift, and subtitle readability risks.",
+    inputs: { translation: { artifactTypes: ["translation"], required: true, multiple: false } },
+    outputs: [{ name: "qa", type: "translation_qa" }],
+    parameters: [
+      { kind: "text", key: "max_lines", label: "Max lines", value: "2" },
+      { kind: "text", key: "max_chars_per_line", label: "Max chars per line", value: "42" },
+      { kind: "text", key: "max_chars_per_second", label: "Max chars per second", value: "20" }
+    ]
+  }
+];
 
 function initialFasterWhisperModels(cacheDir: string): RuntimeModelStatus[] {
   return fasterWhisperModelNames.map((model) => ({
@@ -102,14 +129,16 @@ export function createMockClient(): OpenBBQClient {
         baseUrl: null,
         apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
         defaultChatModel: "gpt-4o-mini",
-        displayName: "OpenAI-compatible"
+        displayName: "OpenAI-compatible",
+        enabled: true
       }
     ],
     fasterWhisper: {
       cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
       defaultModel: "base",
       defaultDevice: "cpu",
-      defaultComputeType: "int8"
+      defaultComputeType: "int8",
+      enabled: true
     }
   };
   let runtimeModels: RuntimeModelStatus[] = initialFasterWhisperModels(runtimeSettings.fasterWhisper.cacheDir);
@@ -127,6 +156,9 @@ export function createMockClient(): OpenBBQClient {
   return {
     async getWorkflowTemplate(source) {
       return cloneModel(workflowTemplateForSource(source));
+    },
+    async getWorkflowTools() {
+      return cloneModel(workflowTools);
     },
     async startSubtitleTask() {
       return { runId: "run_sample" };
@@ -166,7 +198,8 @@ export function createMockClient(): OpenBBQClient {
         baseUrl: input.baseUrl,
         apiKeyRef: input.apiKeyRef,
         defaultChatModel: input.defaultChatModel,
-        displayName: input.displayName
+        displayName: input.displayName,
+        enabled: input.enabled
       };
       const providerIndex = runtimeSettings.llmProviders.findIndex((item) => item.name === provider.name);
       runtimeSettings = {
@@ -223,7 +256,8 @@ export function createMockClient(): OpenBBQClient {
           cacheDir: input.cacheDir,
           defaultModel: input.defaultModel,
           defaultDevice: input.defaultDevice,
-          defaultComputeType: input.defaultComputeType
+          defaultComputeType: input.defaultComputeType,
+          enabled: input.enabled
         }
       };
       runtimeModels = cacheDirChanged

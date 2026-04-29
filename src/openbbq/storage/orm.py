@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Index, Integer, Text, UniqueConstraint
+from sqlalchemy import Boolean, Index, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -120,6 +120,7 @@ class UserProviderRow(UserBase):
     api_key: Mapped[str | None] = mapped_column(Text)
     default_chat_model: Mapped[str | None] = mapped_column(Text)
     display_name: Mapped[str | None] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
 class UserCredentialRow(UserBase):
