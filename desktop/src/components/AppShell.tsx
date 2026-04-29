@@ -1,4 +1,5 @@
 import { clsx } from "clsx";
+import { FilePlus2, History, Home, ListChecks, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 
 export type NavItem = "Home" | "New" | "Tasks" | "Results" | "Settings";
@@ -12,44 +13,55 @@ type AppShellProps = {
 };
 
 const navItems: NavItem[] = ["Home", "New", "Tasks", "Results", "Settings"];
+const navIcons = {
+  Home,
+  New: FilePlus2,
+  Tasks: ListChecks,
+  Results: History,
+  Settings
+} satisfies Record<NavItem, typeof Home>;
 
 export function AppShell({ active, footerLabel, footerValue, onNavigate, children }: AppShellProps) {
   return (
-    <div className="min-h-screen bg-canvas p-[18px] text-ink">
-      <div className="grid min-h-[calc(100vh-36px)] grid-cols-[104px_minmax(0,1fr)] gap-[18px]">
-        <aside className="flex flex-col justify-between rounded-xl bg-paper-side px-3 py-3.5 shadow-control">
+    <div className="min-h-screen bg-canvas p-3 text-ink sm:p-4">
+      <div className="grid min-h-[calc(100vh-24px)] grid-cols-1 gap-3 sm:min-h-[calc(100vh-32px)] xl:grid-cols-[212px_minmax(0,1fr)] xl:gap-4">
+        <aside className="flex flex-col justify-between rounded-xl bg-paper-side px-3 py-3 shadow-control">
           <div>
-            <div className="mb-7 font-serif text-xl leading-[0.94] text-ink-brown">
-              Open
-              <br />
-              BBQ
+            <div className="mb-4 flex items-center gap-2 px-1.5 text-[15px] font-semibold tracking-[-0.012em] text-ink-brown">
+              <span className="grid h-7 w-7 place-items-center rounded-md bg-ink text-[11px] font-bold text-paper">OB</span>
+              <span className="min-w-0 truncate">OpenBBQ</span>
             </div>
-            <nav className="grid gap-2 text-xs" aria-label="Primary">
-              {navItems.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  aria-current={active === item ? "page" : undefined}
-                  onClick={() => onNavigate?.(item)}
-                  className={clsx(
-                    "min-h-10 rounded-sm px-2.5 py-2.5 text-left transition-transform duration-150 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                    active === item
-                      ? "bg-accent text-[#fff8ea] shadow-selected"
-                      : "text-ink/75 [@media(hover:hover)]:hover:bg-paper-selected [@media(hover:hover)]:hover:text-ink"
-                  )}
-                >
-                  {item}
-                </button>
-              ))}
+            <nav className="grid grid-cols-5 gap-1 text-xs xl:grid-cols-1 xl:gap-1" aria-label="Primary">
+              {navItems.map((item) => {
+                const Icon = navIcons[item];
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    aria-current={active === item ? "page" : undefined}
+                    onClick={() => onNavigate?.(item)}
+                    className={clsx(
+                      "flex min-h-10 items-center justify-center gap-2 rounded-md px-2.5 py-2.5 text-center transition-transform duration-150 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent xl:justify-start xl:text-left",
+                      active === item
+                        ? "bg-paper text-ink shadow-selected"
+                        : "text-muted [@media(hover:hover)]:hover:bg-paper [@media(hover:hover)]:hover:text-ink"
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="hidden xl:inline">{item}</span>
+                  </button>
+                );
+              })}
             </nav>
           </div>
-          <div className="text-[11px] leading-snug text-muted">
-            {footerLabel}
-            <br />
-            <strong className="font-semibold text-ink">{footerValue}</strong>
+          <div className="mt-4 hidden rounded-lg bg-paper/75 px-3 py-2.5 text-[11px] leading-snug text-muted shadow-control xl:block">
+            <span className="block uppercase">{footerLabel}</span>
+            <strong className="mt-1 block truncate font-semibold text-ink">{footerValue}</strong>
           </div>
         </aside>
-        <main className="min-w-0 rounded-xl bg-paper p-6 shadow-panel">{children}</main>
+        <main className="min-w-0 overflow-hidden rounded-xl bg-paper shadow-panel">
+          <div className="min-h-full p-4 sm:p-5 xl:p-6">{children}</div>
+        </main>
       </div>
     </div>
   );

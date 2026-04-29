@@ -18,12 +18,15 @@ describe("ResultsReview", () => {
     expect(screen.getByLabelText("Video preview")).toBeInTheDocument();
     expect(screen.getByText("Timeline")).toBeInTheDocument();
     expect(screen.getByText("Editable segments")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Active segment")).not.toBeInTheDocument();
     expect(screen.queryByText("Generated subtitle")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("waveform-bar").length).toBeGreaterThan(reviewModel.waveform.length);
     expect(screen.getAllByTestId("waveform-segment-overlay")).toHaveLength(reviewModel.segments.length);
 
     const segment = screen.getByRole("article", { name: "Segment 3" });
     expect(within(segment).getByText("00:12.100 -> 00:16.580")).toBeInTheDocument();
+    expect(within(segment).getByText("Original")).toBeInTheDocument();
+    expect(within(segment).getByText("Translation")).toBeInTheDocument();
     expect(within(segment).getByLabelText("Transcript for segment 3")).toHaveValue(
       "Each result is saved as an editable versioned segment."
     );
@@ -194,8 +197,9 @@ describe("ResultsReview", () => {
     render(<ResultsReview model={reviewModel} onSegmentChange={vi.fn()} />);
 
     const layout = screen.getByLabelText("Results review layout");
-    expect(layout).toHaveClass("grid-cols-1", "xl:grid-cols-[minmax(420px,1.06fr)_minmax(360px,0.94fr)]", "xl:h-[calc(100vh-176px)]");
-    expect(screen.getByLabelText("Segment list")).toHaveClass("overflow-y-auto");
+    expect(layout).toHaveClass("grid-cols-1", "xl:grid-cols-[minmax(620px,1fr)_minmax(420px,460px)]", "xl:h-[calc(100vh-168px)]");
+    expect(screen.getByLabelText("Segment list")).toHaveClass("flex", "flex-col", "overflow-y-auto");
+    expect(screen.getByRole("article", { name: "Segment 3" })).toHaveClass("shrink-0");
     expect(screen.queryByRole("button", { name: /save changes/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/edited cards mark the result as unsaved/i)).not.toBeInTheDocument();
   });
@@ -209,6 +213,15 @@ describe("ResultsReview", () => {
     expect(screen.getByLabelText("Video preview")).toHaveTextContent("Export the final SRT after the result is reviewed.");
     expect(screen.getByRole("article", { name: "Segment 4" })).toHaveAttribute("data-active", "true");
     expect(screen.getByRole("button", { name: /waveform segment 4/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("segment-4-playback-progress")).toHaveStyle({ transform: "scaleX(0.058)" });
+  });
+
+  it("marks the active editable segment with motion-ready classes and playback progress", () => {
+    render(<ResultsReview model={reviewModel} onSegmentChange={vi.fn()} />);
+
+    expect(screen.getByRole("article", { name: "Segment 3" })).toHaveClass("segment-card-active");
+    expect(screen.getByTestId("segment-3-playback-progress")).toHaveStyle({ transform: "scaleX(0)" });
+    expect(screen.getByTestId("segment-2-playback-progress")).toHaveStyle({ transform: "scaleX(0)" });
   });
 
   it("renders native video controls without pointer-blocking subtitle overlays", () => {

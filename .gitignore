@@ -29,6 +29,7 @@ pnpm-debug.log*
 desktop/test-results/
 desktop/playwright-report/
 desktop/dist-electron/
+desktop/output/playwright/
 
 # OpenBBQ local runtime state
 .openbbq/

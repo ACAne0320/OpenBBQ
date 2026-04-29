@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Eye, EyeOff, Plus, X } from "lucide-react";
 
@@ -438,7 +439,7 @@ export function Settings({
 
   if (error) {
     return (
-      <div role="alert" className="rounded-lg bg-accent-soft px-3.5 py-3 text-sm font-semibold text-[#6b3f27]">
+      <div role="alert" className="rounded-lg bg-accent-soft px-3.5 py-3 text-sm font-semibold text-ink">
         {error}
       </div>
     );
@@ -453,10 +454,18 @@ export function Settings({
   }
 
   return (
-    <section className="grid min-h-[calc(100vh-84px)] grid-cols-1 gap-5 xl:grid-cols-[190px_minmax(0,1fr)]">
-      <aside className="rounded-lg bg-paper-side p-3 shadow-control">
-        <h1 className="font-serif text-[36px] leading-none text-ink-brown">Settings</h1>
-        <nav className="mt-5 grid gap-2" aria-label="Settings sections">
+    <section className="grid min-h-[calc(100vh-76px)] grid-rows-[auto_minmax(0,1fr)] gap-5">
+      <header>
+        <p className="text-[11px] font-semibold uppercase text-muted">Runtime</p>
+        <h1 className="mt-2 text-[32px] font-semibold leading-tight tracking-[-0.022em] text-ink-brown">Settings</h1>
+        <p className="mt-2 max-w-[68ch] text-sm leading-6 text-muted">
+          Configure providers, local speech models, diagnostics, and read-only runtime paths.
+        </p>
+      </header>
+
+      <div className="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="rounded-xl bg-paper-side p-3 shadow-control">
+          <nav className="grid grid-cols-2 gap-2 xl:grid-cols-1" aria-label="Settings sections">
           <SectionButton active={section === "llm"} onClick={() => setSection("llm")}>
             LLM provider
           </SectionButton>
@@ -472,7 +481,7 @@ export function Settings({
         </nav>
       </aside>
 
-      <div className="min-w-0">
+        <div className="min-w-0 overflow-hidden">
         {section === "llm" ? (
           <LlmProviderSection
             getLlmProviderModels={getLlmProviderModels}
@@ -503,6 +512,7 @@ export function Settings({
         ) : null}
         {section === "diagnostics" ? <DiagnosticsSection checks={diagnostics} models={models} /> : null}
         {section === "advanced" ? <AdvancedSection settings={settings} /> : null}
+        </div>
       </div>
     </section>
   );
@@ -511,10 +521,13 @@ export function Settings({
 function SectionButton({ active, children, onClick }: { active: boolean; children: string; onClick(): void }) {
   return (
     <Button
-      variant={active ? "primary" : "secondary"}
+      variant="secondary"
       aria-current={active ? "page" : undefined}
       onClick={onClick}
-      className="justify-start rounded-sm px-3 py-2.5 text-left"
+      className={clsx(
+        "justify-start rounded-md px-3 py-2.5 text-left",
+        active ? "bg-paper-selected text-accent shadow-selected" : "bg-paper/70 text-muted"
+      )}
     >
       {children}
     </Button>
@@ -869,7 +882,7 @@ function LlmProviderSection({
       </section>
     </section>
     {customModalOpen ? (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-[#2d241d]/45 px-4 py-6" role="presentation">
+      <div className="fixed inset-0 z-50 grid place-items-center bg-ink/45 px-4 py-6" role="presentation">
         <section
           aria-label="Add custom provider"
           aria-modal="true"
@@ -1110,12 +1123,12 @@ function ModelDownloadProgress({ job }: { job: RuntimeModelDownloadJob }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={roundedPercent}
-        className="h-2 overflow-hidden rounded-full bg-[#d8c8ae]"
+        className="h-2 overflow-hidden rounded-full bg-paper-side"
       >
-        <div className="h-full rounded-full bg-ready" style={{ width: `${percent}%` }} />
+        <div className="h-full rounded-full bg-accent" style={{ width: `${percent}%` }} />
       </div>
       <p className="text-xs font-bold text-ink-brown">{roundedPercent}%</p>
-      {job.error ? <p className="text-xs font-semibold text-[#8a3f25]">{job.error}</p> : null}
+      {job.error ? <p className="text-xs font-semibold text-accent">{job.error}</p> : null}
     </div>
   );
 }
@@ -1132,7 +1145,7 @@ function DiagnosticsSection({ checks, models }: { checks: DiagnosticCheck[]; mod
             <div className="flex flex-wrap items-center gap-2">
               <strong className="text-sm text-ink-brown">{check.id}</strong>
               <span className="rounded-sm bg-paper-side px-2 py-1 text-xs font-bold text-muted">{check.status}</span>
-              <span className="rounded-sm bg-accent-soft px-2 py-1 text-xs font-bold text-[#6b3f27]">
+              <span className="rounded-sm bg-accent-soft px-2 py-1 text-xs font-bold text-ink">
                 {check.severity}
               </span>
             </div>
@@ -1147,7 +1160,7 @@ function DiagnosticsSection({ checks, models }: { checks: DiagnosticCheck[]; mod
           <div key={`${model.provider}-${model.model}`} className="rounded-md bg-paper px-3 py-2 text-sm shadow-control">
             <span className="font-bold text-ink-brown">{model.provider}</span>
             <span className="ml-2 text-muted">{model.model}</span>
-            <span className={model.present ? "ml-2 font-bold text-ready" : "ml-2 font-bold text-[#8c4d29]"}>
+            <span className={model.present ? "ml-2 font-bold text-ready" : "ml-2 font-bold text-accent"}>
               {model.present ? "present" : "missing"}
             </span>
             {model.error ? <p className="mt-1 text-muted">{model.error}</p> : null}
@@ -1175,7 +1188,7 @@ function modelStatusClass(status: RuntimeModelStatus) {
     return "font-bold text-muted";
   }
 
-  return status.present ? "font-bold text-ready" : "font-bold text-[#8c4d29]";
+  return status.present ? "font-bold text-ready" : "font-bold text-accent";
 }
 
 function AdvancedSection({ settings }: { settings: RuntimeSettingsModel }) {
@@ -1342,7 +1355,7 @@ function ReadOnlyRow({ label, value }: { label: string; value: string }) {
 
 function InlineError({ children }: { children: string }) {
   return (
-    <p className="mt-3 rounded-md bg-accent-soft px-3 py-2 text-sm font-semibold text-[#6b3f27]" aria-live="assertive">
+    <p className="mt-3 rounded-md bg-accent-soft px-3 py-2 text-sm font-semibold text-ink" aria-live="assertive">
       {children}
     </p>
   );

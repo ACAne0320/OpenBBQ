@@ -89,10 +89,12 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
   const onSegmentChangeRef = useRef(onSegmentChange);
   const saveTimerRef = useRef<number | undefined>(undefined);
   const segmentsRef = useRef<DraftSegment[]>(segments);
+  const activeSegmentIdRef = useRef(activeSegmentId);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   onSegmentChangeRef.current = onSegmentChange;
   segmentsRef.current = segments;
+  activeSegmentIdRef.current = activeSegmentId;
 
   useEffect(() => {
     const cleanupSaveCallback = onSegmentChange;
@@ -111,6 +113,16 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
   );
   const status = saveStatus(segments);
   const previewTime = currentMs;
+  const activeSegmentProgress = activeSegment
+    ? Math.min(
+        1,
+        Math.max(
+          0,
+          (currentMs - Math.min(activeSegment.startMs, activeSegment.endMs)) /
+            Math.max(1, Math.abs(activeSegment.endMs - activeSegment.startMs))
+        )
+      )
+    : 0;
   const pixelsPerSecond = timelinePixelsPerSecond(timelineZoomInput);
   const timelineDescription =
     model.waveformSource === "audio_loudness"
@@ -138,9 +150,13 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
     setCurrentMs(nextTimeMs);
 
     if (matchingSegment) {
-      setActiveSegmentId(matchingSegment.id);
-      if (scrollCard) {
-        cardRefs.current[matchingSegment.id]?.scrollIntoView?.({ block: "nearest" });
+      const activeChanged = matchingSegment.id !== activeSegmentIdRef.current;
+      if (activeChanged) {
+        setActiveSegmentId(matchingSegment.id);
+        activeSegmentIdRef.current = matchingSegment.id;
+      }
+      if (scrollCard && activeChanged) {
+        cardRefs.current[matchingSegment.id]?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
       }
     }
   }
@@ -156,6 +172,7 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
   function selectSegment(segmentId: string, scrollCard = false, seekPlayback = true) {
     const selectedSegment = segmentsRef.current.find((segment) => segment.id === segmentId);
     setActiveSegmentId(segmentId);
+    activeSegmentIdRef.current = segmentId;
     if (selectedSegment) {
       if (seekPlayback) {
         seekToMs(selectedSegment.startMs, scrollCard);
@@ -164,12 +181,13 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
       }
     }
     if (scrollCard) {
-      cardRefs.current[segmentId]?.scrollIntoView?.({ block: "nearest" });
+      cardRefs.current[segmentId]?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
     }
   }
 
   function updateSegment(segmentId: string, patch: Partial<Pick<Segment, "transcript" | "translation">>) {
     setActiveSegmentId(segmentId);
+    activeSegmentIdRef.current = segmentId;
     setSegments((current) =>
       current.map((segment) =>
         segment.id === segmentId
@@ -281,18 +299,18 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
   }, [segments]);
 
   return (
-    <section aria-label="Results review" className="grid min-h-[calc(100vh-84px)] grid-rows-[auto_minmax(0,1fr)] gap-4">
+    <section aria-label="Results review" className="grid min-h-[calc(100vh-76px)] grid-rows-[auto_minmax(0,1fr)] gap-4">
       <header className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end sm:gap-4">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase text-muted">Review results</p>
-          <h1 className="mt-2 truncate font-serif text-[38px] leading-none text-ink-brown">{model.title}</h1>
+          <p className="text-[11px] font-semibold uppercase text-muted">Review results</p>
+          <h1 className="mt-2 truncate text-[32px] font-semibold leading-tight tracking-[-0.022em] text-ink-brown">{model.title}</h1>
           <p className="mt-1.5 text-sm text-muted">Completed - edits autosave as you review.</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-3">
           <span
             className={clsx(
               "flex items-center gap-1.5 text-xs font-semibold",
-              status.tone === "saved" ? "text-ready" : status.tone === "saving" ? "text-[#8c4d29]" : "text-accent"
+              status.tone === "saved" ? "text-ready" : status.tone === "saving" ? "text-accent" : "text-accent"
             )}
             aria-live="polite"
           >
@@ -314,10 +332,10 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
 
       <section
         aria-label="Results review layout"
-        className="grid min-h-0 grid-cols-1 gap-[18px] xl:h-[calc(100vh-176px)] xl:grid-cols-[minmax(420px,1.06fr)_minmax(360px,0.94fr)]"
+        className="grid min-h-0 grid-cols-1 gap-4 xl:h-[calc(100vh-168px)] xl:grid-cols-[minmax(620px,1fr)_minmax(420px,460px)]"
       >
-        <div className="grid min-h-0 min-w-0 content-start gap-3.5">
-          <section className="min-w-0 rounded-lg bg-paper-muted p-4 shadow-control" aria-label="Video preview panel">
+        <div className="grid min-h-0 min-w-0 content-start gap-4">
+          <section className="min-w-0 rounded-xl bg-paper-muted p-4 shadow-control" aria-label="Video preview panel">
             <div
               aria-label="Video preview"
               className="relative aspect-video min-w-0 overflow-hidden rounded-lg bg-log-bg shadow-inner"
@@ -334,30 +352,30 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
                 />
               ) : (
                 <div
-                  className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,250,240,0.08),rgba(182,99,47,0.18)_55%,rgba(45,36,29,0.2))]"
+                  className="absolute inset-0 bg-[linear-gradient(135deg,rgba(247,249,250,0.10),rgba(55,102,190,0.16)_55%,rgba(38,45,55,0.20))]"
                 />
               )}
-              <div className="pointer-events-none absolute left-5 top-[18px] rounded-sm bg-black/35 px-2 py-1 font-mono text-xs text-[#d7c4a7]">
+              <div className="pointer-events-none absolute left-5 top-[18px] rounded-sm bg-log-bg/70 px-2 py-1 font-mono text-xs text-log-text">
                 {formatTimestamp(previewTime)} / {formatTimestamp(model.durationMs)}
               </div>
-              <div className="pointer-events-none absolute left-5 top-14 text-xs uppercase text-[#d7c4a7]">Preview</div>
+              <div className="pointer-events-none absolute left-5 top-14 text-xs uppercase text-log-muted">Preview</div>
               <div
                 data-testid="preview-subtitle-overlay"
-                className="pointer-events-none absolute inset-x-12 bottom-16 rounded-md bg-black/70 px-3 py-2 text-center text-[15px] leading-snug text-[#fff8ea] shadow-control"
+                className="pointer-events-none absolute inset-x-12 bottom-16 rounded-md bg-black/70 px-3 py-2 text-center text-[15px] leading-snug text-paper shadow-control"
               >
                 {activeSegment?.translation}
               </div>
             </div>
           </section>
 
-          <section className="min-w-0 rounded-lg bg-paper-muted px-4 py-3.5 shadow-control" aria-label="Timeline panel">
+          <section className="min-w-0 rounded-xl bg-paper-muted px-4 py-3.5 shadow-control" aria-label="Timeline panel">
             <div className="mb-2.5 flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs uppercase text-muted">Timeline</p>
                 <p className="mt-1 text-xs text-muted">{timelineDescription}</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <label className="flex items-center gap-1.5 text-xs font-semibold text-[#8c4d29]">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-accent">
                   <span>Zoom</span>
                   <input
                     aria-label="Timeline zoom"
@@ -368,7 +386,7 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
                   />
                   <span>px/s</span>
                 </label>
-                <span className="rounded-sm bg-paper-selected px-2 py-1 text-xs font-semibold text-[#8c4d29]">
+                <span className="rounded-sm bg-paper-selected px-2 py-1 text-xs font-semibold text-accent">
                   Segment {activeSegment?.index}
                 </span>
               </div>
@@ -384,18 +402,19 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
               onSelectSegment={(segmentId) => selectSegment(segmentId, true)}
             />
           </section>
+
         </div>
 
-        <aside className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] rounded-lg bg-paper-muted p-4 shadow-control">
+        <aside className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] rounded-xl bg-paper-muted p-4 shadow-control">
           <div className="mb-3 flex items-center justify-between gap-4">
             <div>
               <p className="text-xs uppercase text-muted">Editable segments</p>
-              <p className="mt-1 text-sm text-muted">Transcript and translation autosave.</p>
+              <p className="mt-1 text-sm text-muted">{segments.length} editable segments, autosaved as you work.</p>
             </div>
             <span
               className={clsx(
                 "text-xs font-semibold",
-                status.tone === "saved" ? "text-ready" : status.tone === "saving" ? "text-[#8c4d29]" : "text-accent"
+                status.tone === "saved" ? "text-ready" : status.tone === "saving" ? "text-accent" : "text-accent"
               )}
               aria-live="polite"
             >
@@ -403,11 +422,15 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
             </span>
           </div>
 
-          <div aria-label="Segment list" className="grid min-h-0 content-start gap-2.5 overflow-y-auto pr-1">
+          <div aria-label="Segment list" className="flex min-h-0 flex-col gap-2.5 overflow-y-auto pr-1">
             {segments.map((segment) => {
               const active = segment.id === activeSegmentId;
               const transcriptId = `${segment.id}-transcript`;
               const translationId = `${segment.id}-translation`;
+              const segmentProgress =
+                active && segment.id === activeSegment?.id
+                  ? Math.round(activeSegmentProgress * 1000) / 1000
+                  : 0;
 
               return (
                 <article
@@ -420,41 +443,53 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
                   onClick={() => selectSegment(segment.id)}
                   onFocusCapture={() => selectSegment(segment.id)}
                   className={clsx(
-                    "rounded-lg p-3 shadow-control",
-                    active ? "bg-paper-selected shadow-selected" : "bg-paper [@media(hover:hover)]:hover:bg-[#fff6e8]"
+                    "relative shrink-0 overflow-hidden rounded-lg p-3 shadow-control transition-[background-color,box-shadow,transform,opacity] duration-300 ease-out active:scale-[0.99] motion-reduce:transition-none",
+                    active
+                      ? "segment-card-active bg-paper-selected shadow-selected"
+                      : "bg-paper opacity-[0.92] [@media(hover:hover)]:hover:bg-paper-muted [@media(hover:hover)]:hover:opacity-100"
                   )}
                 >
                   <div
+                    aria-hidden="true"
+                    data-testid={`segment-${segment.index}-playback-progress`}
                     className={clsx(
-                      "flex items-center justify-between gap-3 text-xs font-semibold",
-                      active ? "text-[#8c4d29]" : "text-[#8c7b61]"
+                      "absolute inset-x-0 top-0 h-1 origin-left bg-accent transition-transform duration-200 ease-out motion-reduce:transition-none",
+                      active ? "opacity-100" : "opacity-0"
+                    )}
+                    style={{ transform: `scaleX(${segmentProgress})` }}
+                  />
+                  <div
+                    className={clsx(
+                      "flex items-center justify-between gap-3 text-xs font-semibold transition-colors duration-300 ease-out motion-reduce:transition-none",
+                      active ? "text-accent" : "text-muted"
                     )}
                   >
                     <span className="font-mono">{formatRange(segment.startMs, segment.endMs)}</span>
                     <span>Segment {segment.index}</span>
                   </div>
 
-                  <div className="mt-2 grid gap-1.5">
-                    <label className="text-[11px] font-semibold text-[#8c7b61]" htmlFor={transcriptId}>
-                      Transcript <span className="sr-only">for segment {segment.index}</span>
+                  <div className="mt-3 grid gap-1.5">
+                    <label className="text-[11px] font-semibold uppercase text-muted" htmlFor={transcriptId}>
+                      Original <span className="sr-only">for segment {segment.index}</span>
                     </label>
                     <textarea
                       id={transcriptId}
+                      aria-label={`Transcript for segment ${segment.index}`}
                       value={segment.transcript}
                       onChange={(event) => updateSegment(segment.id, { transcript: event.target.value })}
-                      className="min-h-[64px] resize-none rounded-md bg-paper-muted p-2 text-sm leading-snug text-ink shadow-control focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      className="min-h-[58px] resize-none rounded-md bg-paper-muted p-2 text-sm leading-snug text-ink shadow-inner focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     />
                   </div>
 
                   <div className="mt-2 grid gap-1.5">
                     <div className="flex items-center justify-between gap-3">
-                      <label className="text-[11px] font-semibold text-[#8c7b61]" htmlFor={translationId}>
+                      <label className="text-[11px] font-semibold uppercase text-accent" htmlFor={translationId}>
                         Translation <span className="sr-only">for segment {segment.index}</span>
                       </label>
                       <span
                         className={clsx(
                           "text-[11px] font-semibold",
-                          segmentStatus(segment) === "Saved" ? "text-ready" : "text-[#8c4d29]"
+                          segmentStatus(segment) === "Saved" ? "text-ready" : "text-accent"
                         )}
                       >
                         {segmentStatus(segment)}
@@ -462,9 +497,10 @@ export function ResultsReview({ model, onSegmentChange }: ResultsReviewProps) {
                     </div>
                     <textarea
                       id={translationId}
+                      aria-label={`Translation for segment ${segment.index}`}
                       value={segment.translation}
                       onChange={(event) => updateSegment(segment.id, { translation: event.target.value })}
-                      className="min-h-[64px] resize-none rounded-md bg-paper-muted p-2 text-sm leading-snug text-ink shadow-control focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      className="min-h-[58px] resize-none rounded-md bg-paper-selected p-2 text-sm leading-snug text-ink shadow-inner focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     />
                   </div>
                 </article>

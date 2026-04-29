@@ -3,8 +3,15 @@
 @tailwind utilities;
 
 :root {
-  color: #20251f;
-  background: oklch(94% 0.025 82);
+  color: oklch(23% 0.014 245);
+  background: oklch(95.6% 0.006 245);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -19,11 +26,11 @@ body,
 
 body {
   margin: 0;
-  background: oklch(94% 0.025 82);
+  background: oklch(95.6% 0.006 245);
 }
 
 * {
-  scrollbar-color: #b6632f #eee1cc;
+  scrollbar-color: oklch(64% 0.038 245) oklch(92.8% 0.008 245);
   scrollbar-width: thin;
 }
 
@@ -33,39 +40,61 @@ body {
 }
 
 *::-webkit-scrollbar-track {
-  background: #eee1cc;
+  background: oklch(92.8% 0.008 245);
   border-radius: 999px;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #b6632f;
-  border: 2px solid #eee1cc;
+  background: oklch(64% 0.038 245);
+  border: 2px solid oklch(92.8% 0.008 245);
   border-radius: 999px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #8c4d29;
+  background: oklch(54% 0.105 61);
 }
 
 *::-webkit-scrollbar-corner {
   background: transparent;
 }
 
+.segment-card-active {
+  animation: segment-card-enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes segment-card-enter {
+  from {
+    opacity: 0.78;
+    transform: translateY(5px) scale(0.992);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segment-card-active {
+    animation: none;
+  }
+}
+
 .scrollbar-log {
-  scrollbar-color: #c7aa7a #2d241d;
+  scrollbar-color: oklch(66% 0.026 245) oklch(22% 0.018 245);
 }
 
 .scrollbar-log::-webkit-scrollbar-track {
-  background: #2d241d;
+  background: oklch(22% 0.018 245);
 }
 
 .scrollbar-log::-webkit-scrollbar-thumb {
-  background: #c7aa7a;
-  border-color: #2d241d;
+  background: oklch(66% 0.026 245);
+  border-color: oklch(22% 0.018 245);
 }
 
 .scrollbar-log::-webkit-scrollbar-thumb:hover {
-  background: #ffd08f;
+  background: oklch(78% 0.071 67);
 }
 
 button,

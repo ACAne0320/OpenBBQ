@@ -44,7 +44,7 @@ describe("TaskMonitor", () => {
 
     const progress = screen.getByLabelText("Task progress");
     expect(within(progress).getAllByTestId("progress-step")).toHaveLength(failedTask.progress.length);
-    expect(progress).toHaveClass("py-3");
+    expect(progress).toHaveClass("p-4", "rounded-xl");
 
     const log = screen.getByLabelText("Runtime log");
     expect(screen.getByTestId("runtime-log-scroll")).toHaveClass("h-[420px]");

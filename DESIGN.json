@@ -1,0 +1,381 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-04-29T15:34:03.6804478+08:00",
+  "title": "Design System: OpenBBQ",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas Blue Grey",
+        "canonical": "oklch(95.6% 0.006 245)",
+        "tonalRamp": [
+          "oklch(18% 0.006 245)",
+          "oklch(28% 0.006 245)",
+          "oklch(40% 0.006 245)",
+          "oklch(54% 0.006 245)",
+          "oklch(68% 0.006 245)",
+          "oklch(82% 0.006 245)",
+          "oklch(92% 0.006 245)",
+          "oklch(96% 0.006 245)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper White",
+        "canonical": "oklch(99% 0.004 245)",
+        "tonalRamp": [
+          "oklch(18% 0.004 245)",
+          "oklch(30% 0.004 245)",
+          "oklch(44% 0.004 245)",
+          "oklch(58% 0.004 245)",
+          "oklch(72% 0.004 245)",
+          "oklch(86% 0.004 245)",
+          "oklch(94% 0.004 245)",
+          "oklch(99% 0.004 245)"
+        ]
+      },
+      "paper-muted": {
+        "role": "neutral",
+        "displayName": "Muted Paper",
+        "canonical": "oklch(96.8% 0.006 245)",
+        "tonalRamp": [
+          "oklch(18% 0.006 245)",
+          "oklch(30% 0.006 245)",
+          "oklch(44% 0.006 245)",
+          "oklch(58% 0.006 245)",
+          "oklch(72% 0.006 245)",
+          "oklch(86% 0.006 245)",
+          "oklch(94% 0.006 245)",
+          "oklch(97% 0.006 245)"
+        ]
+      },
+      "paper-side": {
+        "role": "neutral",
+        "displayName": "Sidebar Paper",
+        "canonical": "oklch(92.8% 0.008 245)",
+        "tonalRamp": [
+          "oklch(17% 0.008 245)",
+          "oklch(29% 0.008 245)",
+          "oklch(42% 0.008 245)",
+          "oklch(56% 0.008 245)",
+          "oklch(70% 0.008 245)",
+          "oklch(82% 0.008 245)",
+          "oklch(90% 0.008 245)",
+          "oklch(93% 0.008 245)"
+        ]
+      },
+      "paper-selected": {
+        "role": "neutral",
+        "displayName": "Selected Paper",
+        "canonical": "oklch(93.5% 0.026 248)",
+        "tonalRamp": [
+          "oklch(17% 0.026 248)",
+          "oklch(29% 0.026 248)",
+          "oklch(42% 0.026 248)",
+          "oklch(56% 0.026 248)",
+          "oklch(70% 0.026 248)",
+          "oklch(82% 0.026 248)",
+          "oklch(90% 0.026 248)",
+          "oklch(94% 0.026 248)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Primary Ink",
+        "canonical": "oklch(23% 0.014 245)",
+        "tonalRamp": [
+          "oklch(15% 0.014 245)",
+          "oklch(23% 0.014 245)",
+          "oklch(34% 0.014 245)",
+          "oklch(48% 0.014 245)",
+          "oklch(62% 0.014 245)",
+          "oklch(76% 0.014 245)",
+          "oklch(88% 0.014 245)",
+          "oklch(95% 0.014 245)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "oklch(49% 0.017 245)",
+        "tonalRamp": [
+          "oklch(16% 0.017 245)",
+          "oklch(28% 0.017 245)",
+          "oklch(40% 0.017 245)",
+          "oklch(49% 0.017 245)",
+          "oklch(62% 0.017 245)",
+          "oklch(76% 0.017 245)",
+          "oklch(88% 0.017 245)",
+          "oklch(95% 0.017 245)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline Blue Grey",
+        "canonical": "oklch(88% 0.01 245)",
+        "tonalRamp": [
+          "oklch(16% 0.01 245)",
+          "oklch(28% 0.01 245)",
+          "oklch(42% 0.01 245)",
+          "oklch(56% 0.01 245)",
+          "oklch(70% 0.01 245)",
+          "oklch(82% 0.01 245)",
+          "oklch(88% 0.01 245)",
+          "oklch(95% 0.01 245)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Workbench Blue",
+        "canonical": "oklch(52% 0.112 248)",
+        "tonalRamp": [
+          "oklch(15% 0.08 248)",
+          "oklch(24% 0.095 248)",
+          "oklch(34% 0.105 248)",
+          "oklch(44% 0.112 248)",
+          "oklch(52% 0.112 248)",
+          "oklch(66% 0.09 248)",
+          "oklch(80% 0.06 248)",
+          "oklch(92% 0.046 248)"
+        ]
+      },
+      "ready": {
+        "role": "secondary",
+        "displayName": "Ready Green",
+        "canonical": "oklch(48% 0.075 154)",
+        "tonalRamp": [
+          "oklch(15% 0.05 154)",
+          "oklch(25% 0.06 154)",
+          "oklch(36% 0.07 154)",
+          "oklch(48% 0.075 154)",
+          "oklch(62% 0.06 154)",
+          "oklch(76% 0.045 154)",
+          "oklch(88% 0.03 154)",
+          "oklch(95% 0.018 154)"
+        ]
+      },
+      "log-bg": {
+        "role": "tertiary",
+        "displayName": "Runtime Black Blue",
+        "canonical": "oklch(22% 0.018 245)",
+        "tonalRamp": [
+          "oklch(12% 0.018 245)",
+          "oklch(18% 0.018 245)",
+          "oklch(22% 0.018 245)",
+          "oklch(30% 0.018 245)",
+          "oklch(42% 0.018 245)",
+          "oklch(56% 0.018 245)",
+          "oklch(72% 0.018 245)",
+          "oklch(88% 0.018 245)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page titles in workflow screens."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Major panel and selected-detail titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Section headings and workflow group labels."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Controls, descriptions, rows, helper text, and form content."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Eyebrows, metadata, status labels, and compact navigation text."
+      }
+    },
+    "shadows": [
+      {
+        "name": "panel",
+        "value": "0 10px 30px rgba(38,45,55,0.10), 0 1px 3px rgba(38,45,55,0.10)",
+        "purpose": "Separates the main app shell and large persistent panels."
+      },
+      {
+        "name": "control",
+        "value": "0 1px 3px rgba(38,45,55,0.12)",
+        "purpose": "Gives buttons, inputs, cards, and compact surfaces low affordance."
+      },
+      {
+        "name": "selected",
+        "value": "inset 0 0 0 1px rgba(55,102,190,0.24), 0 1px 3px rgba(38,45,55,0.10)",
+        "purpose": "Marks active rows, active navigation, selected segments, and chosen workflow states."
+      },
+      {
+        "name": "running",
+        "value": "inset 0 0 0 2px rgba(55,102,190,0.34)",
+        "purpose": "Marks running automation states."
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-press",
+        "value": "150ms transform ease-out",
+        "purpose": "Buttons and compact controls scale briefly on active press."
+      },
+      {
+        "name": "segment-card-enter",
+        "value": "260ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Active segment cards enter with subtle opacity and translate feedback."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "Disable decorative segment animation and nonessential transitions."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Forward action button for run, export, continue, and retry actions.",
+      "html": "<button class=\"ds-btn-primary\">Continue</button>",
+      "css": ".ds-btn-primary { min-height: 40px; min-width: 40px; border: 0; border-radius: 6px; padding: 0 14px; background: oklch(52% 0.112 248); color: oklch(99% 0.004 245); font: 500 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 1px 3px rgba(38,45,55,0.12); transition: transform 150ms ease-out, background-color 150ms ease-out; } .ds-btn-primary:hover { background: oklch(47% 0.118 248); } .ds-btn-primary:active { transform: scale(0.95); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(52% 0.112 248); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Routine action button for diagnostics, copy, back, and neutral controls.",
+      "html": "<button class=\"ds-btn-secondary\">Diagnostics</button>",
+      "css": ".ds-btn-secondary { min-height: 40px; min-width: 40px; border: 0; border-radius: 6px; padding: 0 14px; background: oklch(99% 0.004 245); color: oklch(23% 0.014 245); font: 500 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 1px 3px rgba(38,45,55,0.12); transition: transform 150ms ease-out, background-color 150ms ease-out; } .ds-btn-secondary:hover { background: oklch(96.8% 0.006 245); } .ds-btn-secondary:active { transform: scale(0.95); } .ds-btn-secondary:focus-visible { outline: 2px solid oklch(52% 0.112 248); outline-offset: 2px; }"
+    },
+    {
+      "name": "Ink Button",
+      "kind": "button",
+      "refersTo": "button-ink",
+      "description": "Serious control button for cancellation or high-weight local actions.",
+      "html": "<button class=\"ds-btn-ink\">Request cancel</button>",
+      "css": ".ds-btn-ink { min-height: 40px; min-width: 40px; border: 0; border-radius: 6px; padding: 0 14px; background: oklch(23% 0.014 245); color: oklch(99% 0.004 245); font: 500 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 1px 3px rgba(38,45,55,0.12); transition: transform 150ms ease-out, background-color 150ms ease-out; } .ds-btn-ink:hover { background: oklch(22% 0.018 245); } .ds-btn-ink:active { transform: scale(0.95); } .ds-btn-ink:focus-visible { outline: 2px solid oklch(52% 0.112 248); outline-offset: 2px; }"
+    },
+    {
+      "name": "Sidebar Navigation Item",
+      "kind": "nav",
+      "refersTo": "navigation-item",
+      "description": "Compact icon-first desktop navigation item with selected and hover states.",
+      "html": "<button class=\"ds-nav-item ds-nav-item-active\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z\" fill=\"currentColor\"/></svg><span>Home</span></button>",
+      "css": ".ds-nav-item { min-height: 40px; display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 6px; padding: 10px; background: transparent; color: oklch(49% 0.017 245); font: 500 12px/1.2 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: transform 150ms ease-out, background-color 150ms ease-out, color 150ms ease-out; } .ds-nav-item svg { width: 16px; height: 16px; flex: none; } .ds-nav-item:hover { background: oklch(99% 0.004 245); color: oklch(23% 0.014 245); } .ds-nav-item-active { background: oklch(99% 0.004 245); color: oklch(23% 0.014 245); box-shadow: inset 0 0 0 1px rgba(55,102,190,0.24), 0 1px 3px rgba(38,45,55,0.10); } .ds-nav-item:active { transform: scale(0.95); } .ds-nav-item:focus-visible { outline: 2px solid oklch(52% 0.112 248); outline-offset: 2px; }"
+    },
+    {
+      "name": "Toggle Switch",
+      "kind": "custom",
+      "refersTo": "toggle-switch",
+      "description": "Binary workflow and settings control with visible checked state.",
+      "html": "<button class=\"ds-toggle ds-toggle-on\" role=\"switch\" aria-checked=\"true\"><span></span></button>",
+      "css": ".ds-toggle { position: relative; display: inline-flex; width: 56px; height: 40px; align-items: center; border: 0; border-radius: 999px; background: oklch(92.8% 0.008 245); box-shadow: 0 1px 3px rgba(38,45,55,0.12); transition: transform 150ms ease-out, background-color 150ms ease-out; } .ds-toggle span { position: absolute; left: 6px; width: 28px; height: 28px; border-radius: 999px; background: oklch(99% 0.004 245); box-shadow: 0 1px 3px rgba(38,45,55,0.12); transition: transform 150ms ease-out; } .ds-toggle-on { background: oklch(52% 0.112 248); box-shadow: inset 0 0 0 1px rgba(55,102,190,0.24), 0 1px 3px rgba(38,45,55,0.10); } .ds-toggle-on span { transform: translateX(20px); } .ds-toggle:active { transform: scale(0.95); } .ds-toggle:focus-visible { outline: 2px solid oklch(52% 0.112 248); outline-offset: 2px; }"
+    },
+    {
+      "name": "Workflow Step Row",
+      "kind": "card",
+      "refersTo": "workflow-step-row",
+      "description": "Selectable workflow row with numeric status marker and compact metadata.",
+      "html": "<article class=\"ds-step-row ds-step-row-selected\"><span class=\"ds-step-number\">1</span><div><strong>Fetch source</strong><p>remote_video.fetch</p><small>Download source media for processing.</small></div><span class=\"ds-step-chip\">Enabled</span></article>",
+      "css": ".ds-step-row { min-height: 88px; display: grid; grid-template-columns: 28px minmax(0,1fr) auto; gap: 12px; align-items: center; border-radius: 7px; padding: 12px; background: oklch(99% 0.004 245); color: oklch(23% 0.014 245); box-shadow: 0 1px 3px rgba(38,45,55,0.12); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } .ds-step-row-selected { background: oklch(93.5% 0.026 248); box-shadow: inset 0 0 0 1px rgba(55,102,190,0.24), 0 1px 3px rgba(38,45,55,0.10); } .ds-step-number { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: oklch(52% 0.112 248); color: oklch(99% 0.004 245); font-size: 12px; font-weight: 700; } .ds-step-row strong { display: block; font-size: 15px; line-height: 1.2; } .ds-step-row p, .ds-step-row small { display: block; margin: 4px 0 0; color: oklch(49% 0.017 245); font-size: 12px; line-height: 1.25; } .ds-step-chip { border-radius: 999px; padding: 4px 8px; background: oklch(92% 0.046 248); color: oklch(52% 0.112 248); font-size: 11px; font-weight: 600; }"
+    },
+    {
+      "name": "Runtime Log Row",
+      "kind": "custom",
+      "refersTo": "runtime-log-row",
+      "description": "Dark runtime output row for backend events and progress logs.",
+      "html": "<div class=\"ds-log-row\"><span>15:34:03</span><b>info</b><p>Transcription step started</p></div>",
+      "css": ".ds-log-row { display: grid; grid-template-columns: 132px 72px minmax(0,1fr); gap: 8px; align-items: start; padding: 2px 0; background: oklch(22% 0.018 245); color: oklch(92% 0.009 245); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; } .ds-log-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: oklch(70% 0.018 245); } .ds-log-row b { border-radius: 5px; padding: 2px 6px; background: oklch(27% 0.018 245); color: oklch(70% 0.018 245); text-align: center; text-transform: uppercase; font-size: 10px; line-height: 20px; } .ds-log-row p { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }"
+    },
+    {
+      "name": "Segment Review Card",
+      "kind": "card",
+      "refersTo": "segment-review-card",
+      "description": "Editable subtitle segment card with active playback progress.",
+      "html": "<article class=\"ds-segment-card ds-segment-card-active\"><span class=\"ds-segment-progress\"></span><header><b>00:12.400 - 00:15.900</b><span>Segment 4</span></header><label>Original<textarea>Original transcript text</textarea></label><label class=\"ds-translation\">Translation<textarea>Translated subtitle text</textarea></label></article>",
+      "css": ".ds-segment-card { position: relative; overflow: hidden; border-radius: 7px; padding: 12px; background: oklch(99% 0.004 245); color: oklch(23% 0.014 245); box-shadow: 0 1px 3px rgba(38,45,55,0.12); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } .ds-segment-card-active { background: oklch(93.5% 0.026 248); box-shadow: inset 0 0 0 1px rgba(55,102,190,0.24), 0 1px 3px rgba(38,45,55,0.10); } .ds-segment-progress { position: absolute; left: 0; top: 0; height: 4px; width: 46%; background: oklch(52% 0.112 248); } .ds-segment-card header { display: flex; justify-content: space-between; gap: 12px; color: oklch(52% 0.112 248); font-size: 12px; font-weight: 600; } .ds-segment-card label { display: grid; gap: 6px; margin-top: 12px; color: oklch(49% 0.017 245); font-size: 11px; font-weight: 600; text-transform: uppercase; } .ds-segment-card .ds-translation { color: oklch(52% 0.112 248); } .ds-segment-card textarea { min-height: 58px; resize: none; border: 0; border-radius: 6px; padding: 8px; background: oklch(96.8% 0.006 245); color: oklch(23% 0.014 245); box-shadow: inset 0 1px 2px rgba(38,45,55,0.10); font: 400 14px/1.35 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } .ds-segment-card textarea:focus-visible { outline: 2px solid oklch(52% 0.112 248); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Compact settings and workflow configuration field.",
+      "html": "<label class=\"ds-field\"><span>Model path</span><input value=\"faster-whisper/base\" /></label>",
+      "css": ".ds-field { display: grid; gap: 8px; color: oklch(49% 0.017 245); font: 600 11px/1.2 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-transform: uppercase; } .ds-field input { min-height: 44px; border: 0; border-radius: 6px; padding: 0 12px; background: oklch(96.8% 0.006 245); color: oklch(23% 0.014 245); box-shadow: 0 1px 3px rgba(38,45,55,0.12); font: 400 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-transform: none; } .ds-field input:focus-visible { outline: 2px solid oklch(52% 0.112 248); outline-offset: 2px; }"
+    },
+    {
+      "name": "Progress Bar",
+      "kind": "custom",
+      "refersTo": "progress-bar",
+      "description": "Inline determinate progress for tasks, model downloads, and runtime logs.",
+      "html": "<div class=\"ds-progress\" aria-label=\"Progress\"><span style=\"width: 68%\"></span></div>",
+      "css": ".ds-progress { height: 8px; overflow: hidden; border-radius: 999px; background: oklch(92.8% 0.008 245); } .ds-progress span { display: block; height: 100%; border-radius: inherit; background: oklch(52% 0.112 248); transition: width 200ms ease-out; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Native Workbench",
+    "overview": "OpenBBQ should feel like a focused desktop workspace: quiet, precise, and native-adjacent. It borrows macOS discipline through restrained surfaces, clear hierarchy, soft functional elevation, and controls that make repeated media workflow work feel calm. It does not imitate the operating system; it translates that cleanliness into OpenBBQ's source import, workflow arrangement, task monitoring, review, and settings screens.\n\nThe system is dense because the product is operational. Density is acceptable when structure is clear: source, state, next action, and output must remain visible without decorative competition. The surface should feel local-first, inspectable, and trustworthy, never like a web campaign or a generic terminal skin.",
+    "keyCharacteristics": [
+      "Native-adjacent desktop restraint.",
+      "Compact panels with deliberate hierarchy.",
+      "Blue-tinted neutrals and one restrained operational accent.",
+      "Dark surfaces reserved for machine output, media preview, and logs.",
+      "Visible state through color, shape, icon, copy, and position."
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "Workbench Blue is the only general-purpose accent. Do not introduce extra decorative hues for variety.",
+        "section": "colors"
+      },
+      {
+        "name": "The Log Island Rule",
+        "body": "Dark surfaces are allowed for runtime logs, media preview, and machine output. They are forbidden as the default app theme.",
+        "section": "colors"
+      },
+      {
+        "name": "The Native Type Rule",
+        "body": "Do not add decorative display fonts. OpenBBQ earns trust by looking like a serious desktop tool, not a campaign page.",
+        "section": "typography"
+      },
+      {
+        "name": "The Short Line Rule",
+        "body": "Descriptive copy should stay compact. Long prose belongs in docs, not dense workflow screens.",
+        "section": "typography"
+      },
+      {
+        "name": "The Utility Depth Rule",
+        "body": "Shadows exist to separate, select, or show state. Decorative depth, glass cards, and floating marketing panels are prohibited.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do preserve the native-adjacent desktop restraint: quiet surfaces, compact controls, and visible state.",
+      "Do use the existing OKLCH tokens as the source of truth.",
+      "Do reserve `log-bg` and `log-panel` for logs, media preview, and machine output.",
+      "Do communicate automation status with labels, icons, progress, and placement, not color alone.",
+      "Do keep radii at 8px or below for panels and controls.",
+      "Do keep repeated workflow screens dense but structured."
+    ],
+    "donts": [
+      "Don't use flashy gradients, noisy decorative effects, or Chinese internet tool-site styling.",
+      "Don't make the desktop app feel like a marketing page, a dark terminal skin, or a pile of identical promotional cards.",
+      "Don't use gradient text, glassmorphism, decorative blur, or hero-metric templates.",
+      "Don't use `border-left` or `border-right` greater than 1px as a colored accent on cards, list items, callouts, or alerts.",
+      "Don't introduce a full dark theme by spreading runtime log colors into normal workflow screens.",
+      "Don't add decorative fonts, oversized hero type, or sparse landing-page spacing to operational screens."
+    ]
+  }
+}

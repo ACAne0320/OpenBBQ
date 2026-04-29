@@ -360,7 +360,7 @@ export function App({ client: providedClient }: AppProps = {}) {
   return (
     <AppShell active={activeNav} footerLabel={source ? "Source" : "Workspace"} footerValue={footerValue} onNavigate={handleNavigate}>
       {loadError ? (
-        <div className="mb-4 rounded-lg bg-accent-soft px-3.5 py-3 text-sm font-semibold text-[#6b3f27]" role="alert">
+        <div className="mb-4 rounded-lg bg-accent-soft px-3.5 py-3 text-sm font-semibold text-ink" role="alert">
           {loadError}
         </div>
       ) : null}

@@ -84,20 +84,28 @@ function progressCounts(progress: ProgressStep[]) {
   return { done, failed, running };
 }
 
+function progressPercent(progress: ProgressStep[]): number {
+  if (progress.length === 0) {
+    return 0;
+  }
+
+  return Math.round((progress.filter((step) => step.status === "done").length / progress.length) * 100);
+}
+
 function statusTone(status: ProgressStep["status"]): string {
   if (status === "done") {
-    return "bg-ready text-[#fff8ea]";
+    return "bg-accent text-paper";
   }
 
   if (status === "failed") {
-    return "bg-accent text-[#fff8ea]";
+    return "bg-accent text-paper";
   }
 
   if (status === "running") {
-    return "bg-paper text-accent shadow-[inset_0_0_0_2px_rgba(182,99,47,0.45)]";
+    return "bg-state-running text-accent shadow-running";
   }
 
-  return "bg-[#d8c8ae] text-[#7a6b56]";
+  return "bg-paper-side text-muted";
 }
 
 function statusIcon(status: ProgressStep["status"]) {
@@ -118,14 +126,14 @@ function statusIcon(status: ProgressStep["status"]) {
 
 function logLevelClass(level: TaskMonitorModel["logs"][number]["level"]): string {
   if (level === "error") {
-    return "bg-[#5b2e22] text-[#ffbd96]";
+    return "bg-log-panel text-log-error";
   }
 
   if (level === "warning") {
-    return "bg-[#5a4627] text-[#ffd08f]";
+    return "bg-log-panel text-log-warning";
   }
 
-  return "bg-[#403329] text-[#d9c4a2]";
+  return "bg-log-panel text-log-muted";
 }
 
 function progressDetail(line: TaskProgressLogLine): string | null {
@@ -172,6 +180,7 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
   const failed = task.status === "failed";
   const progress = normalizedProgress(task);
   const counts = progressCounts(progress);
+  const percentDone = progressPercent(progress);
   const runtimeRows = useMemo(() => runtimeLogRows(task), [task]);
   const runtimeLogRef = useRef<HTMLDivElement>(null);
   const logPinnedRef = useRef(true);
@@ -231,11 +240,11 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
   }
 
   return (
-    <section className="grid min-h-[calc(100vh-84px)] grid-rows-[auto_auto_minmax(0,1fr)] gap-3.5">
-      <header className="flex items-end justify-between gap-4">
+    <section className="grid min-h-[calc(100vh-76px)] grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase text-muted">Task monitor</p>
-          <h1 className="mt-2 truncate font-serif text-[38px] leading-none text-ink-brown">{task.title}</h1>
+          <p className="text-[11px] font-semibold uppercase text-muted">Task monitor</p>
+          <h1 className="mt-2 truncate text-[32px] font-semibold leading-tight tracking-[-0.022em] text-ink-brown">{task.title}</h1>
           <p className="mt-1.5 text-sm text-muted">{task.workflowName}</p>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -248,14 +257,14 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
         </div>
       </header>
 
-      <section aria-label="Task progress" className="rounded-lg bg-paper-muted px-4 py-3 shadow-control">
-        <div className="grid grid-cols-[minmax(136px,180px)_minmax(220px,1fr)_minmax(120px,auto)] items-center gap-4">
+      <section aria-label="Task progress" className="grid gap-4 rounded-xl bg-paper-muted p-4 shadow-control">
+        <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)_140px] xl:items-center">
           <div className="min-w-0">
             <p className="text-[11px] uppercase text-muted">Progress</p>
-            <h2 className="mt-1 truncate text-base font-extrabold leading-tight text-ink-brown">{stepSummary(task, progress)}</h2>
+            <h2 className="mt-1 truncate text-base font-semibold leading-tight text-ink-brown">{stepSummary(task, progress)}</h2>
           </div>
 
-          <ol className="flex min-w-0 items-center gap-2">
+          <ol className="flex min-w-0 items-center gap-2 rounded-lg bg-paper px-3 py-3 shadow-control">
             {progress.map((step, index) => (
               <li key={step.id} className="flex min-w-0 flex-1 items-center gap-2 last:flex-none">
                 <span
@@ -266,20 +275,28 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
                 >
                   {statusIcon(step.status)}
                 </span>
-                {index < task.progress.length - 1 ? <span className="h-[3px] flex-1 rounded-full bg-[#d8c8ae]" /> : null}
+                {index < task.progress.length - 1 ? <span className="h-[3px] flex-1 rounded-full bg-paper-side" /> : null}
               </li>
             ))}
           </ol>
 
-          <p className="text-right text-xs text-muted">
-            {counts.done} done
-            {counts.running > 0 ? ` - ${counts.running} running` : ""}
-            {counts.failed > 0 ? ` - ${counts.failed} failed` : ""}
-          </p>
+          <div className="grid gap-1.5 text-xs text-muted">
+            <div className="flex items-center justify-between">
+              <span>{counts.done} done</span>
+              <span>{percentDone}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-paper-side">
+              <div className="h-full rounded-full bg-accent" style={{ width: `${percentDone}%` }} />
+            </div>
+            <p className="text-right">
+              {counts.running > 0 ? `${counts.running} running` : ""}
+              {counts.failed > 0 ? `${counts.running > 0 ? " - " : ""}${counts.failed} failed` : ""}
+            </p>
+          </div>
         </div>
       </section>
 
-      <section aria-label="Runtime log" className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-lg bg-paper-muted p-4 shadow-control">
+      <section aria-label="Runtime log" className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-xl bg-paper-muted p-4 shadow-control">
         <div className="mb-3 flex items-center justify-between gap-4">
           <div>
             <p className="text-xs uppercase text-muted">Runtime log</p>
@@ -294,14 +311,14 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
         {failed ? (
           <div
             role="alert"
-            className="mb-3 flex items-center justify-between gap-3 rounded-lg bg-accent-soft px-3.5 py-3 text-[#6b3f27] shadow-control"
+            className="mb-3 flex items-center justify-between gap-3 rounded-lg bg-accent-soft px-3.5 py-3 text-ink shadow-control"
           >
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <div className="grid gap-1">
                 <p className="text-sm font-semibold leading-snug">{task.errorMessage ?? fallbackFailureMessage}</p>
-                {retryError ? <p className="text-xs font-semibold leading-snug text-[#8a3f25]">{retryError}</p> : null}
-                {retryPending ? <p className="text-xs font-semibold leading-snug text-[#8a3f25]">Retrying checkpoint...</p> : null}
+                {retryError ? <p className="text-xs font-semibold leading-snug text-accent">{retryError}</p> : null}
+                {retryPending ? <p className="text-xs font-semibold leading-snug text-accent">Retrying checkpoint...</p> : null}
               </div>
             </div>
             <Button className="shrink-0" disabled={retryPending} variant="primary" onClick={onRetry}>
@@ -315,19 +332,19 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
             ref={runtimeLogRef}
             data-testid="runtime-log-scroll"
             onScroll={handleRuntimeLogScroll}
-            className="scrollbar-log h-[420px] min-h-0 overflow-y-auto overflow-x-hidden rounded-lg bg-log-bg p-3.5 font-mono text-xs leading-relaxed text-[#f8ead2] shadow-inner xl:h-[520px]"
+            className="scrollbar-log h-[420px] min-h-0 overflow-y-auto overflow-x-hidden rounded-lg bg-log-bg p-3.5 font-mono text-xs leading-relaxed text-log-text shadow-inner xl:h-[520px]"
           >
             {runtimeRows.map((row) => {
               if (row.kind === "text") {
                 const line = row.line;
                 return (
                   <div key={`text-${line.sequence}`} className="grid grid-cols-[132px_72px_minmax(0,1fr)] gap-2 py-0.5 md:grid-cols-[176px_72px_minmax(0,1fr)]">
-                    <span className="min-w-0 truncate text-[#c7aa7a]">{line.timestamp}</span>
+                    <span className="min-w-0 truncate text-log-muted">{line.timestamp}</span>
                     <span className={`rounded-sm px-1.5 text-center text-[10px] uppercase leading-5 ${logLevelClass(line.level)}`}>
                       {line.level}
                     </span>
                     <span
-                      className={`min-w-0 whitespace-pre-wrap break-words ${line.level === "error" ? "text-[#ffbd96]" : line.level === "warning" ? "text-[#ffd08f]" : ""}`}
+                      className={`min-w-0 whitespace-pre-wrap break-words ${line.level === "error" ? "text-log-error" : line.level === "warning" ? "text-log-warning" : ""}`}
                     >
                       {line.message}
                     </span>
@@ -342,22 +359,22 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
 
               return (
                 <div key={`progress-${line.sequence}`} className="grid grid-cols-[132px_88px_minmax(0,1fr)] gap-2 py-1.5 md:grid-cols-[176px_112px_minmax(0,1fr)]">
-                  <span className="min-w-0 truncate text-[#c7aa7a]">{line.timestamp}</span>
-                  <span className="rounded-sm bg-[#403329] px-1.5 text-center text-[10px] uppercase leading-5 text-[#d9c4a2]">
+                  <span className="min-w-0 truncate text-log-muted">{line.timestamp}</span>
+                  <span className="rounded-sm bg-log-panel px-1.5 text-center text-[10px] uppercase leading-5 text-log-muted">
                     progress
                   </span>
                   <div aria-label={`${line.label} progress`} className="min-w-0">
-                    <p className="min-w-0 truncate font-semibold text-[#f8ead2]">{line.label}</p>
+                    <p className="min-w-0 truncate font-semibold text-log-text">{line.label}</p>
                     <div className="mt-1 flex items-center gap-2">
                       <div
                         aria-hidden="true"
-                        className="h-2 flex-1 overflow-hidden rounded-full bg-[#5a4627]"
+                        className="h-2 flex-1 overflow-hidden rounded-full bg-log-panel"
                       >
-                        <div className="h-full rounded-full bg-[#ffd08f]" style={{ width: `${visualPercent}%` }} />
+                        <div className="h-full rounded-full bg-log-accent" style={{ width: `${visualPercent}%` }} />
                       </div>
-                      <span className="w-10 text-right font-bold text-[#ffd08f]">{percentText}%</span>
+                      <span className="w-10 text-right font-bold text-log-accent">{percentText}%</span>
                     </div>
-                    {detail ? <p className="mt-1 text-[#c7aa7a]">{detail}</p> : null}
+                    {detail ? <p className="mt-1 text-log-muted">{detail}</p> : null}
                   </div>
                 </div>
               );
@@ -369,7 +386,7 @@ export function TaskMonitor({ onCancel, onRetry, retryError, retryPending = fals
             aria-label="Jump to latest log"
             tabIndex={showJumpToLatest ? 0 : -1}
             onClick={jumpToLatestLog}
-            className={`absolute bottom-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-[#fff8ea] text-log-bg shadow-control outline-none transition-[opacity,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-log-bg active:scale-95 motion-reduce:transition-none ${showJumpToLatest ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none translate-y-1 opacity-0"}`}
+            className={`absolute bottom-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-paper text-log-bg shadow-control outline-none transition-[opacity,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-log-bg active:scale-95 motion-reduce:transition-none ${showJumpToLatest ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none translate-y-1 opacity-0"}`}
           >
             <ArrowDown className="h-4 w-4" aria-hidden="true" />
           </button>

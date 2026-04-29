@@ -178,14 +178,14 @@ export function Waveform({
         style={{ minWidth: `${widthPx}px` }}
         onClick={handleTrackClick}
       >
-        <div className="absolute inset-x-4 top-1/2 h-px bg-[#d6c7ae]" />
+        <div className="absolute inset-x-4 top-1/2 h-px bg-line" />
 
         <div className="absolute inset-x-[18px] bottom-5 top-5 overflow-hidden" aria-hidden="true">
           {renderedWaveform.map((bar) => (
             <span
               key={bar.id}
               data-testid="waveform-bar"
-              className="absolute top-1/2 shrink-0 -translate-y-1/2 rounded-[1px] bg-[#b9a98e]"
+              className="absolute top-1/2 shrink-0 -translate-y-1/2 rounded-[1px] bg-log-muted"
               style={{
                 height: `${Math.max(0, Math.min(96, bar.level))}%`,
                 left: `${bar.left}px`,
@@ -223,7 +223,7 @@ export function Waveform({
 
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute bottom-3 top-3 w-px bg-log-bg shadow-[0_0_0_1px_rgba(255,248,234,0.8)]"
+          className="pointer-events-none absolute bottom-3 top-3 w-px bg-log-bg shadow-[0_0_0_1px_rgba(38,45,55,0.18)]"
           style={{ left: `${playheadLeft}px` }}
         />
       </div>

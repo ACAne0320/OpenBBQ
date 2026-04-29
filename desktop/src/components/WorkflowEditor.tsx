@@ -37,7 +37,7 @@ function ParameterField({ onChange, parameter, stepId }: ParameterFieldProps) {
     return (
       <div className="flex min-h-[72px] items-center justify-between gap-4 rounded-lg bg-paper-muted px-3.5 py-3 shadow-control">
         <div>
-          <div className="text-sm font-extrabold text-ink-brown">{parameter.label}</div>
+          <div className="text-sm font-semibold text-ink-brown">{parameter.label}</div>
           <div className="mt-1 text-xs leading-snug text-muted">{parameter.description}</div>
         </div>
         <Toggle
@@ -131,21 +131,31 @@ export function WorkflowEditor({ initialSteps, onBack, onContinue }: WorkflowEdi
   }
 
   return (
-    <section className="grid min-h-[calc(100vh-84px)] grid-rows-[auto_1fr_auto] gap-5">
-      <header>
-        <p className="text-[11px] uppercase text-muted">New task</p>
-        <h1 className="mt-2 font-serif text-[40px] leading-none text-ink-brown">Arrange workflow</h1>
+    <section className="grid min-h-[calc(100vh-76px)] grid-rows-[auto_1fr_auto] gap-5">
+      <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+        <p className="text-[11px] font-semibold uppercase text-muted">New task</p>
+        <h1 className="mt-2 text-[32px] font-semibold leading-tight tracking-[-0.022em] text-ink-brown">Arrange workflow</h1>
         <p className="mt-2 text-sm text-muted">{templateTitle}</p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs text-muted">
+          <span className="rounded-full bg-paper-muted px-3 py-1.5 shadow-control">{steps.length} steps</span>
+          <span className="rounded-full bg-accent-soft px-3 py-1.5 font-semibold text-accent">
+            {steps.filter((step) => step.status !== "disabled").length} active
+          </span>
+        </div>
       </header>
 
-      <div className="grid min-h-0 grid-cols-1 gap-[18px] xl:grid-cols-[minmax(420px,1fr)_minmax(360px,0.82fr)]">
-        <section aria-label="Workflow steps" className="grid min-h-0 min-w-0 grid-rows-[auto_1fr] gap-4">
-          <div>
-            <h2 className="text-[22px] font-extrabold leading-tight text-ink-brown">{templateTitle}</h2>
-            <p className="mt-1.5 text-sm text-muted">Choose the step to configure and keep optional steps on only when needed.</p>
+      <div className="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(460px,1fr)_minmax(340px,420px)]">
+        <section aria-label="Workflow steps" className="grid min-h-0 min-w-0 grid-rows-[auto_1fr] rounded-xl bg-paper-muted p-4 shadow-control">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-[20px] font-semibold leading-tight tracking-[-0.012em] text-ink-brown">{templateTitle}</h2>
+              <p className="mt-1.5 text-sm text-muted">Configure the automation path before starting the run.</p>
+            </div>
           </div>
 
-          <ol className="grid content-start gap-2.5 overflow-auto pr-1">
+          <ol className="grid content-start gap-2 overflow-auto pr-1">
             {steps.map((step, index) => {
               const selected = step.id === selectedStep?.id;
               const locked = isLocked(step);
@@ -156,8 +166,8 @@ export function WorkflowEditor({ initialSteps, onBack, onContinue }: WorkflowEdi
                   key={step.id}
                   className={
                     selected
-                      ? "grid min-h-[94px] grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg bg-paper-selected p-3 shadow-selected"
-                      : "grid min-h-[94px] grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg bg-paper-muted p-3 shadow-control"
+                      ? "grid min-h-[88px] grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg bg-paper-selected p-3 shadow-selected"
+                      : "grid min-h-[88px] grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg bg-paper p-3 shadow-control"
                   }
                 >
                   <button
@@ -170,14 +180,16 @@ export function WorkflowEditor({ initialSteps, onBack, onContinue }: WorkflowEdi
                     <span
                       className={
                         selected
-                          ? "flex h-7 w-7 items-center justify-center rounded-full bg-accent text-xs font-bold text-[#fff8ea]"
-                          : "flex h-7 w-7 items-center justify-center rounded-full bg-ink-brown text-xs font-bold text-[#fff8ea]"
+                          ? "flex h-7 w-7 items-center justify-center rounded-full bg-accent text-xs font-bold text-paper"
+                          : enabled
+                            ? "flex h-7 w-7 items-center justify-center rounded-full bg-state-running text-xs font-bold text-accent"
+                            : "flex h-7 w-7 items-center justify-center rounded-full bg-paper-side text-xs font-bold text-muted"
                       }
                     >
                       {index + 1}
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-[15px] font-extrabold leading-tight text-ink-brown">{step.name}</span>
+                      <span className="block text-[15px] font-semibold leading-tight text-ink-brown">{step.name}</span>
                       <span className="mt-1 block truncate text-xs text-muted">{step.toolRef}</span>
                       <span className="mt-1 block text-xs text-muted">{step.summary}</span>
                     </span>
@@ -187,7 +199,7 @@ export function WorkflowEditor({ initialSteps, onBack, onContinue }: WorkflowEdi
                     <span
                       className={
                         selected
-                          ? "rounded-full bg-[#ead3c1] px-2 py-1 text-[11px] font-medium text-[#8c4d29]"
+                          ? "rounded-full bg-accent-soft px-2 py-1 text-[11px] font-medium text-accent"
                           : "rounded-full bg-paper px-2 py-1 text-[11px] font-medium text-muted shadow-control"
                       }
                     >
@@ -209,12 +221,15 @@ export function WorkflowEditor({ initialSteps, onBack, onContinue }: WorkflowEdi
         {selectedStep ? (
           <section
             aria-label="Selected step parameters"
-            className="grid min-h-0 min-w-0 grid-rows-[auto_1fr] rounded-xl bg-paper-muted p-5 shadow-control"
+            className="grid min-h-0 min-w-0 grid-rows-[auto_1fr] rounded-xl bg-paper-muted p-4 shadow-control"
           >
-            <div>
+            <div className="rounded-lg bg-paper p-4 shadow-control">
               <p className="text-xs uppercase text-muted">Selected step parameters</p>
-              <h2 className="mt-2 text-2xl font-extrabold leading-tight text-ink-brown">{selectedStep.name}</h2>
+              <h2 className="mt-2 text-2xl font-semibold leading-tight tracking-[-0.012em] text-ink-brown">{selectedStep.name}</h2>
               <p className="mt-1.5 text-sm text-muted">{selectedStep.toolRef}</p>
+              <span className="mt-3 inline-flex rounded-full bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent">
+                {statusLabel(selectedStep)}
+              </span>
             </div>
 
             <div className="mt-5 grid content-start gap-3.5 overflow-auto pr-1">
