@@ -190,7 +190,8 @@ function toLlmProviderModel(provider: ApiProviderProfile): LlmProviderModel {
     baseUrl: provider.base_url ?? null,
     apiKeyRef: provider.api_key ?? null,
     defaultChatModel: provider.default_chat_model ?? null,
-    displayName: provider.display_name ?? null
+    displayName: provider.display_name ?? null,
+    enabled: provider.enabled ?? true
   };
 }
 
@@ -207,7 +208,8 @@ function toRuntimeSettingsModel(settings: ApiRuntimeSettings): RuntimeSettingsMo
       cacheDir: settings.models.faster_whisper.cache_dir,
       defaultModel: settings.models.faster_whisper.default_model,
       defaultDevice: settings.models.faster_whisper.default_device,
-      defaultComputeType: settings.models.faster_whisper.default_compute_type
+      defaultComputeType: settings.models.faster_whisper.default_compute_type,
+      enabled: settings.models.faster_whisper.enabled ?? true
     }
   };
 }
@@ -289,7 +291,8 @@ export async function saveLlmProvider(
         default_chat_model: input.defaultChatModel,
         secret_value: input.secretValue,
         api_key_ref: input.apiKeyRef,
-        display_name: input.displayName
+        display_name: input.displayName,
+        enabled: input.enabled
       }
     }
   );
@@ -356,7 +359,8 @@ export async function saveFasterWhisperDefaults(
         cache_dir: input.cacheDir,
         default_model: input.defaultModel,
         default_device: input.defaultDevice,
-        default_compute_type: input.defaultComputeType
+        default_compute_type: input.defaultComputeType,
+        enabled: input.enabled
       }
     }
   );

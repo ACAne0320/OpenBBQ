@@ -23,7 +23,8 @@ describe("createDesktopClient", () => {
           cacheDir: "cache/models/faster-whisper",
           defaultModel: "base",
           defaultDevice: "cpu",
-          defaultComputeType: "int8"
+          defaultComputeType: "int8",
+          enabled: true
         }
       }),
       saveRuntimeDefaults: vi.fn().mockResolvedValue({
@@ -35,7 +36,8 @@ describe("createDesktopClient", () => {
           cacheDir: "cache/models/faster-whisper",
           defaultModel: "base",
           defaultDevice: "cpu",
-          defaultComputeType: "int8"
+          defaultComputeType: "int8",
+          enabled: true
         }
       }),
       saveLlmProvider: vi.fn().mockResolvedValue({
@@ -44,7 +46,8 @@ describe("createDesktopClient", () => {
         baseUrl: null,
         apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
         defaultChatModel: "gpt-4o-mini",
-        displayName: null
+        displayName: null,
+        enabled: true
       }),
       checkLlmProvider: vi.fn().mockResolvedValue({
         reference: "env:OPENBBQ_LLM_API_KEY",
@@ -70,7 +73,8 @@ describe("createDesktopClient", () => {
           cacheDir: "C:/models/fw",
           defaultModel: "small",
           defaultDevice: "cpu",
-          defaultComputeType: "int8"
+          defaultComputeType: "int8",
+          enabled: true
         }
       }),
       getRuntimeModels: vi.fn().mockResolvedValue([
@@ -141,7 +145,8 @@ describe("createDesktopClient", () => {
       defaultChatModel: "gpt-4o-mini",
       secretValue: null,
       apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
-      displayName: null
+      displayName: null,
+      enabled: true
     });
     await client.checkLlmProvider("openai-compatible");
     await client.getLlmProviderSecret("openai-compatible");
@@ -156,7 +161,8 @@ describe("createDesktopClient", () => {
       cacheDir: "C:/models/fw",
       defaultModel: "small",
       defaultDevice: "cpu",
-      defaultComputeType: "int8"
+      defaultComputeType: "int8",
+      enabled: true
     });
     await client.getRuntimeModels();
     await client.downloadFasterWhisperModel({ model: "small" });

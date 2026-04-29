@@ -104,7 +104,8 @@ describe("createMockClient", () => {
       cacheDir: "D:/openbbq/models/faster-whisper",
       defaultModel: "base",
       defaultDevice: "cpu",
-      defaultComputeType: "int8"
+      defaultComputeType: "int8",
+      enabled: true
     });
 
     const modelsAfterCacheChange = await client.getRuntimeModels();

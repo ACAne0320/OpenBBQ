@@ -135,6 +135,7 @@ def put_provider_auth(name: str, body: ProviderAuthSetRequest) -> ApiSuccess[Aut
             secret_value=body.secret_value,
             default_chat_model=body.default_chat_model,
             display_name=body.display_name,
+            enabled=body.enabled,
         )
     )
     return ApiSuccess(data=result)
@@ -162,6 +163,7 @@ def put_faster_whisper_settings(
             default_model=body.default_model,
             default_device=body.default_device,
             default_compute_type=body.default_compute_type,
+            enabled=body.enabled,
         )
     )
     return ApiSuccess(

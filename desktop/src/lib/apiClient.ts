@@ -102,14 +102,16 @@ export function createMockClient(): OpenBBQClient {
         baseUrl: null,
         apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
         defaultChatModel: "gpt-4o-mini",
-        displayName: "OpenAI-compatible"
+        displayName: "OpenAI-compatible",
+        enabled: true
       }
     ],
     fasterWhisper: {
       cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
       defaultModel: "base",
       defaultDevice: "cpu",
-      defaultComputeType: "int8"
+      defaultComputeType: "int8",
+      enabled: true
     }
   };
   let runtimeModels: RuntimeModelStatus[] = initialFasterWhisperModels(runtimeSettings.fasterWhisper.cacheDir);
@@ -166,7 +168,8 @@ export function createMockClient(): OpenBBQClient {
         baseUrl: input.baseUrl,
         apiKeyRef: input.apiKeyRef,
         defaultChatModel: input.defaultChatModel,
-        displayName: input.displayName
+        displayName: input.displayName,
+        enabled: input.enabled
       };
       const providerIndex = runtimeSettings.llmProviders.findIndex((item) => item.name === provider.name);
       runtimeSettings = {
@@ -223,7 +226,8 @@ export function createMockClient(): OpenBBQClient {
           cacheDir: input.cacheDir,
           defaultModel: input.defaultModel,
           defaultDevice: input.defaultDevice,
-          defaultComputeType: input.defaultComputeType
+          defaultComputeType: input.defaultComputeType,
+          enabled: input.enabled
         }
       };
       runtimeModels = cacheDirChanged

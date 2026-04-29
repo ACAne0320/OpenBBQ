@@ -129,6 +129,7 @@ export type ApiProviderProfile = {
   api_key?: string | null;
   default_chat_model?: string | null;
   display_name?: string | null;
+  enabled?: boolean | null;
 };
 
 export type ApiProviderModel = {
@@ -155,6 +156,7 @@ export type ApiRuntimeSettings = {
       default_model: string;
       default_device: string;
       default_compute_type: string;
+      enabled?: boolean | null;
     };
   };
 };

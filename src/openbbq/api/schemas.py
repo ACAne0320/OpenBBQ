@@ -232,6 +232,7 @@ class FasterWhisperSettingsSetRequest(OpenBBQModel):
     default_model: str
     default_device: str
     default_compute_type: str
+    enabled: bool = True
 
 
 class FasterWhisperDownloadRequest(OpenBBQModel):
@@ -245,6 +246,7 @@ class ProviderAuthSetRequest(OpenBBQModel):
     secret_value: str | None = None
     default_chat_model: str | None = None
     display_name: str | None = None
+    enabled: bool = True
 
 
 class ProviderSecretValueData(OpenBBQModel):

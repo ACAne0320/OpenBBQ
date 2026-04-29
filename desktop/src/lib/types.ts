@@ -125,6 +125,7 @@ export type LlmProviderModel = {
   apiKeyRef: string | null;
   defaultChatModel: string | null;
   displayName: string | null;
+  enabled: boolean;
 };
 
 export type ProviderModelOption = {
@@ -139,6 +140,7 @@ export type FasterWhisperSettingsModel = {
   defaultModel: string;
   defaultDevice: string;
   defaultComputeType: string;
+  enabled: boolean;
 };
 
 export type RuntimeModelStatus = {
@@ -208,6 +210,7 @@ export type SaveLlmProviderInput = {
   secretValue: string | null;
   apiKeyRef: string | null;
   displayName: string | null;
+  enabled: boolean;
 };
 
 export type SaveFasterWhisperDefaultsInput = {
@@ -215,4 +218,5 @@ export type SaveFasterWhisperDefaultsInput = {
   defaultModel: string;
   defaultDevice: string;
   defaultComputeType: string;
+  enabled: boolean;
 };

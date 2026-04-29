@@ -93,14 +93,16 @@ function createTestClient(
             baseUrl: null,
             apiKeyRef: "env:OPENBBQ_LLM_API_KEY",
             defaultChatModel: "gpt-4o-mini",
-            displayName: "OpenAI-compatible"
+            displayName: "OpenAI-compatible",
+            enabled: true
           }
         ],
         fasterWhisper: {
           cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
           defaultModel: "base",
           defaultDevice: "cpu",
-          defaultComputeType: "int8"
+          defaultComputeType: "int8",
+          enabled: true
         }
       };
     },
@@ -114,7 +116,8 @@ function createTestClient(
           cacheDir: "C:/Users/alex/.cache/openbbq/models/faster-whisper",
           defaultModel: "base",
           defaultDevice: "cpu",
-          defaultComputeType: "int8"
+          defaultComputeType: "int8",
+          enabled: true
         }
       };
     },
@@ -125,7 +128,8 @@ function createTestClient(
         baseUrl: input.baseUrl,
         apiKeyRef: input.apiKeyRef,
         defaultChatModel: input.defaultChatModel,
-        displayName: input.displayName
+        displayName: input.displayName,
+        enabled: input.enabled
       };
     },
     async checkLlmProvider(name) {

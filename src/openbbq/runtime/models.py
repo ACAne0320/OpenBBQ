@@ -25,6 +25,7 @@ class ProviderProfile(OpenBBQModel):
     api_key: str | None = None
     default_chat_model: str | None = None
     display_name: str | None = None
+    enabled: bool = True
 
     @field_validator("name")
     @classmethod
@@ -66,6 +67,7 @@ class FasterWhisperSettings(OpenBBQModel):
     default_model: str = "base"
     default_device: str = "cpu"
     default_compute_type: str = "int8"
+    enabled: bool = True
 
 
 class ModelsSettings(OpenBBQModel):
