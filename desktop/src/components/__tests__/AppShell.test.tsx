@@ -39,4 +39,18 @@ describe("AppShell", () => {
     expect(main).toContainElement(screen.getByLabelText("Source content"));
     expect(screen.getAllByRole("main")).toHaveLength(1);
   });
+
+  it("shows the color OpenBBQ icon in the app chrome", () => {
+    render(
+      <AppShell active="New" footerLabel="Workspace" footerValue="creator-videos">
+        <p>Choose a source</p>
+      </AppShell>
+    );
+
+    expect(screen.getByRole("img", { name: "OpenBBQ" })).toHaveAttribute(
+      "src",
+      expect.stringContaining("OpenBBQ%20Icon%20color.png")
+    );
+    expect(screen.queryByText("OB")).not.toBeInTheDocument();
+  });
 });

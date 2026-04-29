@@ -2,6 +2,8 @@ import { clsx } from "clsx";
 import { FilePlus2, ListChecks, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 
+const openbbqIconColor = new URL("../../../images/OpenBBQ Icon color.png", import.meta.url).href;
+
 export type NavItem = "New" | "Tasks" | "Settings";
 
 type AppShellProps = {
@@ -26,7 +28,7 @@ export function AppShell({ active, footerLabel, footerValue, onNavigate, childre
         <aside className="flex flex-col justify-between rounded-xl bg-paper-side px-3 py-3 shadow-control">
           <div>
             <div className="mb-4 flex items-center gap-2 px-1.5 text-[15px] font-semibold tracking-[-0.012em] text-ink-brown">
-              <span className="grid h-7 w-7 place-items-center rounded-md bg-ink text-[11px] font-bold text-paper">OB</span>
+              <img className="h-7 w-7 shrink-0" src={openbbqIconColor} alt="OpenBBQ" />
               <span className="min-w-0 truncate">OpenBBQ</span>
             </div>
             <nav className="grid grid-cols-3 gap-1 text-xs xl:grid-cols-1 xl:gap-1" aria-label="Primary">

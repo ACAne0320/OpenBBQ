@@ -1,5 +1,7 @@
 # OpenBBQ
 
+<img src="images/OpenBBQ%20Banner.png" alt="OpenBBQ banner" width="100%">
+
 **OpenBBQ** is an open-source workflow tool for media language work: transcription,
 translation, subtitle generation, and review.
 
