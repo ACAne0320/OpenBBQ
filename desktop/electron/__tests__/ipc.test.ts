@@ -94,6 +94,61 @@ describe("desktop IPC actions", () => {
     );
   });
 
+  it("loads workflow tool catalog through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            tools: [
+              {
+                tool_ref: "translation.qa",
+                name: "Translation QA",
+                description: "Check translated segments.",
+                inputs: {
+                  translation: {
+                    artifact_types: ["translation"],
+                    required: true,
+                    multiple: false
+                  }
+                },
+                outputs: [{ name: "qa", type: "translation_qa" }],
+                parameters: [{ kind: "text", key: "max_lines", label: "Max lines", value: "2" }]
+              }
+            ]
+          }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { getWorkflowTools } = await import("../ipc");
+
+    await expect(getWorkflowTools(sidecar)).resolves.toEqual([
+      {
+        toolRef: "translation.qa",
+        name: "Translation QA",
+        description: "Check translated segments.",
+        inputs: {
+          translation: {
+            artifactTypes: ["translation"],
+            required: true,
+            multiple: false
+          }
+        },
+        outputs: [{ name: "qa", type: "translation_qa" }],
+        parameters: [{ kind: "text", key: "max_lines", label: "Max lines", value: "2" }]
+      }
+    ]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/quickstart/subtitle/tools",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("lists persisted quickstart tasks through the sidecar", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(

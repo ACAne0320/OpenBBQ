@@ -21,12 +21,14 @@ import type {
   StepParameter,
   TaskSummary,
   TaskMonitorModel,
+  WorkflowTool,
   WorkflowStep
 } from "./types";
 
 export type OpenBBQClient = {
   chooseLocalMedia?(): Promise<LocalMediaSelection | null>;
   getWorkflowTemplate(source: SourceDraft): Promise<WorkflowStep[]>;
+  getWorkflowTools(): Promise<WorkflowTool[]>;
   startSubtitleTask(input: StartSubtitleTaskInput): Promise<StartSubtitleTaskResult>;
   listTasks(): Promise<TaskSummary[]>;
   getTaskMonitor(runId: string): Promise<TaskMonitorModel>;
@@ -73,6 +75,7 @@ function remoteDownloadStep(source: Extract<SourceDraft, { kind: "remote_url" }>
     toolRef: "remote_video.download",
     summary: "url -> video",
     status: "locked",
+    outputs: [{ name: "video", type: "video" }],
     parameters
   };
 }
@@ -86,6 +89,21 @@ function workflowTemplateForSource(source: SourceDraft): WorkflowStep[] {
 }
 
 const fasterWhisperModelNames = ["base", "tiny", "small", "medium", "large-v3"];
+
+const workflowTools: WorkflowTool[] = [
+  {
+    toolRef: "translation.qa",
+    name: "Translation QA",
+    description: "Check translated segments for terminology misses, numeric drift, and subtitle readability risks.",
+    inputs: { translation: { artifactTypes: ["translation"], required: true, multiple: false } },
+    outputs: [{ name: "qa", type: "translation_qa" }],
+    parameters: [
+      { kind: "text", key: "max_lines", label: "Max lines", value: "2" },
+      { kind: "text", key: "max_chars_per_line", label: "Max chars per line", value: "42" },
+      { kind: "text", key: "max_chars_per_second", label: "Max chars per second", value: "20" }
+    ]
+  }
+];
 
 function initialFasterWhisperModels(cacheDir: string): RuntimeModelStatus[] {
   return fasterWhisperModelNames.map((model) => ({
@@ -138,6 +156,9 @@ export function createMockClient(): OpenBBQClient {
   return {
     async getWorkflowTemplate(source) {
       return cloneModel(workflowTemplateForSource(source));
+    },
+    async getWorkflowTools() {
+      return cloneModel(workflowTools);
     },
     async startSubtitleTask() {
       return { runId: "run_sample" };

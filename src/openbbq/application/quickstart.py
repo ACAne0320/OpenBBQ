@@ -71,6 +71,8 @@ class LocalSubtitleJobRequest(OpenBBQModel):
     asr_device: str | None = None
     asr_compute_type: str | None = None
     correct_transcript: bool = True
+    step_order: tuple[str, ...] = ()
+    extra_steps: tuple[dict, ...] = ()
     output_path: Path | None = None
     plugin_paths: tuple[Path, ...] = ()
     created_by: str = "api"
@@ -88,6 +90,8 @@ class YouTubeSubtitleJobRequest(OpenBBQModel):
     asr_device: str | None = None
     asr_compute_type: str | None = None
     correct_transcript: bool = True
+    step_order: tuple[str, ...] = ()
+    extra_steps: tuple[dict, ...] = ()
     quality: str = DEFAULT_YOUTUBE_QUALITY
     auth: str = "auto"
     browser: str | None = None
@@ -111,6 +115,8 @@ def create_local_subtitle_job(request: LocalSubtitleJobRequest) -> SubtitleJobRe
         asr_device=request.asr_device,
         asr_compute_type=request.asr_compute_type,
         correct_transcript=request.correct_transcript,
+        step_order=request.step_order,
+        extra_steps=request.extra_steps,
     )
     imported = import_artifact(
         ArtifactImportRequest(
@@ -132,6 +138,8 @@ def create_local_subtitle_job(request: LocalSubtitleJobRequest) -> SubtitleJobRe
         asr_device=request.asr_device,
         asr_compute_type=request.asr_compute_type,
         correct_transcript=request.correct_transcript,
+        step_order=request.step_order,
+        extra_steps=request.extra_steps,
         run_id=generated.run_id,
     )
     run = create_run(
@@ -196,6 +204,8 @@ def create_youtube_subtitle_job(request: YouTubeSubtitleJobRequest) -> SubtitleJ
         asr_device=request.asr_device,
         asr_compute_type=request.asr_compute_type,
         correct_transcript=request.correct_transcript,
+        step_order=request.step_order,
+        extra_steps=request.extra_steps,
         quality=request.quality,
         auth=request.auth,
         browser=request.browser,

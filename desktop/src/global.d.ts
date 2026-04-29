@@ -19,12 +19,14 @@ import type {
   StartSubtitleTaskResult,
   TaskSummary,
   TaskMonitorModel,
+  WorkflowTool,
   WorkflowStep
 } from "./lib/types";
 
 export type OpenBBQDesktopApi = {
   chooseLocalMedia(): Promise<LocalMediaSelection | null>;
   getWorkflowTemplate(source: SourceDraft): Promise<WorkflowStep[]>;
+  getWorkflowTools(): Promise<WorkflowTool[]>;
   startSubtitleTask(input: StartSubtitleTaskInput): Promise<StartSubtitleTaskResult>;
   listTasks(): Promise<TaskSummary[]>;
   getTaskMonitor(runId: string): Promise<TaskMonitorModel>;

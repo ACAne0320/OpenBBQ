@@ -185,6 +185,8 @@ class SubtitleWorkflowStepData(OpenBBQModel):
     summary: str
     status: Literal["locked", "enabled", "disabled"]
     selected: bool | None = None
+    inputs: dict[str, str] | None = None
+    outputs: tuple[StepOutput, ...] | None = None
     parameters: tuple[WorkflowParameterData, ...]
 
 
@@ -192,6 +194,34 @@ class SubtitleWorkflowTemplateData(OpenBBQModel):
     template_id: str
     workflow_id: str
     steps: tuple[SubtitleWorkflowStepData, ...]
+
+
+class WorkflowToolInputData(OpenBBQModel):
+    artifact_types: tuple[str, ...]
+    required: bool
+    multiple: bool
+
+
+class SubtitleWorkflowToolData(OpenBBQModel):
+    tool_ref: str
+    name: str
+    description: str
+    inputs: dict[str, WorkflowToolInputData]
+    outputs: tuple[StepOutput, ...]
+    parameters: tuple[WorkflowParameterData, ...]
+
+
+class SubtitleWorkflowToolCatalogData(OpenBBQModel):
+    tools: tuple[SubtitleWorkflowToolData, ...]
+
+
+class SubtitleExtraStepRequest(OpenBBQModel):
+    id: str
+    name: str
+    tool_ref: str
+    inputs: dict[str, str]
+    outputs: tuple[StepOutput, ...]
+    parameters: JsonObject = Field(default_factory=dict)
 
 
 class ArtifactVersionData(OpenBBQModel):
@@ -349,6 +379,8 @@ class SubtitleLocalJobRequest(OpenBBQModel):
     asr_device: str | None = None
     asr_compute_type: str | None = None
     correct_transcript: bool = True
+    step_order: tuple[str, ...] = ()
+    extra_steps: tuple[SubtitleExtraStepRequest, ...] = ()
     output_path: Path | None = None
 
 
@@ -362,6 +394,8 @@ class SubtitleYouTubeJobRequest(OpenBBQModel):
     asr_device: str | None = None
     asr_compute_type: str | None = None
     correct_transcript: bool = True
+    step_order: tuple[str, ...] = ()
+    extra_steps: tuple[SubtitleExtraStepRequest, ...] = ()
     quality: str = "best[ext=mp4][height<=720]/best[height<=720]/best"
     auth: str = "auto"
     browser: str | None = None

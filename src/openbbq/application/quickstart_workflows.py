@@ -9,6 +9,8 @@ from uuid import uuid4
 import yaml
 
 from openbbq.domain.base import JsonObject, OpenBBQModel
+from openbbq.plugins.models import ToolSpec
+from openbbq.plugins.registry import discover_plugins
 
 YOUTUBE_SUBTITLE_TEMPLATE_ID = "youtube-subtitle"
 YOUTUBE_SUBTITLE_WORKFLOW_ID = "youtube-to-srt"
@@ -43,6 +45,7 @@ _PARAMETER_LABELS = {
     "max_duration_seconds": "Max duration seconds",
     "max_lines": "Max lines",
     "max_chars_per_line": "Max chars per line",
+    "max_chars_per_second": "Max chars per second",
 }
 
 _SELECT_PARAMETER_OPTIONS = {
@@ -109,6 +112,16 @@ def subtitle_workflow_template_for_source(
     }
 
 
+def subtitle_workflow_tool_catalog(*, plugin_paths: tuple[Path, ...]) -> WorkflowTemplate:
+    registry = discover_plugins(plugin_paths)
+    tools = tuple(
+        _desktop_tool(tool_ref, tool)
+        for tool_ref, tool in sorted(registry.tools.items())
+        if tool.outputs
+    )
+    return {"tools": tools}
+
+
 def write_youtube_subtitle_workflow(
     *,
     workspace_root: Path,
@@ -125,6 +138,8 @@ def write_youtube_subtitle_workflow(
     browser: str | None,
     browser_profile: str | None,
     correct_transcript: bool = True,
+    step_order: tuple[str, ...] = (),
+    extra_steps: tuple[WorkflowTemplate, ...] = (),
     run_id: str | None = None,
 ) -> GeneratedWorkflow:
     run_id = run_id or _new_run_id()
@@ -148,6 +163,8 @@ def write_youtube_subtitle_workflow(
         auth=auth,
         browser=browser,
         browser_profile=browser_profile,
+        step_order=step_order,
+        extra_steps=extra_steps,
     )
     config_path.write_text(
         yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
@@ -173,6 +190,8 @@ def write_local_subtitle_workflow(
     asr_device: str,
     asr_compute_type: str,
     correct_transcript: bool = True,
+    step_order: tuple[str, ...] = (),
+    extra_steps: tuple[WorkflowTemplate, ...] = (),
     run_id: str | None = None,
 ) -> GeneratedWorkflow:
     run_id = run_id or _new_run_id()
@@ -190,6 +209,8 @@ def write_local_subtitle_workflow(
         asr_device=asr_device,
         asr_compute_type=asr_compute_type,
         correct_transcript=correct_transcript,
+        step_order=step_order,
+        extra_steps=extra_steps,
     )
     config_path.write_text(
         yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
@@ -219,6 +240,8 @@ def _youtube_subtitle_config(
     auth: str,
     browser: str | None,
     browser_profile: str | None,
+    step_order: tuple[str, ...],
+    extra_steps: tuple[WorkflowTemplate, ...],
 ) -> WorkflowTemplate:
     config = _load_youtube_subtitle_template()
     config["storage"] = _generated_storage_config(run_id)
@@ -250,6 +273,8 @@ def _youtube_subtitle_config(
     translation_parameters["target_lang"] = target_lang
     _set_optional(translation_parameters, "model", model)
 
+    _insert_extra_steps(config, YOUTUBE_SUBTITLE_WORKFLOW_ID, extra_steps)
+    _apply_step_order(config, YOUTUBE_SUBTITLE_WORKFLOW_ID, step_order)
     return config
 
 
@@ -265,6 +290,8 @@ def _local_subtitle_config(
     asr_device: str,
     asr_compute_type: str,
     correct_transcript: bool,
+    step_order: tuple[str, ...],
+    extra_steps: tuple[WorkflowTemplate, ...],
 ) -> WorkflowTemplate:
     config = _load_local_subtitle_template()
     config["storage"] = _generated_storage_config(run_id)
@@ -292,6 +319,8 @@ def _local_subtitle_config(
     translation_parameters["target_lang"] = target_lang
     _set_optional(translation_parameters, "model", model)
 
+    _insert_extra_steps(config, LOCAL_SUBTITLE_WORKFLOW_ID, extra_steps)
+    _apply_step_order(config, LOCAL_SUBTITLE_WORKFLOW_ID, step_order)
     return config
 
 
@@ -324,6 +353,46 @@ def _steps_by_id(config: WorkflowTemplate, workflow_id: str) -> dict[str, Workfl
     return {step["id"]: step for step in workflow["steps"]}
 
 
+def _insert_extra_steps(
+    config: WorkflowTemplate,
+    workflow_id: str,
+    extra_steps: tuple[WorkflowTemplate, ...],
+) -> None:
+    if not extra_steps:
+        return
+    workflow = config["workflows"][workflow_id]
+    step_configs = [_workflow_step_from_extra(step) for step in extra_steps]
+    for index, step in enumerate(workflow["steps"]):
+        if step["id"] == "subtitle":
+            workflow["steps"][index:index] = step_configs
+            return
+    workflow["steps"].extend(step_configs)
+
+
+def _apply_step_order(config: WorkflowTemplate, workflow_id: str, step_order: tuple[str, ...]) -> None:
+    if not step_order:
+        return
+    workflow = config["workflows"][workflow_id]
+    steps_by_id = {step["id"]: step for step in workflow["steps"]}
+    ordered_steps = [steps_by_id[step_id] for step_id in step_order if step_id in steps_by_id]
+    ordered_ids = {step["id"] for step in ordered_steps}
+    ordered_steps.extend(step for step in workflow["steps"] if step["id"] not in ordered_ids)
+    workflow["steps"] = ordered_steps
+
+
+def _workflow_step_from_extra(step: WorkflowTemplate) -> WorkflowTemplate:
+    return {
+        "id": step["id"],
+        "name": step["name"],
+        "tool_ref": step["tool_ref"],
+        "inputs": step.get("inputs", {}),
+        "outputs": step.get("outputs", ()),
+        "parameters": step.get("parameters", {}),
+        "on_error": "abort",
+        "max_retries": 0,
+    }
+
+
 def _remove_transcript_correction(config: WorkflowTemplate, workflow_id: str) -> None:
     workflow = config["workflows"][workflow_id]
     workflow["steps"] = [step for step in workflow["steps"] if step["id"] != "correct"]
@@ -339,6 +408,8 @@ def _desktop_step(step: WorkflowTemplate) -> WorkflowTemplate:
         "tool_ref": str(step["tool_ref"]),
         "summary": _desktop_step_summary(step),
         "status": "enabled" if step_id == "correct" else "locked",
+        "inputs": step.get("inputs", {}),
+        "outputs": tuple(step.get("outputs", ())),
         "parameters": tuple(
             _desktop_parameter(str(step["tool_ref"]), key, value)
             for key, value in step.get("parameters", {}).items()
@@ -348,6 +419,83 @@ def _desktop_step(step: WorkflowTemplate) -> WorkflowTemplate:
     if step_id == "transcribe":
         data["selected"] = True
     return data
+
+
+def _desktop_tool(tool_ref: str, tool: ToolSpec) -> WorkflowTemplate:
+    return {
+        "tool_ref": tool_ref,
+        "name": _tool_display_name(tool),
+        "description": tool.description,
+        "inputs": {
+            name: {
+                "artifact_types": spec.artifact_types,
+                "required": spec.required,
+                "multiple": spec.multiple,
+            }
+            for name, spec in tool.inputs.items()
+        },
+        "outputs": tuple(
+            {"name": name, "type": spec.artifact_type} for name, spec in tool.outputs.items()
+        ),
+        "parameters": tuple(_desktop_parameters_from_schema(tool_ref, tool.parameter_schema)),
+    }
+
+
+def _tool_display_name(tool: ToolSpec) -> str:
+    if tool.name == "qa":
+        return f"{tool.plugin_name.replace('_', ' ').title()} QA"
+    words = []
+    words.append(tool.name.replace("_", " "))
+    return " ".join(part.title() for part in " ".join(words).split())
+
+
+def _desktop_parameters_from_schema(tool_ref: str, schema: WorkflowTemplate) -> tuple[WorkflowTemplate, ...]:
+    properties = schema.get("properties", {})
+    if not isinstance(properties, dict):
+        return ()
+    parameters: list[WorkflowTemplate] = []
+    for key, raw_property in properties.items():
+        if key in _HIDDEN_DESKTOP_PARAMETERS or not isinstance(raw_property, dict):
+            continue
+        parameter = _desktop_parameter_from_property(tool_ref, key, raw_property)
+        if parameter is not None:
+            parameters.append(parameter)
+    return tuple(parameters)
+
+
+def _desktop_parameter_from_property(
+    tool_ref: str,
+    key: str,
+    property_schema: WorkflowTemplate,
+) -> WorkflowTemplate | None:
+    property_type = property_schema.get("type")
+    if property_type in {"array", "object"}:
+        return None
+    default = property_schema.get("default", "")
+    label = _PARAMETER_LABELS.get(key, key.replace("_", " ").title())
+    enum = property_schema.get("enum")
+    if isinstance(enum, list) and enum:
+        return {
+            "kind": "select",
+            "key": key,
+            "label": label,
+            "value": str(default if default != "" else enum[0]),
+            "options": tuple(str(item) for item in enum),
+        }
+    if property_type == "boolean":
+        return {
+            "kind": "toggle",
+            "key": key,
+            "label": label,
+            "description": _TOGGLE_DESCRIPTIONS.get(key, label),
+            "value": bool(default),
+        }
+    return {
+        "kind": "text",
+        "key": key,
+        "label": label,
+        "value": str(default),
+    }
 
 
 def _desktop_parameter(tool_ref: str, key: str, value: object) -> WorkflowTemplate:

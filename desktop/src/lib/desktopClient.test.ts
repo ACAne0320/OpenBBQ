@@ -8,6 +8,7 @@ describe("createDesktopClient", () => {
     const api = {
       chooseLocalMedia: vi.fn().mockResolvedValue({ kind: "local_file", path: "C:/video/sample.mp4", displayName: "sample.mp4" }),
       getWorkflowTemplate: vi.fn().mockResolvedValue(workflowSteps),
+      getWorkflowTools: vi.fn().mockResolvedValue([]),
       startSubtitleTask: vi.fn().mockResolvedValue({ runId: "run_1" }),
       listTasks: vi.fn().mockResolvedValue([]),
       getTaskMonitor: vi.fn(),
@@ -132,6 +133,8 @@ describe("createDesktopClient", () => {
       })
     ).resolves.toEqual({ runId: "run_1" });
     expect(api.startSubtitleTask).toHaveBeenCalled();
+    await expect(client.getWorkflowTools()).resolves.toEqual([]);
+    expect(api.getWorkflowTools).toHaveBeenCalled();
     await expect(client.listTasks()).resolves.toEqual([]);
     expect(api.listTasks).toHaveBeenCalled();
     await expect(client.getRuntimeSettings()).resolves.toMatchObject({

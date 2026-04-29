@@ -916,6 +916,48 @@ def test_quickstart_subtitle_template_route_returns_packaged_workflow_steps(tmp_
     }
 
 
+def test_quickstart_subtitle_tool_catalog_lists_addable_workflow_tools(tmp_path):
+    project = write_project_fixture(tmp_path, "text-basic")
+    client, headers = authed_client(project)
+
+    response = client.get("/quickstart/subtitle/tools", headers=headers)
+
+    assert response.status_code == 200
+    tools = response.json()["data"]["tools"]
+    qa_tool = next(tool for tool in tools if tool["tool_ref"] == "translation.qa")
+    assert qa_tool["name"] == "Translation QA"
+    assert qa_tool["inputs"] == {
+        "translation": {
+            "artifact_types": ["translation"],
+            "required": True,
+            "multiple": False,
+        }
+    }
+    assert qa_tool["outputs"] == [
+        {"name": "qa", "type": "translation_qa"},
+    ]
+    assert qa_tool["parameters"] == [
+        {
+            "kind": "text",
+            "key": "max_lines",
+            "label": "Max lines",
+            "value": "2",
+        },
+        {
+            "kind": "text",
+            "key": "max_chars_per_line",
+            "label": "Max chars per line",
+            "value": "42",
+        },
+        {
+            "kind": "text",
+            "key": "max_chars_per_second",
+            "label": "Max chars per second",
+            "value": "20",
+        },
+    ]
+
+
 def test_quickstart_subtitle_route_persists_task_history(tmp_path, monkeypatch):
     project = write_project_fixture(tmp_path, "text-basic")
     _patch_valid_quickstart_runtime(monkeypatch, tmp_path)

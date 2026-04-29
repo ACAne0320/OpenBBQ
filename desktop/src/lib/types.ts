@@ -13,6 +13,26 @@ export type StartSubtitleTaskResult = {
   runId: string;
 };
 
+export type WorkflowOutput = {
+  name: string;
+  type: string;
+};
+
+export type WorkflowInputSpec = {
+  artifactTypes: string[];
+  required: boolean;
+  multiple: boolean;
+};
+
+export type WorkflowTool = {
+  toolRef: string;
+  name: string;
+  description: string;
+  inputs: Record<string, WorkflowInputSpec>;
+  outputs: WorkflowOutput[];
+  parameters: StepParameter[];
+};
+
 export type LocalMediaSelection = Extract<SourceDraft, { kind: "local_file" }>;
 
 export type StepStatus = "locked" | "enabled" | "disabled";
@@ -24,6 +44,8 @@ export type WorkflowStep = {
   summary: string;
   status: StepStatus;
   selected?: boolean;
+  inputs?: Record<string, string>;
+  outputs?: WorkflowOutput[];
   parameters: StepParameter[];
 };
 

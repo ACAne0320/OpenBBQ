@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 
-import type { StepParameter, WorkflowStep } from "../lib/types";
+import type { StepParameter, WorkflowStep, WorkflowTool } from "../lib/types";
 import { Button } from "./Button";
 import { Toggle } from "./Toggle";
 
 type WorkflowEditorProps = {
   initialSteps: WorkflowStep[];
+  availableTools?: WorkflowTool[];
   onContinue: (steps: WorkflowStep[]) => void;
   onBack?: () => void;
 };
@@ -26,6 +28,63 @@ function templateTitleForSteps(steps: WorkflowStep[]) {
   return steps[0]?.id === "download" || steps[0]?.id === "fetch_source"
     ? "Remote video -> translated SRT"
     : "Local video -> translated SRT";
+}
+
+function toolStepId(tool: WorkflowTool, steps: WorkflowStep[]) {
+  const base = tool.toolRef.replace(/[^a-zA-Z0-9_-]+/g, "_").toLowerCase();
+  if (!steps.some((step) => step.id === base)) {
+    return base;
+  }
+  let index = 2;
+  while (steps.some((step) => step.id === `${base}_${index}`)) {
+    index += 1;
+  }
+  return `${base}_${index}`;
+}
+
+function bindToolInputs(tool: WorkflowTool, steps: WorkflowStep[]) {
+  const bindings: Record<string, string> = {};
+  for (const [inputName, input] of Object.entries(tool.inputs)) {
+    const match = [...steps]
+      .reverse()
+      .flatMap((step) => (step.outputs ?? []).map((output) => ({ step, output })))
+      .find(({ output }) => input.artifactTypes.includes(output.type));
+    if (!match && input.required) {
+      return null;
+    }
+    if (match) {
+      bindings[inputName] = `${match.step.id}.${match.output.name}`;
+    }
+  }
+  return bindings;
+}
+
+function toolSummary(tool: WorkflowTool) {
+  const input = Object.keys(tool.inputs)[0] ?? "input";
+  const output = tool.outputs[0]?.type?.replace(/_/g, " ") ?? "output";
+  return `${input} -> ${output}`;
+}
+
+function createStepFromTool(tool: WorkflowTool, steps: WorkflowStep[]): WorkflowStep | null {
+  const inputs = bindToolInputs(tool, steps);
+  if (!inputs) {
+    return null;
+  }
+  return {
+    id: toolStepId(tool, steps),
+    name: tool.name,
+    toolRef: tool.toolRef,
+    summary: toolSummary(tool),
+    status: "enabled",
+    inputs,
+    outputs: tool.outputs,
+    parameters: tool.parameters.map((parameter) => ({ ...parameter }))
+  };
+}
+
+function insertionIndexForStep(steps: WorkflowStep[]) {
+  const subtitleIndex = steps.findIndex((step) => step.id === "subtitle");
+  return subtitleIndex === -1 ? steps.length : subtitleIndex;
 }
 
 type ParameterFieldProps = {
@@ -82,14 +141,17 @@ function ParameterField({ onChange, parameter, stepId }: ParameterFieldProps) {
   );
 }
 
-export function WorkflowEditor({ initialSteps, onBack, onContinue }: WorkflowEditorProps) {
+export function WorkflowEditor({ availableTools = [], initialSteps, onBack, onContinue }: WorkflowEditorProps) {
   const [steps, setSteps] = useState<WorkflowStep[]>(initialSteps);
   const [selectedStepId, setSelectedStepId] = useState(initialSteps.find((step) => step.selected)?.id ?? initialSteps[0]?.id);
+  const [selectedToolRef, setSelectedToolRef] = useState(availableTools[0]?.toolRef ?? "");
   const selectedStep = useMemo(
     () => steps.find((step) => step.id === selectedStepId) ?? steps[0],
     [selectedStepId, steps]
   );
   const templateTitle = templateTitleForSteps(steps);
+  const selectedTool = availableTools.find((tool) => tool.toolRef === selectedToolRef) ?? availableTools[0];
+  const selectedToolBindable = selectedTool ? bindToolInputs(selectedTool, steps) !== null : false;
 
   function toggleStep(stepId: string, checked: boolean) {
     setSteps((current) =>
@@ -132,6 +194,49 @@ export function WorkflowEditor({ initialSteps, onBack, onContinue }: WorkflowEdi
     );
   }
 
+  function addStep() {
+    if (!selectedTool) {
+      return;
+    }
+    const nextStep = createStepFromTool(selectedTool, steps);
+    if (!nextStep) {
+      return;
+    }
+    setSteps((current) => {
+      const insertAt = insertionIndexForStep(current);
+      return [...current.slice(0, insertAt), nextStep, ...current.slice(insertAt)];
+    });
+    setSelectedStepId(nextStep.id);
+  }
+
+  function removeStep(stepId: string) {
+    setSteps((current) => {
+      const step = current.find((item) => item.id === stepId);
+      if (!step || isLocked(step)) {
+        return current;
+      }
+      const next = current.filter((item) => item.id !== stepId);
+      if (selectedStepId === stepId) {
+        setSelectedStepId(next[0]?.id);
+      }
+      return next;
+    });
+  }
+
+  function moveStep(stepId: string, direction: -1 | 1) {
+    setSteps((current) => {
+      const index = current.findIndex((step) => step.id === stepId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) {
+        return current;
+      }
+      const next = [...current];
+      const [step] = next.splice(index, 1);
+      next.splice(targetIndex, 0, step);
+      return next;
+    });
+  }
+
   return (
     <section className="grid min-h-[calc(100vh-76px)] grid-rows-[auto_1fr_auto] gap-5">
       <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -157,11 +262,38 @@ export function WorkflowEditor({ initialSteps, onBack, onContinue }: WorkflowEdi
             </div>
           </div>
 
+          {availableTools.length > 0 ? (
+            <div className="mb-4 grid gap-2 rounded-lg bg-paper p-3 shadow-control sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <label className="grid gap-2 text-xs font-medium text-muted">
+                Add workflow step
+                <select
+                  value={selectedToolRef}
+                  onChange={(event) => setSelectedToolRef(event.target.value)}
+                  className="min-h-10 rounded-md bg-paper-muted px-3 text-sm font-normal text-ink shadow-control focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                >
+                  {availableTools.map((tool) => (
+                    <option key={tool.toolRef} value={tool.toolRef}>
+                      {tool.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button disabled={!selectedToolBindable} onClick={addStep} variant={selectedToolBindable ? "secondary" : "disabled"}>
+                <span className="inline-flex items-center gap-2">
+                  <Plus size={16} aria-hidden="true" />
+                  Add step
+                </span>
+              </Button>
+            </div>
+          ) : null}
+
           <ol className="grid content-start gap-2 overflow-auto pr-1">
             {steps.map((step, index) => {
               const selected = step.id === selectedStep?.id;
               const locked = isLocked(step);
               const enabled = step.status !== "disabled";
+              const canMoveUp = index > 0;
+              const canMoveDown = index < steps.length - 1;
 
               return (
                 <li
@@ -213,6 +345,36 @@ export function WorkflowEditor({ initialSteps, onBack, onContinue }: WorkflowEdi
                       label={locked ? `${step.name} is required` : `Enable ${step.name}`}
                       onChange={(checked) => toggleStep(step.id, checked)}
                     />
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        aria-label={`Move ${step.name} up`}
+                        disabled={!canMoveUp}
+                        onClick={() => moveStep(step.id, -1)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-paper text-muted shadow-control transition-colors hover:text-ink-brown focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-paper-side disabled:text-muted disabled:shadow-none"
+                      >
+                        <ArrowUp size={15} aria-hidden="true" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Move ${step.name} down`}
+                        disabled={!canMoveDown}
+                        onClick={() => moveStep(step.id, 1)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-paper text-muted shadow-control transition-colors hover:text-ink-brown focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:bg-paper-side disabled:text-muted disabled:shadow-none"
+                      >
+                        <ArrowDown size={15} aria-hidden="true" />
+                      </button>
+                    </div>
+                    {!locked ? (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${step.name}`}
+                        onClick={() => removeStep(step.id)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-paper text-muted shadow-control transition-colors hover:text-ink-brown focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        <Trash2 size={15} aria-hidden="true" />
+                      </button>
+                    ) : null}
                   </div>
                 </li>
               );

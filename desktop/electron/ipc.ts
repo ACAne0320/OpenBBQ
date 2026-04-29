@@ -16,6 +16,7 @@ import type {
   ApiSecretCheck,
   ApiSubtitleJobData,
   ApiSubtitleWorkflowTemplateData,
+  ApiWorkflowToolCatalogData,
   ApiWorkflowEvent
 } from "./apiTypes.js";
 import { requestJson } from "./http.js";
@@ -39,6 +40,7 @@ import type {
   SecretStatus,
   SourceDraft,
   StartSubtitleTaskInput,
+  WorkflowTool,
   WorkflowStep
 } from "../src/lib/types.js";
 
@@ -53,6 +55,7 @@ export function registerOpenBBQIpc(context: IpcContext): () => void {
   const handlers: Array<[string, IpcHandler]> = [
     ["openbbq:choose-local-media", async () => chooseLocalMedia(context.window)],
     ["openbbq:get-workflow-template", async (_event, source) => getWorkflowTemplate(context.getSidecar(), source as SourceDraft)],
+    ["openbbq:get-workflow-tools", async () => getWorkflowTools(context.getSidecar())],
     ["openbbq:start-subtitle-task", async (_event, input) => startSubtitleTask(context.getSidecar(), input as StartSubtitleTaskInput)],
     ["openbbq:list-tasks", async () => listTasks(context.getSidecar())],
     ["openbbq:get-task-monitor", async (_event, runId) => getTaskMonitor(context.getSidecar(), String(runId))],
@@ -149,7 +152,33 @@ export async function getWorkflowTemplate(sidecar: ManagedSidecar, source: Sourc
     summary: step.summary,
     status: step.status,
     selected: step.selected ?? undefined,
+    inputs: step.inputs ?? undefined,
+    outputs: step.outputs ?? undefined,
     parameters: step.parameters
+  }));
+}
+
+export async function getWorkflowTools(sidecar: ManagedSidecar): Promise<WorkflowTool[]> {
+  const data = await requestJson<ApiWorkflowToolCatalogData>(
+    sidecar.connection,
+    "/quickstart/subtitle/tools"
+  );
+  return data.tools.map((tool) => ({
+    toolRef: tool.tool_ref,
+    name: tool.name,
+    description: tool.description,
+    inputs: Object.fromEntries(
+      Object.entries(tool.inputs).map(([name, spec]) => [
+        name,
+        {
+          artifactTypes: spec.artifact_types,
+          required: spec.required,
+          multiple: spec.multiple
+        }
+      ])
+    ),
+    outputs: tool.outputs,
+    parameters: tool.parameters
   }));
 }
 

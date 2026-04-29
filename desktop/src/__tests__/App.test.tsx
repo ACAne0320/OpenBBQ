@@ -69,6 +69,9 @@ function createTestClient(
 ): OpenBBQClient {
   return {
     getWorkflowTemplate,
+    async getWorkflowTools() {
+      return [];
+    },
     async startSubtitleTask() {
       return { runId: "run_sample" };
     },

@@ -12,6 +12,8 @@ export type QuickstartRequest =
         asr_device: string;
         asr_compute_type: string;
         correct_transcript: boolean;
+        step_order: string[];
+        extra_steps: QuickstartExtraStep[];
       };
     }
   | {
@@ -24,12 +26,23 @@ export type QuickstartRequest =
         asr_device: string;
         asr_compute_type: string;
         correct_transcript: boolean;
+        step_order: string[];
+        extra_steps: QuickstartExtraStep[];
         quality: string;
         auth: string;
         browser: string | null;
         browser_profile: string | null;
       };
     };
+
+type QuickstartExtraStep = {
+  id: string;
+  name: string;
+  tool_ref: string;
+  inputs: Record<string, string>;
+  outputs: Array<{ name: string; type: string }>;
+  parameters: Record<string, string | boolean>;
+};
 
 function cloneSteps(steps: WorkflowStep[]): WorkflowStep[] {
   return JSON.parse(JSON.stringify(steps)) as WorkflowStep[];
@@ -42,6 +55,7 @@ function remoteDownloadStep(source: Extract<SourceDraft, { kind: "remote_url" }>
     toolRef: "remote_video.download",
     summary: "url -> video",
     status: "locked",
+    outputs: [{ name: "video", type: "video" }],
     parameters: [
       { kind: "text", key: "url", label: "URL", value: source.url },
       {
@@ -112,7 +126,9 @@ export function buildQuickstartRequest(source: SourceDraft, steps: WorkflowStep[
     asr_model: parameterValue(steps, "transcribe", "model", "base"),
     asr_device: parameterValue(steps, "transcribe", "device", "cpu"),
     asr_compute_type: parameterValue(steps, "transcribe", "compute_type", "int8"),
-    correct_transcript: enabledStep(steps, "correct") !== undefined
+    correct_transcript: enabledStep(steps, "correct") !== undefined,
+    step_order: steps.filter((step) => step.status !== "disabled").map((step) => step.id),
+    extra_steps: extraStepsForSource(source, steps)
   };
 
   if (source.kind === "local_file") {
@@ -137,4 +153,26 @@ export function buildQuickstartRequest(source: SourceDraft, steps: WorkflowStep[
       browser_profile: optionalParameterValue(steps, remoteSourceStepId, "browser_profile")
     }
   };
+}
+
+function extraStepsForSource(source: SourceDraft, steps: WorkflowStep[]): QuickstartExtraStep[] {
+  const baseIds =
+    source.kind === "remote_url"
+      ? new Set(["download", "extract_audio", "transcribe", "correct", "segment", "translate", "subtitle"])
+      : new Set(["extract_audio", "transcribe", "correct", "segment", "translate", "subtitle"]);
+  return steps
+    .filter((step) => step.status !== "disabled" && !baseIds.has(step.id))
+    .map((step) => ({
+      id: step.id,
+      name: step.name,
+      tool_ref: step.toolRef,
+      inputs: step.inputs ?? {},
+      outputs: step.outputs ?? [],
+      parameters: Object.fromEntries(
+        step.parameters.map((parameter) => [
+          parameter.key,
+          parameter.kind === "toggle" ? parameter.value : parameter.value
+        ])
+      )
+    }));
 }

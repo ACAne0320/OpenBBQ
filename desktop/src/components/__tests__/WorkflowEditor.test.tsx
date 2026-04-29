@@ -3,7 +3,23 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { workflowSteps } from "../../lib/mockData";
+import type { WorkflowTool } from "../../lib/types";
 import { WorkflowEditor } from "../WorkflowEditor";
+
+const translationQaTool: WorkflowTool = {
+  toolRef: "translation.qa",
+  name: "Translation QA",
+  description: "Check translated segments for terminology misses.",
+  inputs: {
+    translation: {
+      artifactTypes: ["translation"],
+      required: true,
+      multiple: false
+    }
+  },
+  outputs: [{ name: "qa", type: "translation_qa" }],
+  parameters: [{ kind: "text", key: "max_lines", label: "Max lines", value: "2" }]
+};
 
 describe("WorkflowEditor", () => {
   it("renders the local workflow template with step details", () => {
@@ -76,6 +92,47 @@ describe("WorkflowEditor", () => {
         })
       ])
     );
+  });
+
+  it("adds catalog tools as removable workflow steps", async () => {
+    const onContinue = vi.fn();
+    const user = userEvent.setup();
+    render(<WorkflowEditor initialSteps={workflowSteps} availableTools={[translationQaTool]} onContinue={onContinue} />);
+
+    await user.selectOptions(screen.getByLabelText("Add workflow step"), "translation.qa");
+    await user.click(screen.getByRole("button", { name: "Add step" }));
+
+    expect(screen.getByRole("button", { name: /select step 6: translation qa/i })).toBeInTheDocument();
+    expect(screen.getByText("translation -> translation qa")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(onContinue).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "translation_qa",
+          toolRef: "translation.qa",
+          inputs: { translation: "translate.translation" },
+          outputs: [{ name: "qa", type: "translation_qa" }]
+        })
+      ])
+    );
+
+    await user.click(screen.getByRole("button", { name: "Remove Translation QA" }));
+    expect(screen.queryByRole("button", { name: /select step 6: translation qa/i })).not.toBeInTheDocument();
+  });
+
+  it("reorders workflow steps before continuing", async () => {
+    const onContinue = vi.fn();
+    const user = userEvent.setup();
+    render(<WorkflowEditor initialSteps={workflowSteps} availableTools={[translationQaTool]} onContinue={onContinue} />);
+
+    await user.selectOptions(screen.getByLabelText("Add workflow step"), "translation.qa");
+    await user.click(screen.getByRole("button", { name: "Add step" }));
+    await user.click(screen.getByRole("button", { name: "Move Translation QA down" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    const continuedSteps = onContinue.mock.calls[0][0];
+    expect(continuedSteps.map((step: { id: string }) => step.id).slice(-2)).toEqual(["subtitle", "translation_qa"]);
   });
 
   it("does not render removed workflow or global settings controls", () => {

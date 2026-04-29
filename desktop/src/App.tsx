@@ -11,7 +11,7 @@ import { WorkflowEditor } from "./components/WorkflowEditor";
 import type { OpenBBQClient } from "./lib/apiClient";
 import { createDefaultClient } from "./lib/clientFactory";
 import { workflowSteps } from "./lib/mockData";
-import type { ReviewModel, Segment, SourceDraft, TaskMonitorModel, TaskSummary, WorkflowStep } from "./lib/types";
+import type { ReviewModel, Segment, SourceDraft, TaskMonitorModel, TaskSummary, WorkflowStep, WorkflowTool } from "./lib/types";
 
 type Screen = "source" | "workflow" | "tasks" | "monitor" | "results" | "settings";
 
@@ -32,6 +32,7 @@ export function App({ client: providedClient }: AppProps = {}) {
   const [screen, setScreen] = useState<Screen>("source");
   const [source, setSource] = useState<SourceDraft | null>(null);
   const [steps, setSteps] = useState<WorkflowStep[]>(workflowSteps);
+  const [workflowTools, setWorkflowTools] = useState<WorkflowTool[]>([]);
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
@@ -78,12 +79,13 @@ export function App({ client: providedClient }: AppProps = {}) {
     setSource(nextSource);
     setLoadError(null);
     try {
-      const nextSteps = await client.getWorkflowTemplate(nextSource);
+      const [nextSteps, nextTools] = await Promise.all([client.getWorkflowTemplate(nextSource), client.getWorkflowTools()]);
       if (requestId !== templateRequestId.current) {
         return;
       }
 
       setSteps(nextSteps);
+      setWorkflowTools(nextTools);
       setScreen("workflow");
     } catch (error) {
       if (requestId !== templateRequestId.current) {
@@ -102,6 +104,7 @@ export function App({ client: providedClient }: AppProps = {}) {
     cancelRetryState();
     setSource(null);
     setSteps(workflowSteps);
+    setWorkflowTools([]);
     setTask(null);
     autoOpenedReviewRunId.current = null;
     setTasksError(null);
@@ -350,6 +353,7 @@ export function App({ client: providedClient }: AppProps = {}) {
       {screen === "workflow" ? (
         <WorkflowEditor
           initialSteps={steps}
+          availableTools={workflowTools}
           onBack={handleBackToSource}
           onContinue={handleWorkflowContinue}
         />

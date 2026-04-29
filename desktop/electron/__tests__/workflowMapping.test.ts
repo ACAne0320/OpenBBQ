@@ -38,7 +38,9 @@ describe("buildQuickstartRequest", () => {
         asr_model: "base",
         asr_device: "cpu",
         asr_compute_type: "int8",
-        correct_transcript: true
+        correct_transcript: true,
+        step_order: ["extract_audio", "transcribe", "correct", "segment", "translate", "subtitle"],
+        extra_steps: []
       }
     });
     expect(request.body).not.toHaveProperty("provider");
@@ -71,6 +73,7 @@ describe("buildQuickstartRequest", () => {
       asr_device: "cpu",
       asr_compute_type: "int8",
       correct_transcript: true,
+      step_order: ["download", "extract_audio", "transcribe", "correct", "segment", "translate", "subtitle"],
       quality: "bestvideo",
       auth: "browser"
     });
@@ -102,6 +105,44 @@ describe("buildQuickstartRequest", () => {
 
     expect(buildQuickstartRequest({ kind: "local_file", path: "C:/video/sample.mp4", displayName: "sample.mp4" }, steps).body).toMatchObject({
       correct_transcript: false
+    });
+  });
+
+  it("passes user-added steps through as extra quickstart steps", () => {
+    const steps: WorkflowStep[] = [
+      ...workflowTemplateForSource({ kind: "local_file", path: "C:/video/sample.mp4", displayName: "sample.mp4" }),
+      {
+        id: "translation_qa",
+        name: "Translation QA",
+        toolRef: "translation.qa",
+        summary: "translation -> translation qa",
+        status: "enabled",
+        inputs: { translation: "translate.translation" },
+        outputs: [{ name: "qa", type: "translation_qa" }],
+        parameters: [{ kind: "text", key: "max_lines", label: "Max lines", value: "2" }]
+      }
+    ];
+
+    expect(buildQuickstartRequest({ kind: "local_file", path: "C:/video/sample.mp4", displayName: "sample.mp4" }, steps).body).toMatchObject({
+      extra_steps: [
+        {
+          id: "translation_qa",
+          name: "Translation QA",
+          tool_ref: "translation.qa",
+          inputs: { translation: "translate.translation" },
+          outputs: [{ name: "qa", type: "translation_qa" }],
+          parameters: { max_lines: "2" }
+        }
+      ],
+      step_order: [
+        "extract_audio",
+        "transcribe",
+        "correct",
+        "segment",
+        "translate",
+        "subtitle",
+        "translation_qa"
+      ]
     });
   });
 });

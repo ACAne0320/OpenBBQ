@@ -104,6 +104,8 @@ export type ApiSubtitleWorkflowStep = {
   summary: string;
   status: "locked" | "enabled" | "disabled";
   selected?: boolean | null;
+  inputs?: Record<string, string> | null;
+  outputs?: Array<{ name: string; type: string }> | null;
   parameters: ApiWorkflowStepParameter[];
 };
 
@@ -111,6 +113,25 @@ export type ApiSubtitleWorkflowTemplateData = {
   template_id: string;
   workflow_id: string;
   steps: ApiSubtitleWorkflowStep[];
+};
+
+export type ApiWorkflowToolInputSpec = {
+  artifact_types: string[];
+  required: boolean;
+  multiple: boolean;
+};
+
+export type ApiWorkflowTool = {
+  tool_ref: string;
+  name: string;
+  description: string;
+  inputs: Record<string, ApiWorkflowToolInputSpec>;
+  outputs: Array<{ name: string; type: string }>;
+  parameters: ApiWorkflowStepParameter[];
+};
+
+export type ApiWorkflowToolCatalogData = {
+  tools: ApiWorkflowTool[];
 };
 
 export type ApiArtifactRecord = {
