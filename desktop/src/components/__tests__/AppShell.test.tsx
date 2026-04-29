@@ -49,7 +49,7 @@ describe("AppShell", () => {
 
     expect(screen.getByRole("img", { name: "OpenBBQ" })).toHaveAttribute(
       "src",
-      expect.stringContaining("OpenBBQ%20Icon%20color.png")
+      expect.stringContaining("/src/assets/openbbq-icon-color.png")
     );
     expect(screen.queryByText("OB")).not.toBeInTheDocument();
   });

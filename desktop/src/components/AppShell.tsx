@@ -2,7 +2,7 @@ import { clsx } from "clsx";
 import { FilePlus2, ListChecks, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 
-const openbbqIconColor = new URL("../../../images/OpenBBQ Icon color.png", import.meta.url).href;
+import openbbqIconColor from "../assets/openbbq-icon-color.png";
 
 export type NavItem = "New" | "Tasks" | "Settings";
 
