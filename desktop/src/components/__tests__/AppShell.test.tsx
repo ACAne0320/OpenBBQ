@@ -16,6 +16,8 @@ describe("AppShell", () => {
     );
 
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Home" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Results" })).not.toBeInTheDocument();
 
     const activeNav = screen.getByRole("button", { name: "New" });
     expect(activeNav).toHaveAttribute("aria-current", "page");

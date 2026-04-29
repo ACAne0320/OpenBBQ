@@ -1,25 +1,23 @@
 import { clsx } from "clsx";
-import { FilePlus2, History, Home, ListChecks, Settings } from "lucide-react";
+import { FilePlus2, ListChecks, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 
-export type NavItem = "Home" | "New" | "Tasks" | "Results" | "Settings";
+export type NavItem = "New" | "Tasks" | "Settings";
 
 type AppShellProps = {
-  active: NavItem;
+  active?: NavItem;
   footerLabel: string;
   footerValue: string;
   onNavigate?: (item: NavItem) => void;
   children: ReactNode;
 };
 
-const navItems: NavItem[] = ["Home", "New", "Tasks", "Results", "Settings"];
+const navItems: NavItem[] = ["New", "Tasks", "Settings"];
 const navIcons = {
-  Home,
   New: FilePlus2,
   Tasks: ListChecks,
-  Results: History,
   Settings
-} satisfies Record<NavItem, typeof Home>;
+} satisfies Record<NavItem, typeof FilePlus2>;
 
 export function AppShell({ active, footerLabel, footerValue, onNavigate, children }: AppShellProps) {
   return (
@@ -31,13 +29,14 @@ export function AppShell({ active, footerLabel, footerValue, onNavigate, childre
               <span className="grid h-7 w-7 place-items-center rounded-md bg-ink text-[11px] font-bold text-paper">OB</span>
               <span className="min-w-0 truncate">OpenBBQ</span>
             </div>
-            <nav className="grid grid-cols-5 gap-1 text-xs xl:grid-cols-1 xl:gap-1" aria-label="Primary">
+            <nav className="grid grid-cols-3 gap-1 text-xs xl:grid-cols-1 xl:gap-1" aria-label="Primary">
               {navItems.map((item) => {
                 const Icon = navIcons[item];
                 return (
                   <button
                     key={item}
                     type="button"
+                    aria-label={item}
                     aria-current={active === item ? "page" : undefined}
                     onClick={() => onNavigate?.(item)}
                     className={clsx(
