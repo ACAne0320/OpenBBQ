@@ -369,7 +369,9 @@ def _insert_extra_steps(
     workflow["steps"].extend(step_configs)
 
 
-def _apply_step_order(config: WorkflowTemplate, workflow_id: str, step_order: tuple[str, ...]) -> None:
+def _apply_step_order(
+    config: WorkflowTemplate, workflow_id: str, step_order: tuple[str, ...]
+) -> None:
     if not step_order:
         return
     workflow = config["workflows"][workflow_id]
@@ -449,7 +451,9 @@ def _tool_display_name(tool: ToolSpec) -> str:
     return " ".join(part.title() for part in " ".join(words).split())
 
 
-def _desktop_parameters_from_schema(tool_ref: str, schema: WorkflowTemplate) -> tuple[WorkflowTemplate, ...]:
+def _desktop_parameters_from_schema(
+    tool_ref: str, schema: WorkflowTemplate
+) -> tuple[WorkflowTemplate, ...]:
     properties = schema.get("properties", {})
     if not isinstance(properties, dict):
         return ()

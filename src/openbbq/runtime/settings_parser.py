@@ -148,7 +148,9 @@ def _provider_profiles(raw: JsonObject) -> ProviderMap:
                 display_name=_optional_string(
                     profile_raw.get("display_name"), f"providers.{name}.display_name"
                 ),
-                enabled=_optional_bool(profile_raw.get("enabled", True), f"providers.{name}.enabled"),
+                enabled=_optional_bool(
+                    profile_raw.get("enabled", True), f"providers.{name}.enabled"
+                ),
             )
         except PydanticValidationError as exc:
             raise ValidationError(format_pydantic_error(f"providers.{name}", exc)) from exc

@@ -59,7 +59,9 @@ def get_subtitle_workflow_template(
 )
 def get_subtitle_workflow_tools(request: Request) -> ApiSuccess[SubtitleWorkflowToolCatalogData]:
     settings = active_project_settings(request)
-    catalog = subtitle_workflow_tool_catalog(plugin_paths=(*settings.plugin_paths, BUILTIN_PLUGIN_ROOT))
+    catalog = subtitle_workflow_tool_catalog(
+        plugin_paths=(*settings.plugin_paths, BUILTIN_PLUGIN_ROOT)
+    )
     return ApiSuccess(data=SubtitleWorkflowToolCatalogData(**catalog))
 
 
