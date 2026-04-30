@@ -8,8 +8,9 @@ from uuid import uuid4
 
 import yaml
 
-from openbbq.domain.base import JsonObject, OpenBBQModel
+from openbbq.builtin_plugins.remote_video import plugin as remote_video_plugin
 from openbbq.builtin_plugins.transcript.models import SegmentationParameters
+from openbbq.domain.base import JsonObject, OpenBBQModel
 from openbbq.plugins.models import ToolSpec
 from openbbq.plugins.registry import discover_plugins
 
@@ -50,6 +51,7 @@ _PARAMETER_LABELS = {
 }
 
 _SELECT_PARAMETER_OPTIONS = {
+    ("remote_video.download", "auth"): ("auto", "anonymous", "browser_cookies"),
     ("ffmpeg.extract_audio", "format"): ("wav",),
     ("faster_whisper.transcribe", "language"): ("en", "auto"),
     ("faster_whisper.transcribe", "model"): (
@@ -81,6 +83,13 @@ _OUTPUT_LABELS = {
     "subtitle": "SRT",
 }
 
+_FALLBACK_REMOTE_VIDEO_FORMAT_OPTIONS = (
+    {"value": DEFAULT_YOUTUBE_QUALITY, "label": "Best up to 720p"},
+    {"value": "best[ext=mp4][height<=1080]/best[height<=1080]/best", "label": "Best up to 1080p"},
+    {"value": "best[ext=mp4][height<=480]/best[height<=480]/best", "label": "Best up to 480p"},
+    {"value": "best", "label": "Best available"},
+)
+
 
 class GeneratedWorkflow(OpenBBQModel):
     project_root: Path
@@ -93,6 +102,7 @@ def subtitle_workflow_template_for_source(
     *,
     source_kind: SubtitleSourceKind,
     url: str | None = None,
+    remote_video_format_options: tuple[WorkflowTemplate, ...] | None = None,
 ) -> WorkflowTemplate:
     if source_kind == "local_file":
         template_id = LOCAL_SUBTITLE_TEMPLATE_ID
@@ -104,14 +114,50 @@ def subtitle_workflow_template_for_source(
         config = _load_youtube_subtitle_template()
         steps = _steps_by_id(config, workflow_id)
         steps["download"]["parameters"]["url"] = url or "about:blank"
+        if remote_video_format_options is None and url:
+            remote_video_format_options = fallback_remote_video_format_options()
     else:
         raise ValueError(f"Unsupported subtitle source kind: {source_kind}")
 
     return {
         "template_id": template_id,
         "workflow_id": workflow_id,
-        "steps": tuple(_desktop_step(step) for step in config["workflows"][workflow_id]["steps"]),
+        "steps": tuple(
+            _desktop_step(
+                step,
+                remote_video_format_options=remote_video_format_options or (),
+            )
+            for step in config["workflows"][workflow_id]["steps"]
+        ),
     }
+
+
+def remote_video_format_options(
+    *,
+    url: str,
+    auth: str = "auto",
+    browser: str | None = None,
+    browser_profile: str | None = None,
+) -> tuple[WorkflowTemplate, ...]:
+    parameters: JsonObject = {"url": url, "auth": auth}
+    _set_optional(parameters, "browser", browser)
+    _set_optional(parameters, "browser_profile", browser_profile)
+    result = remote_video_plugin.list_format_options({"parameters": parameters})
+    formats = result.get("formats", ())
+    if not isinstance(formats, (tuple, list)):
+        return fallback_remote_video_format_options()
+    options = tuple(
+        option
+        for option in formats
+        if isinstance(option, dict)
+        and isinstance(option.get("value"), str)
+        and isinstance(option.get("label"), str)
+    )
+    return options or fallback_remote_video_format_options()
+
+
+def fallback_remote_video_format_options() -> tuple[WorkflowTemplate, ...]:
+    return tuple(dict(option) for option in _FALLBACK_REMOTE_VIDEO_FORMAT_OPTIONS)
 
 
 def subtitle_workflow_tool_catalog(*, plugin_paths: tuple[Path, ...]) -> WorkflowTemplate:
@@ -426,7 +472,11 @@ def _apply_segment_parameters(
     steps["segment"]["parameters"].update(resolved)
 
 
-def _desktop_step(step: WorkflowTemplate) -> WorkflowTemplate:
+def _desktop_step(
+    step: WorkflowTemplate,
+    *,
+    remote_video_format_options: tuple[WorkflowTemplate, ...] = (),
+) -> WorkflowTemplate:
     step_id = str(step["id"])
     data: WorkflowTemplate = {
         "id": step_id,
@@ -437,7 +487,12 @@ def _desktop_step(step: WorkflowTemplate) -> WorkflowTemplate:
         "inputs": step.get("inputs", {}),
         "outputs": tuple(step.get("outputs", ())),
         "parameters": tuple(
-            _desktop_parameter(str(step["tool_ref"]), key, value)
+            _desktop_parameter(
+                str(step["tool_ref"]),
+                key,
+                value,
+                remote_video_format_options=remote_video_format_options,
+            )
             for key, value in step.get("parameters", {}).items()
             if key not in _HIDDEN_DESKTOP_PARAMETERS
         ),
@@ -501,6 +556,14 @@ def _desktop_parameter_from_property(
         return None
     default = property_schema.get("default", "")
     label = _PARAMETER_LABELS.get(key, key.replace("_", " ").title())
+    if tool_ref == "remote_video.download" and key == "quality":
+        return {
+            "kind": "select",
+            "key": key,
+            "label": label,
+            "value": str(default or DEFAULT_YOUTUBE_QUALITY),
+            "options": fallback_remote_video_format_options(),
+        }
     enum = property_schema.get("enum")
     if isinstance(enum, list) and enum:
         return {
@@ -526,8 +589,30 @@ def _desktop_parameter_from_property(
     }
 
 
-def _desktop_parameter(tool_ref: str, key: str, value: object) -> WorkflowTemplate:
+def _desktop_parameter(
+    tool_ref: str,
+    key: str,
+    value: object,
+    *,
+    remote_video_format_options: tuple[WorkflowTemplate, ...] = (),
+) -> WorkflowTemplate:
     label = _PARAMETER_LABELS.get(key, key.replace("_", " ").title())
+    if tool_ref == "remote_video.download" and key == "quality":
+        options = remote_video_format_options or fallback_remote_video_format_options()
+        option_values = {
+            str(option["value"])
+            for option in options
+            if isinstance(option, dict) and "value" in option
+        }
+        if str(value) not in option_values:
+            options = ({"value": str(value), "label": "Configured quality"}, *options)
+        return {
+            "kind": "select",
+            "key": key,
+            "label": label,
+            "value": str(value),
+            "options": options,
+        }
     if isinstance(value, bool):
         return {
             "kind": "toggle",

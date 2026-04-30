@@ -93,6 +93,16 @@ type ParameterFieldProps = {
   onChange: (stepId: string, parameterKey: string, value: boolean | string) => void;
 };
 
+type SelectParameter = Extract<StepParameter, { kind: "select" }>;
+
+function selectOptionValue(option: SelectParameter["options"][number]) {
+  return typeof option === "string" ? option : option.value;
+}
+
+function selectOptionLabel(option: SelectParameter["options"][number]) {
+  return typeof option === "string" ? option : option.label;
+}
+
 function ParameterField({ onChange, parameter, stepId }: ParameterFieldProps) {
   if (parameter.kind === "toggle") {
     return (
@@ -120,8 +130,8 @@ function ParameterField({ onChange, parameter, stepId }: ParameterFieldProps) {
           className="min-h-11 rounded-md bg-paper-muted px-3 text-sm font-normal text-ink shadow-control focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           {parameter.options.map((option) => (
-            <option key={option} value={option}>
-              {option}
+            <option key={selectOptionValue(option)} value={selectOptionValue(option)}>
+              {selectOptionLabel(option)}
             </option>
           ))}
         </select>

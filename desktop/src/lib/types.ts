@@ -49,9 +49,11 @@ export type WorkflowStep = {
   parameters: StepParameter[];
 };
 
+export type SelectOption = string | { value: string; label: string };
+
 export type StepParameter =
   | { kind: "text"; key: string; label: string; value: string }
-  | { kind: "select"; key: string; label: string; value: string; options: string[] }
+  | { kind: "select"; key: string; label: string; value: string; options: SelectOption[] }
   | { kind: "toggle"; key: string; label: string; description: string; value: boolean };
 
 export type TaskStatus = "queued" | "running" | "paused" | "failed" | "completed" | "aborted";

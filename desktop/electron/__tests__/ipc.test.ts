@@ -60,7 +60,16 @@ describe("desktop IPC actions", () => {
                 status: "locked",
                 parameters: [
                   { kind: "text", key: "url", label: "URL", value: "https://example.test/watch" },
-                  { kind: "text", key: "quality", label: "Quality", value: "best" }
+                  {
+                    kind: "select",
+                    key: "quality",
+                    label: "Quality",
+                    value: "best",
+                    options: [
+                      { value: "best", label: "Best available" },
+                      { value: "18", label: "18 - MP4 - 640x360 - video + audio" }
+                    ]
+                  }
                 ]
               }
             ]
@@ -84,7 +93,16 @@ describe("desktop IPC actions", () => {
         status: "locked",
         parameters: [
           { kind: "text", key: "url", label: "URL", value: "https://example.test/watch" },
-          { kind: "text", key: "quality", label: "Quality", value: "best" }
+          {
+            kind: "select",
+            key: "quality",
+            label: "Quality",
+            value: "best",
+            options: [
+              { value: "best", label: "Best available" },
+              { value: "18", label: "18 - MP4 - 640x360 - video + audio" }
+            ]
+          }
         ]
       }
     ]);

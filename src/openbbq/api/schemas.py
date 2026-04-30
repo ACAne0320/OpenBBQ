@@ -157,12 +157,20 @@ class WorkflowTextParameterData(OpenBBQModel):
     value: str
 
 
+class WorkflowSelectOptionData(OpenBBQModel):
+    value: str
+    label: str
+
+
+WorkflowSelectOption: TypeAlias = str | WorkflowSelectOptionData
+
+
 class WorkflowSelectParameterData(OpenBBQModel):
     kind: Literal["select"]
     key: str
     label: str
     value: str
-    options: tuple[str, ...]
+    options: tuple[WorkflowSelectOption, ...]
 
 
 class WorkflowToggleParameterData(OpenBBQModel):
@@ -213,6 +221,10 @@ class SubtitleWorkflowToolData(OpenBBQModel):
 
 class SubtitleWorkflowToolCatalogData(OpenBBQModel):
     tools: tuple[SubtitleWorkflowToolData, ...]
+
+
+class RemoteVideoFormatListData(OpenBBQModel):
+    formats: tuple[WorkflowSelectOptionData, ...]
 
 
 class SubtitleExtraStepRequest(OpenBBQModel):

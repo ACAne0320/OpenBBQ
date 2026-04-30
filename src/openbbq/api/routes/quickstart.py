@@ -10,6 +10,7 @@ from openbbq.api.project_refs import register_run_project
 from openbbq.api.schemas import (
     ApiSuccess,
     QuickstartTaskListData,
+    RemoteVideoFormatListData,
     SubtitleJobData,
     SubtitleLocalJobRequest,
     SubtitleWorkflowTemplateData,
@@ -32,6 +33,8 @@ from openbbq.application.quickstart import (
     resolve_youtube_subtitle_job_request,
 )
 from openbbq.application.quickstart_workflows import (
+    fallback_remote_video_format_options,
+    remote_video_format_options,
     subtitle_workflow_template_for_source,
     subtitle_workflow_tool_catalog,
 )
@@ -49,8 +52,35 @@ def get_subtitle_workflow_template(
     source_kind: Literal["local_file", "remote_url"],
     url: str | None = None,
 ) -> ApiSuccess[SubtitleWorkflowTemplateData]:
-    template = subtitle_workflow_template_for_source(source_kind=source_kind, url=url)
+    format_options = _remote_format_options_or_fallback(url) if source_kind == "remote_url" else ()
+    template = subtitle_workflow_template_for_source(
+        source_kind=source_kind,
+        url=url,
+        remote_video_format_options=format_options,
+    )
     return ApiSuccess(data=SubtitleWorkflowTemplateData(**template))
+
+
+@router.get(
+    "/quickstart/remote-video/formats",
+    response_model=ApiSuccess[RemoteVideoFormatListData],
+)
+def get_remote_video_formats(
+    url: str,
+    auth: Literal["auto", "anonymous", "browser_cookies"] = "auto",
+    browser: str | None = None,
+    browser_profile: str | None = None,
+) -> ApiSuccess[RemoteVideoFormatListData]:
+    try:
+        formats = remote_video_format_options(
+            url=url,
+            auth=auth,
+            browser=browser,
+            browser_profile=browser_profile,
+        )
+    except Exception:
+        formats = fallback_remote_video_format_options()
+    return ApiSuccess(data=RemoteVideoFormatListData(formats=formats))
 
 
 @router.get(
@@ -63,6 +93,15 @@ def get_subtitle_workflow_tools(request: Request) -> ApiSuccess[SubtitleWorkflow
         plugin_paths=(*settings.plugin_paths, BUILTIN_PLUGIN_ROOT)
     )
     return ApiSuccess(data=SubtitleWorkflowToolCatalogData(**catalog))
+
+
+def _remote_format_options_or_fallback(url: str | None):
+    if not url:
+        return fallback_remote_video_format_options()
+    try:
+        return remote_video_format_options(url=url)
+    except Exception:
+        return fallback_remote_video_format_options()
 
 
 @router.post("/quickstart/subtitle/local", response_model=ApiSuccess[SubtitleJobData])

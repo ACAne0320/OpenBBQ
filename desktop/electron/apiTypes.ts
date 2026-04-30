@@ -94,7 +94,13 @@ export type ApiQuickstartTaskRecord = {
 
 export type ApiWorkflowStepParameter =
   | { kind: "text"; key: string; label: string; value: string }
-  | { kind: "select"; key: string; label: string; value: string; options: string[] }
+  | {
+      kind: "select";
+      key: string;
+      label: string;
+      value: string;
+      options: Array<string | { value: string; label: string }>;
+    }
   | { kind: "toggle"; key: string; label: string; description: string; value: boolean };
 
 export type ApiSubtitleWorkflowStep = {

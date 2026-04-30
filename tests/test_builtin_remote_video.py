@@ -11,6 +11,60 @@ from tests.builtin_plugin_fakes import (
 )
 
 
+class FormatListingDownloader:
+    def __init__(self, options):
+        self.options = options
+        self.extract_calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def extract_info(self, url, download=True):
+        self.extract_calls.append({"url": url, "download": download})
+        return {
+            "formats": [
+                {
+                    "format_id": "18",
+                    "ext": "mp4",
+                    "width": 640,
+                    "height": 360,
+                    "fps": 30,
+                    "vcodec": "avc1",
+                    "acodec": "mp4a",
+                    "filesize": 1024 * 1024,
+                },
+                {
+                    "format_id": "137",
+                    "ext": "mp4",
+                    "height": 1080,
+                    "fps": 30,
+                    "vcodec": "avc1",
+                    "acodec": "none",
+                },
+                {
+                    "format_id": "140",
+                    "ext": "m4a",
+                    "vcodec": "none",
+                    "acodec": "mp4a",
+                },
+            ]
+        }
+
+
+class FormatListingDownloaderFactory:
+    def __init__(self):
+        self.calls = []
+        self.downloader = None
+
+    def __call__(self, options):
+        self.calls.append(options)
+        self.downloader = FormatListingDownloader(options)
+        return self.downloader
+
+
 def test_remote_video_download_uses_yt_dlp_factory_and_returns_file_output(tmp_path):
     factory = RecordingDownloaderFactory()
 
@@ -57,6 +111,104 @@ def test_remote_video_download_uses_yt_dlp_factory_and_returns_file_output(tmp_p
             }
         }
     }
+
+
+def test_remote_video_download_reuses_runtime_cache_for_same_parameters(tmp_path):
+    first_factory = RecordingDownloaderFactory()
+    request = {
+        "tool_name": "download",
+        "work_dir": str(tmp_path / "first-work"),
+        "runtime": {"cache": {"root": str(tmp_path / "cache")}},
+        "parameters": {
+            "url": "https://video.example/watch/123",
+            "format": "mp4",
+            "quality": "best",
+        },
+        "inputs": {},
+    }
+
+    first = remote_video_plugin.run(request, downloader_factory=first_factory)
+    second_factory = RecordingDownloaderFactory()
+    second = remote_video_plugin.run(
+        request | {"work_dir": str(tmp_path / "second-work")},
+        downloader_factory=second_factory,
+    )
+
+    assert first_factory.downloader.extract_calls == [
+        {"url": "https://video.example/watch/123", "download": True}
+    ]
+    assert second_factory.calls == []
+    assert first["outputs"]["video"]["metadata"]["cache_hit"] is False
+    assert second["outputs"]["video"]["metadata"]["cache_hit"] is True
+    assert first["outputs"]["video"]["metadata"]["cache_key"] == second["outputs"]["video"][
+        "metadata"
+    ]["cache_key"]
+    assert first["outputs"]["video"]["file_path"] == second["outputs"]["video"]["file_path"]
+
+
+def test_remote_video_download_cache_key_includes_quality(tmp_path):
+    first_factory = RecordingDownloaderFactory()
+    second_factory = RecordingDownloaderFactory()
+    base_request = {
+        "tool_name": "download",
+        "work_dir": str(tmp_path / "work-a"),
+        "runtime": {"cache": {"root": str(tmp_path / "cache")}},
+        "parameters": {
+            "url": "https://video.example/watch/123",
+            "format": "mp4",
+            "quality": "best",
+        },
+        "inputs": {},
+    }
+
+    first = remote_video_plugin.run(base_request, downloader_factory=first_factory)
+    second = remote_video_plugin.run(
+        base_request
+        | {
+            "work_dir": str(tmp_path / "work-b"),
+            "parameters": base_request["parameters"] | {"quality": "best[height<=480]"},
+        },
+        downloader_factory=second_factory,
+    )
+
+    assert len(first_factory.calls) == 1
+    assert len(second_factory.calls) == 1
+    assert first["outputs"]["video"]["metadata"]["cache_key"] != second["outputs"]["video"][
+        "metadata"
+    ]["cache_key"]
+
+
+def test_remote_video_format_discovery_returns_select_options(tmp_path):
+    factory = FormatListingDownloaderFactory()
+
+    response = remote_video_plugin.list_format_options(
+        {
+            "parameters": {
+                "url": "https://video.example/watch/123",
+                "auth": "anonymous",
+            }
+        },
+        downloader_factory=factory,
+    )
+
+    assert factory.downloader.extract_calls == [
+        {"url": "https://video.example/watch/123", "download": False}
+    ]
+    assert response["formats"][:2] == (
+        {"value": "best", "label": "Best available"},
+        {
+            "value": "best[ext=mp4][height<=720]/best[height<=720]/best",
+            "label": "Best up to 720p",
+        },
+    )
+    assert {
+        "value": "18",
+        "label": "18 - MP4 - 640x360 - 30fps - video + audio - 1.0MB",
+    } in response["formats"]
+    assert {
+        "value": "137+bestaudio[ext=m4a]/best[height<=1080]",
+        "label": "137 - MP4 - 1080p - 30fps - video + best audio",
+    } in response["formats"]
 
 
 def test_remote_video_download_falls_back_to_browser_cookies_for_youtube(monkeypatch, tmp_path):
@@ -138,6 +290,19 @@ def test_remote_video_download_requires_url(tmp_path):
                 "tool_name": "download",
                 "work_dir": str(tmp_path / "work"),
                 "parameters": {"url": ""},
+                "inputs": {},
+            },
+            downloader_factory=RecordingDownloaderFactory(),
+        )
+
+
+def test_remote_video_download_requires_http_url(tmp_path):
+    with pytest.raises(ValueError, match="http or https URL"):
+        remote_video_plugin.run(
+            {
+                "tool_name": "download",
+                "work_dir": str(tmp_path / "work"),
+                "parameters": {"url": "file:///tmp/video.mp4"},
                 "inputs": {},
             },
             downloader_factory=RecordingDownloaderFactory(),

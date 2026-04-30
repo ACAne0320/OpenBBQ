@@ -852,8 +852,15 @@ def test_quickstart_subtitle_routes_return_generated_job_metadata(tmp_path, monk
     assert youtube.json()["data"]["workflow_id"] == "youtube-to-srt"
 
 
-def test_quickstart_subtitle_template_route_returns_packaged_workflow_steps(tmp_path):
+def test_quickstart_subtitle_template_route_returns_packaged_workflow_steps(tmp_path, monkeypatch):
     project = write_project_fixture(tmp_path, "text-basic")
+    monkeypatch.setattr(
+        "openbbq.api.routes.quickstart.remote_video_format_options",
+        lambda **kwargs: (
+            {"value": "best", "label": "Best available"},
+            {"value": "18", "label": "18 - MP4 - 640x360 - video + audio"},
+        ),
+    )
     client, headers = authed_client(project)
 
     local = client.get(
@@ -914,6 +921,44 @@ def test_quickstart_subtitle_template_route_returns_packaged_workflow_steps(tmp_
         "label": "URL",
         "value": "https://example.test/watch",
     }
+    assert remote_data["steps"][0]["parameters"][2] == {
+        "kind": "select",
+        "key": "quality",
+        "label": "Quality",
+        "value": "best[ext=mp4][height<=720]/best[height<=720]/best",
+        "options": [
+            {
+                "value": "best[ext=mp4][height<=720]/best[height<=720]/best",
+                "label": "Configured quality",
+            },
+            {"value": "best", "label": "Best available"},
+            {"value": "18", "label": "18 - MP4 - 640x360 - video + audio"},
+        ],
+    }
+
+
+def test_quickstart_remote_video_formats_route_returns_discovered_options(tmp_path, monkeypatch):
+    project = write_project_fixture(tmp_path, "text-basic")
+    monkeypatch.setattr(
+        "openbbq.api.routes.quickstart.remote_video_format_options",
+        lambda **kwargs: (
+            {"value": "best", "label": "Best available"},
+            {"value": "18", "label": "18 - MP4 - 640x360 - video + audio"},
+        ),
+    )
+    client, headers = authed_client(project)
+
+    response = client.get(
+        "/quickstart/remote-video/formats",
+        headers=headers,
+        params={"url": "https://example.test/watch", "auth": "anonymous"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["formats"] == [
+        {"value": "best", "label": "Best available"},
+        {"value": "18", "label": "18 - MP4 - 640x360 - video + audio"},
+    ]
 
 
 def test_quickstart_subtitle_tool_catalog_lists_addable_workflow_tools(tmp_path):

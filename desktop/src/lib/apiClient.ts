@@ -61,10 +61,21 @@ function remoteDownloadStep(source: Extract<SourceDraft, { kind: "remote_url" }>
   const parameters: StepParameter[] = [
     { kind: "text", key: "url", label: "URL", value: source.url },
     {
-      kind: "text",
+      kind: "select",
       key: "quality",
       label: "Quality",
-      value: "best[ext=mp4][height<=720]/best[height<=720]/best"
+      value: "best[ext=mp4][height<=720]/best[height<=720]/best",
+      options: [
+        {
+          value: "best[ext=mp4][height<=720]/best[height<=720]/best",
+          label: "Best up to 720p"
+        },
+        {
+          value: "best[ext=mp4][height<=1080]/best[height<=1080]/best",
+          label: "Best up to 1080p"
+        },
+        { value: "best", label: "Best available" }
+      ]
     },
     { kind: "text", key: "auth", label: "Auth", value: "auto" }
   ];

@@ -142,4 +142,51 @@ describe("WorkflowEditor", () => {
     expect(screen.queryByText(/global settings/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/workflow controls/i)).not.toBeInTheDocument();
   });
+
+  it("renders labeled select options while preserving submitted values", async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    render(
+      <WorkflowEditor
+        initialSteps={[
+          {
+            id: "download",
+            name: "Download Video",
+            toolRef: "remote_video.download",
+            summary: "url -> video",
+            status: "locked",
+            selected: true,
+            parameters: [
+              {
+                kind: "select",
+                key: "quality",
+                label: "Quality",
+                value: "best",
+                options: [
+                  { value: "best", label: "Best available" },
+                  { value: "18", label: "18 - MP4 - 640x360 - video + audio" }
+                ]
+              }
+            ]
+          }
+        ]}
+        onContinue={onContinue}
+      />
+    );
+
+    await user.selectOptions(screen.getByLabelText("Quality"), "18");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(screen.getByRole("option", { name: "18 - MP4 - 640x360 - video + audio" })).toHaveValue("18");
+    expect(onContinue).toHaveBeenCalledWith([
+      expect.objectContaining({
+        parameters: [
+          expect.objectContaining({
+            key: "quality",
+            value: "18"
+          })
+        ]
+      })
+    ]);
+  });
 });
