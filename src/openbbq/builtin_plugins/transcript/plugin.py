@@ -16,6 +16,7 @@ from openbbq.builtin_plugins.segments import (
     TimedSegment,
     timed_segments_from_request,
 )
+from openbbq.builtin_plugins.transcript.models import SegmentationParameters
 from openbbq.runtime.provider import llm_provider_from_request
 
 
@@ -30,9 +31,31 @@ DEFAULT_MAX_DURATION_SECONDS = 6.0
 DEFAULT_MIN_DURATION_SECONDS = 0.8
 DEFAULT_MAX_LINES = 2
 DEFAULT_MAX_CHARS_PER_LINE = 40
-DEFAULT_MAX_CHARS_PER_SECOND = 20.0
 DEFAULT_PAUSE_THRESHOLD_MS = 500
 SENTENCE_BOUNDARY_RE = re.compile(r"[.!?;:。！？；：]$")
+CLAUSE_BOUNDARY_RE = re.compile(r"[,，、]$")
+SEGMENTATION_PROFILES: dict[str, dict[str, Any]] = {
+    "default": {},
+    "readable": {
+        "max_duration_seconds": 5.0,
+        "max_chars_per_line": 34,
+        "pause_threshold_ms": 350,
+        "prefer_clause_boundaries": True,
+        "merge_short_segments": True,
+    },
+    "dense": {
+        "max_duration_seconds": 7.0,
+        "max_chars_per_line": 44,
+        "pause_threshold_ms": 650,
+    },
+    "short_form": {
+        "max_duration_seconds": 3.5,
+        "max_chars_per_line": 28,
+        "pause_threshold_ms": 250,
+        "prefer_clause_boundaries": True,
+        "merge_short_segments": True,
+    },
+}
 
 
 def run(request: dict, client_factory=None) -> dict:
@@ -121,30 +144,13 @@ def _run_correct(request: dict, *, client_factory=None) -> dict:
 
 
 def _run_segment(request: dict) -> dict:
-    parameters = request.get("parameters", {})
-    max_duration_seconds = float(
-        parameters.get("max_duration_seconds", DEFAULT_MAX_DURATION_SECONDS)
-    )
-    min_duration_seconds = float(
-        parameters.get("min_duration_seconds", DEFAULT_MIN_DURATION_SECONDS)
-    )
-    max_lines = int(parameters.get("max_lines", DEFAULT_MAX_LINES))
-    max_chars_per_line = int(parameters.get("max_chars_per_line", DEFAULT_MAX_CHARS_PER_LINE))
-    max_chars_per_second = float(
-        parameters.get("max_chars_per_second", DEFAULT_MAX_CHARS_PER_SECOND)
-    )
-    pause_threshold_ms = int(parameters.get("pause_threshold_ms", DEFAULT_PAUSE_THRESHOLD_MS))
-    prefer_sentence_boundaries = bool(parameters.get("prefer_sentence_boundaries", True))
+    parameters = _segmentation_parameters(request.get("parameters", {}))
+    glossary_rules = _segmentation_glossary_rules(parameters.glossary_rules)
     segments = _segments(request, error_prefix="transcript.segment")
     subtitle_segments = _segment_transcript(
         segments=segments,
-        max_duration_seconds=max_duration_seconds,
-        min_duration_seconds=min_duration_seconds,
-        max_lines=max_lines,
-        max_chars_per_line=max_chars_per_line,
-        max_chars_per_second=max_chars_per_second,
-        pause_threshold_seconds=pause_threshold_ms / 1000.0,
-        prefer_sentence_boundaries=prefer_sentence_boundaries,
+        parameters=parameters,
+        glossary_rules=glossary_rules,
     )
     duration_seconds = float(subtitle_segments[-1]["end"]) if subtitle_segments else 0.0
     return {
@@ -155,9 +161,19 @@ def _run_segment(request: dict) -> dict:
                 "metadata": {
                     "segment_count": len(subtitle_segments),
                     "duration_seconds": duration_seconds,
-                    "max_duration_seconds": max_duration_seconds,
-                    "max_chars_per_line": max_chars_per_line,
-                    "max_lines": max_lines,
+                    "profile": parameters.profile,
+                    "language": parameters.language,
+                    "max_duration_seconds": parameters.max_duration_seconds,
+                    "min_duration_seconds": parameters.min_duration_seconds,
+                    "max_chars_per_line": parameters.max_chars_per_line,
+                    "max_chars_total": _max_chars_total(parameters),
+                    "max_lines": parameters.max_lines,
+                    "pause_threshold_ms": parameters.pause_threshold_ms,
+                    "prefer_sentence_boundaries": parameters.prefer_sentence_boundaries,
+                    "prefer_clause_boundaries": parameters.prefer_clause_boundaries,
+                    "merge_short_segments": parameters.merge_short_segments,
+                    "protect_terms": parameters.protect_terms,
+                    "glossary_rule_count": len(glossary_rules),
                 },
             }
         }
@@ -360,6 +376,45 @@ def _glossary_rules(value: Any) -> list[dict[str, Any]]:
     )
 
 
+def _segmentation_parameters(value: Any) -> SegmentationParameters:
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValueError("transcript.segment parameters must be an object.")
+    profile_name = value.get("profile", "default")
+    if not isinstance(profile_name, str) or not profile_name.strip():
+        raise ValueError("transcript.segment parameter 'profile' must be a non-empty string.")
+    profile_name = profile_name.strip()
+    if profile_name not in SEGMENTATION_PROFILES:
+        profiles = ", ".join(sorted(SEGMENTATION_PROFILES))
+        raise ValueError(f"transcript.segment parameter 'profile' must be one of: {profiles}.")
+    merged = {
+        "profile": profile_name,
+        "max_duration_seconds": DEFAULT_MAX_DURATION_SECONDS,
+        "min_duration_seconds": DEFAULT_MIN_DURATION_SECONDS,
+        "max_lines": DEFAULT_MAX_LINES,
+        "max_chars_per_line": DEFAULT_MAX_CHARS_PER_LINE,
+        "pause_threshold_ms": DEFAULT_PAUSE_THRESHOLD_MS,
+        **SEGMENTATION_PROFILES[profile_name],
+        **value,
+    }
+    return SegmentationParameters.model_validate(merged)
+
+
+def _segmentation_glossary_rules(value: Any) -> list[dict[str, Any]]:
+    return normalize_rules(
+        value,
+        parameter_name="glossary_rules",
+        tool_name="transcript.segment",
+    )
+
+
+def _max_chars_total(parameters: SegmentationParameters) -> int:
+    if parameters.max_chars_total is not None:
+        return parameters.max_chars_total
+    return parameters.max_chars_per_line * parameters.max_lines
+
+
 def _run_text(block_units: list[SegmentUnit]) -> str:
     text = ""
     for unit in block_units:
@@ -370,17 +425,14 @@ def _run_text(block_units: list[SegmentUnit]) -> str:
 def _segment_transcript(
     *,
     segments: list[TimedSegment],
-    max_duration_seconds: float,
-    min_duration_seconds: float,
-    max_lines: int,
-    max_chars_per_line: int,
-    max_chars_per_second: float,
-    pause_threshold_seconds: float,
-    prefer_sentence_boundaries: bool,
+    parameters: SegmentationParameters,
+    glossary_rules: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     units = _segmentation_units(segments)
     if not units:
         return []
+    if parameters.protect_terms and glossary_rules:
+        units = _protect_glossary_spans(units, glossary_rules)
     blocks: list[list[SegmentUnit]] = []
     current: list[SegmentUnit] = []
     for unit in units:
@@ -392,13 +444,7 @@ def _segment_transcript(
             current=current,
             candidate=candidate,
             next_unit=unit,
-            max_duration_seconds=max_duration_seconds,
-            min_duration_seconds=min_duration_seconds,
-            max_chars_per_line=max_chars_per_line,
-            max_lines=max_lines,
-            max_chars_per_second=max_chars_per_second,
-            pause_threshold_seconds=pause_threshold_seconds,
-            prefer_sentence_boundaries=prefer_sentence_boundaries,
+            parameters=parameters,
         ):
             blocks.append(current)
             current = [unit]
@@ -406,13 +452,16 @@ def _segment_transcript(
         current.append(unit)
     if current:
         blocks.append(current)
+    if parameters.merge_short_segments:
+        blocks = _merge_short_blocks(blocks, parameters=parameters)
     return [
         _materialize_block(
+            index,
             block,
-            max_chars_per_line=max_chars_per_line,
-            max_lines=max_lines,
+            max_chars_per_line=parameters.max_chars_per_line,
+            max_lines=parameters.max_lines,
         )
-        for block in blocks
+        for index, block in enumerate(blocks)
     ]
 
 
@@ -424,7 +473,7 @@ def _segmentation_units(segments: list[TimedSegment]) -> list[SegmentUnit]:
         can_split_by_words = bool(segment.words) and (source_text is None or source_text == text)
         if can_split_by_words:
             word_units: list[SegmentUnit] = []
-            for word in segment.words:
+            for word_index, word in enumerate(segment.words):
                 word_text = word.text.strip()
                 if not word_text:
                     continue
@@ -436,6 +485,9 @@ def _segmentation_units(segments: list[TimedSegment]) -> list[SegmentUnit]:
                         end=end,
                         text=word_text,
                         source_segment_indexes=(segment_index,),
+                        source_word_refs=(
+                            {"segment_index": segment_index, "word_index": word_index},
+                        ),
                     )
                 )
             units.extend(word_units)
@@ -458,53 +510,175 @@ def _should_break_before(
     current: list[SegmentUnit],
     candidate: list[SegmentUnit],
     next_unit: SegmentUnit,
-    max_duration_seconds: float,
-    min_duration_seconds: float,
-    max_chars_per_line: int,
-    max_lines: int,
-    max_chars_per_second: float,
-    pause_threshold_seconds: float,
-    prefer_sentence_boundaries: bool,
+    parameters: SegmentationParameters,
 ) -> bool:
     current_text = _run_text(current)
     current_duration = current[-1].end - current[0].start
     pause_gap = next_unit.start - current[-1].end
-    if pause_gap >= pause_threshold_seconds and current_duration >= min_duration_seconds:
-        return True
-    if prefer_sentence_boundaries and SENTENCE_BOUNDARY_RE.search(current_text):
-        return True
     candidate_text = _run_text(candidate)
     candidate_duration = candidate[-1].end - candidate[0].start
-    if candidate_duration > max_duration_seconds:
+    if _splits_protected_span(current[-1], next_unit):
+        return False
+    if (
+        pause_gap >= parameters.pause_threshold_ms / 1000.0
+        and current_duration >= parameters.min_duration_seconds
+    ):
         return True
-    if len(candidate_text) > max_chars_per_line * max_lines:
+    if parameters.prefer_sentence_boundaries and SENTENCE_BOUNDARY_RE.search(current_text):
         return True
-    if candidate_duration > 0 and (len(candidate_text) / candidate_duration) > max_chars_per_second:
+    if (
+        parameters.prefer_clause_boundaries
+        and current_duration >= parameters.min_duration_seconds
+        and CLAUSE_BOUNDARY_RE.search(current_text)
+    ):
+        return True
+    if candidate_duration > parameters.max_duration_seconds:
+        return True
+    if len(candidate_text) > _max_chars_total(parameters):
         return True
     return False
 
 
+def _splits_protected_span(previous_unit: SegmentUnit, next_unit: SegmentUnit) -> bool:
+    if previous_unit.protected_span_id is None:
+        return False
+    return previous_unit.protected_span_id == next_unit.protected_span_id
+
+
+def _protect_glossary_spans(
+    units: list[SegmentUnit], glossary_rules: list[dict[str, Any]]
+) -> list[SegmentUnit]:
+    protected_terms = _protected_term_tokens(glossary_rules)
+    if not protected_terms:
+        return units
+    span_ids: list[int | None] = [None] * len(units)
+    next_span_id = 1
+    normalized_units = [_normalize_term_token(unit.text) for unit in units]
+    for term_tokens in protected_terms:
+        if not term_tokens or len(term_tokens) < 2:
+            continue
+        width = len(term_tokens)
+        for start_index in range(0, len(units) - width + 1):
+            if normalized_units[start_index : start_index + width] != term_tokens:
+                continue
+            for offset in range(width):
+                if span_ids[start_index + offset] is None:
+                    span_ids[start_index + offset] = next_span_id
+            next_span_id += 1
+    if all(span_id is None for span_id in span_ids):
+        return units
+    return [
+        SegmentUnit(
+            start=unit.start,
+            end=unit.end,
+            text=unit.text,
+            source_segment_indexes=unit.source_segment_indexes,
+            source_word_refs=unit.source_word_refs,
+            protected_span_id=span_ids[index],
+        )
+        for index, unit in enumerate(units)
+    ]
+
+
+def _protected_term_tokens(glossary_rules: list[dict[str, Any]]) -> list[list[str]]:
+    terms: list[list[str]] = []
+    for rule in glossary_rules:
+        if rule.get("protected") is not True:
+            continue
+        if rule.get("is_regex") is True:
+            continue
+        candidates = [rule.get("source"), rule.get("target")]
+        aliases = rule.get("aliases")
+        if isinstance(aliases, list):
+            candidates.extend(aliases)
+        for candidate in candidates:
+            if not isinstance(candidate, str):
+                continue
+            tokens = [
+                _normalize_term_token(token)
+                for token in candidate.split()
+                if _normalize_term_token(token)
+            ]
+            if len(tokens) >= 2 and tokens not in terms:
+                terms.append(tokens)
+    return terms
+
+
+def _normalize_term_token(value: str) -> str:
+    return re.sub(r"^\W+|\W+$", "", value, flags=re.UNICODE).casefold()
+
+
+def _merge_short_blocks(
+    blocks: list[list[SegmentUnit]], *, parameters: SegmentationParameters
+) -> list[list[SegmentUnit]]:
+    if len(blocks) < 2 or parameters.min_duration_seconds <= 0:
+        return blocks
+    merged: list[list[SegmentUnit]] = []
+    index = 0
+    while index < len(blocks):
+        block = blocks[index]
+        duration = block[-1].end - block[0].start
+        if duration >= parameters.min_duration_seconds or len(blocks) == 1:
+            merged.append(block)
+            index += 1
+            continue
+        previous = merged[-1] if merged else None
+        next_block = blocks[index + 1] if index + 1 < len(blocks) else None
+        if next_block is not None and _can_merge_blocks(block + next_block, parameters=parameters):
+            merged.append(block + next_block)
+            index += 2
+            continue
+        if previous is not None and _can_merge_blocks(previous + block, parameters=parameters):
+            merged[-1] = previous + block
+            index += 1
+            continue
+        merged.append(block)
+        index += 1
+    return merged
+
+
+def _can_merge_blocks(block: list[SegmentUnit], *, parameters: SegmentationParameters) -> bool:
+    text = _run_text(block)
+    duration = block[-1].end - block[0].start
+    if duration > parameters.max_duration_seconds:
+        return False
+    if len(text) > _max_chars_total(parameters):
+        return False
+    if duration < parameters.min_duration_seconds:
+        return True
+    return True
+
+
 def _materialize_block(
-    block: list[SegmentUnit], *, max_chars_per_line: int, max_lines: int
+    block_index: int, block: list[SegmentUnit], *, max_chars_per_line: int, max_lines: int
 ) -> dict[str, Any]:
     text = _wrap_lines(_run_text(block), max_chars_per_line=max_chars_per_line, max_lines=max_lines)
     source_indexes: list[int] = []
+    word_refs: list[dict[str, int]] = []
     for unit in block:
-        for index in unit.source_segment_indexes:
-            if index not in source_indexes:
-                source_indexes.append(index)
+        for source_index in unit.source_segment_indexes:
+            if source_index not in source_indexes:
+                source_indexes.append(source_index)
+        for ref in unit.source_word_refs:
+            if ref not in word_refs:
+                word_refs.append(ref)
     start = block[0].start
     end = block[-1].end
     duration = max(end - start, 0.001)
-    return {
+    payload: dict[str, Any] = {
+        "id": f"seg_{block_index + 1:04d}",
         "start": start,
         "end": end,
         "text": text,
         "source_segment_indexes": source_indexes,
         "word_count": sum(len(unit.text.split()) for unit in block),
         "line_count": len(text.splitlines()) if text else 1,
+        "duration_seconds": round(duration, 3),
         "cps": round(len(text.replace("\n", "")) / duration, 3),
     }
+    if word_refs:
+        payload["word_refs"] = word_refs
+    return payload
 
 
 def _wrap_lines(text: str, *, max_chars_per_line: int, max_lines: int) -> str:

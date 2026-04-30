@@ -289,6 +289,7 @@ def _common_settings(body: SubtitleLocalJobRequest | SubtitleYouTubeJobRequest) 
         "asr_device": body.asr_device,
         "asr_compute_type": body.asr_compute_type,
         "correct_transcript": body.correct_transcript,
+        "segment_parameters": body.segment_parameters,
         "step_order": body.step_order,
         "extra_steps": [step.model_dump(mode="json") for step in body.extra_steps],
     }

@@ -141,7 +141,6 @@ Parameters:
 | `max_lines` | integer | no | Maximum number of lines in each subtitle unit. Defaults to `2`. |
 | `max_chars_per_line` | integer | no | Maximum characters per line before pre-wrapping text. Defaults to `40`. |
 | `max_chars_total` | integer | no | Maximum total characters in a subtitle unit. Defaults to `max_chars_per_line * max_lines`. |
-| `max_chars_per_second` | number | no | Maximum preferred reading speed used when deciding where to split. Defaults to `20`. |
 | `pause_threshold_ms` | integer | no | Silence gap threshold that encourages a subtitle boundary. Defaults to `500`. |
 | `prefer_sentence_boundaries` | boolean | no | Prefer punctuation boundaries when splitting. Defaults to `true`. |
 | `prefer_clause_boundaries` | boolean | no | Prefer comma-like clause boundaries when splitting. Defaults to `false`. |

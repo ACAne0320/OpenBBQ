@@ -4,6 +4,19 @@ import { describe, expect, it } from "vitest";
 import { buildQuickstartRequest, workflowTemplateForSource } from "../workflowMapping";
 import type { WorkflowStep } from "../../src/lib/types";
 
+const defaultSegmentParameters = {
+  profile: "default",
+  max_duration_seconds: 6,
+  min_duration_seconds: 0.8,
+  max_lines: 2,
+  max_chars_per_line: 40,
+  pause_threshold_ms: 500,
+  prefer_sentence_boundaries: true,
+  prefer_clause_boundaries: false,
+  merge_short_segments: false,
+  protect_terms: true
+};
+
 function findParam(steps: WorkflowStep[], stepId: string, key: string) {
   return steps.find((step) => step.id === stepId)?.parameters.find((parameter) => parameter.key === key);
 }
@@ -39,6 +52,7 @@ describe("buildQuickstartRequest", () => {
         asr_device: "cpu",
         asr_compute_type: "int8",
         correct_transcript: true,
+        segment_parameters: defaultSegmentParameters,
         step_order: ["extract_audio", "transcribe", "correct", "segment", "translate", "subtitle"],
         extra_steps: []
       }
@@ -73,6 +87,7 @@ describe("buildQuickstartRequest", () => {
       asr_device: "cpu",
       asr_compute_type: "int8",
       correct_transcript: true,
+      segment_parameters: defaultSegmentParameters,
       step_order: ["download", "extract_audio", "transcribe", "correct", "segment", "translate", "subtitle"],
       quality: "bestvideo",
       auth: "browser"
@@ -95,6 +110,30 @@ describe("buildQuickstartRequest", () => {
 
     expect(buildQuickstartRequest({ kind: "remote_url", url: "https://example.test/watch" }, steps).body).toMatchObject({
       target_lang: "ja"
+    });
+  });
+
+  it("uses edited segment parameters", () => {
+    const steps = workflowTemplateForSource({ kind: "remote_url", url: "https://example.test/watch" }).map((step) =>
+      step.id === "segment"
+        ? {
+            ...step,
+            parameters: step.parameters.map((parameter) =>
+              parameter.key === "merge_short_segments" && parameter.kind === "toggle"
+                ? { ...parameter, value: true }
+                : parameter.key === "max_chars_per_line" && parameter.kind === "text"
+                  ? { ...parameter, value: "30" }
+                  : parameter
+            )
+          }
+        : step
+    );
+
+    expect(buildQuickstartRequest({ kind: "remote_url", url: "https://example.test/watch" }, steps).body).toMatchObject({
+      segment_parameters: {
+        merge_short_segments: true,
+        max_chars_per_line: 30
+      }
     });
   });
 
@@ -131,7 +170,7 @@ describe("buildQuickstartRequest", () => {
           tool_ref: "translation.qa",
           inputs: { translation: "translate.translation" },
           outputs: [{ name: "qa", type: "translation_qa" }],
-          parameters: { max_lines: "2" }
+          parameters: { max_lines: 2 }
         }
       ],
       step_order: [

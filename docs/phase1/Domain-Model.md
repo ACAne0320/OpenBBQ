@@ -237,6 +237,7 @@ A subtitle-ready timed text representation derived from an `asr_transcript`.
 
 Content format: JSON array of segment objects, each with:
 
+- `id`: deterministic segment ID within the generated subtitle artifact, such as `seg_0001`.
 - `start`: start time in seconds (float).
 - `end`: end time in seconds (float).
 - `text`: source-language or pre-translated subtitle text for this timed unit.
@@ -244,17 +245,29 @@ Content format: JSON array of segment objects, each with:
 Optional fields may include:
 
 - `source_segment_indexes`: indexes of source transcript segments that contributed to this subtitle unit.
+- `word_refs`: source word references with `segment_index` and `word_index` when word-level timestamps were available.
 - `word_count`: number of source tokens or words grouped into this subtitle unit.
 - `line_count`: number of rendered lines after pre-wrapping.
+- `duration_seconds`: subtitle unit duration after segmentation.
 - `cps`: characters-per-second estimate for this subtitle unit.
 
 Metadata:
 
 - `segment_count`: total number of subtitle-ready units.
 - `duration_seconds`: total duration as a float.
+- `profile`: segmentation profile name used to resolve defaults.
+- `language`: optional language code used for language-specific segmentation behavior.
 - `max_duration_seconds`: configured per-unit duration cap.
+- `min_duration_seconds`: configured minimum duration used for merge and pause heuristics.
 - `max_chars_per_line`: configured line-width cap used during segmentation.
+- `max_chars_total`: configured total character cap per unit.
 - `max_lines`: configured maximum line count per unit.
+- `pause_threshold_ms`: configured pause threshold for break candidates.
+- `prefer_sentence_boundaries`: whether sentence-ending punctuation is treated as a strong boundary.
+- `prefer_clause_boundaries`: whether comma-like punctuation is treated as a weak boundary.
+- `merge_short_segments`: whether short generated units may be merged with neighbors.
+- `protect_terms`: whether protected glossary terms are kept within one subtitle unit when possible.
+- `glossary_rule_count`: number of glossary rules considered during segmentation.
 
 ### `glossary`
 

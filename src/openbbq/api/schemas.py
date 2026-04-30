@@ -379,6 +379,7 @@ class SubtitleLocalJobRequest(OpenBBQModel):
     asr_device: str | None = None
     asr_compute_type: str | None = None
     correct_transcript: bool = True
+    segment_parameters: JsonObject = Field(default_factory=dict)
     step_order: tuple[str, ...] = ()
     extra_steps: tuple[SubtitleExtraStepRequest, ...] = ()
     output_path: Path | None = None
@@ -394,6 +395,7 @@ class SubtitleYouTubeJobRequest(OpenBBQModel):
     asr_device: str | None = None
     asr_compute_type: str | None = None
     correct_transcript: bool = True
+    segment_parameters: JsonObject = Field(default_factory=dict)
     step_order: tuple[str, ...] = ()
     extra_steps: tuple[SubtitleExtraStepRequest, ...] = ()
     quality: str = "best[ext=mp4][height<=720]/best[height<=720]/best"

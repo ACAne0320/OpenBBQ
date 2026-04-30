@@ -257,30 +257,53 @@ def test_transcript_segment_derives_subtitle_ready_units_from_word_timestamps():
                 "type": "subtitle_segments",
                 "content": [
                     {
+                        "id": "seg_0001",
                         "start": 0.0,
                         "end": 1.1,
                         "text": "Hello OpenBBQ world.",
                         "source_segment_indexes": [0],
                         "word_count": 3,
                         "line_count": 1,
+                        "duration_seconds": 1.1,
                         "cps": 18.182,
+                        "word_refs": [
+                            {"segment_index": 0, "word_index": 0},
+                            {"segment_index": 0, "word_index": 1},
+                            {"segment_index": 0, "word_index": 2},
+                        ],
                     },
                     {
+                        "id": "seg_0002",
                         "start": 2.0,
                         "end": 2.8,
                         "text": "Next sentence",
                         "source_segment_indexes": [1],
                         "word_count": 2,
                         "line_count": 1,
+                        "duration_seconds": 0.8,
                         "cps": 16.25,
+                        "word_refs": [
+                            {"segment_index": 1, "word_index": 0},
+                            {"segment_index": 1, "word_index": 1},
+                        ],
                     },
                 ],
                 "metadata": {
                     "segment_count": 2,
                     "duration_seconds": 2.8,
+                    "profile": "default",
+                    "language": None,
                     "max_duration_seconds": 6.0,
+                    "min_duration_seconds": 0.8,
                     "max_chars_per_line": 40,
+                    "max_chars_total": 80,
                     "max_lines": 2,
+                    "pause_threshold_ms": 500,
+                    "prefer_sentence_boundaries": True,
+                    "prefer_clause_boundaries": False,
+                    "merge_short_segments": False,
+                    "protect_terms": True,
+                    "glossary_rule_count": 0,
                 },
             }
         }
@@ -315,3 +338,131 @@ def test_transcript_segment_wraps_lines_without_word_timestamps():
         == "Hello\nOpenBBQ world today"
     )
     assert response["outputs"]["subtitle_segments"]["content"][0]["source_segment_indexes"] == [0]
+
+
+def test_transcript_segment_uses_readable_profile_and_clause_boundaries():
+    response = transcript_plugin.run(
+        {
+            "tool_name": "segment",
+            "parameters": {
+                "profile": "readable",
+                "min_duration_seconds": 0.1,
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": [
+                        {
+                            "start": 0.0,
+                            "end": 1.5,
+                            "text": "Alpha, beta gamma.",
+                            "words": [
+                                {"start": 0.0, "end": 0.4, "text": "Alpha,"},
+                                {"start": 0.45, "end": 0.9, "text": "beta"},
+                                {"start": 0.95, "end": 1.5, "text": "gamma."},
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+    )
+
+    subtitle = response["outputs"]["subtitle_segments"]
+
+    assert [segment["text"] for segment in subtitle["content"]] == ["Alpha,", "beta gamma."]
+    assert subtitle["metadata"]["profile"] == "readable"
+    assert subtitle["metadata"]["prefer_clause_boundaries"] is True
+
+
+def test_transcript_segment_protects_multitoken_glossary_terms():
+    response = transcript_plugin.run(
+        {
+            "tool_name": "segment",
+            "parameters": {
+                "max_chars_total": 8,
+                "glossary_rules": [{"source": "Open BBQ", "protected": True}],
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": [
+                        {
+                            "start": 0.0,
+                            "end": 1.5,
+                            "text": "Use Open BBQ today",
+                            "words": [
+                                {"start": 0.0, "end": 0.2, "text": "Use"},
+                                {"start": 0.25, "end": 0.5, "text": "Open"},
+                                {"start": 0.55, "end": 0.8, "text": "BBQ"},
+                                {"start": 0.85, "end": 1.5, "text": "today"},
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+    )
+
+    assert [segment["text"] for segment in response["outputs"]["subtitle_segments"]["content"]] == [
+        "Use Open BBQ",
+        "today",
+    ]
+
+
+def test_transcript_segment_can_merge_short_segments():
+    response = transcript_plugin.run(
+        {
+            "tool_name": "segment",
+            "parameters": {
+                "pause_threshold_ms": 100,
+                "min_duration_seconds": 0.8,
+                "merge_short_segments": True,
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": [
+                        {"start": 0.0, "end": 0.2, "text": "Hi."},
+                        {"start": 0.5, "end": 1.1, "text": "there"},
+                    ],
+                }
+            },
+        }
+    )
+
+    assert [segment["text"] for segment in response["outputs"]["subtitle_segments"]["content"]] == [
+        "Hi. there"
+    ]
+
+
+def test_transcript_segment_merge_short_segments_softens_cps_for_fragments():
+    response = transcript_plugin.run(
+        {
+            "tool_name": "segment",
+            "parameters": {
+                "merge_short_segments": True,
+            },
+            "inputs": {
+                "transcript": {
+                    "type": "asr_transcript",
+                    "content": [
+                        {
+                            "start": 2.03,
+                            "end": 2.59,
+                            "text": "are all sorts",
+                            "words": [
+                                {"start": 2.03, "end": 2.15, "text": "are"},
+                                {"start": 2.15, "end": 2.35, "text": "all"},
+                                {"start": 2.35, "end": 2.59, "text": "sorts"},
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+    )
+
+    assert [segment["text"] for segment in response["outputs"]["subtitle_segments"]["content"]] == [
+        "are all sorts"
+    ]

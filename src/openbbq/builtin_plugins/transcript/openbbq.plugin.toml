@@ -87,6 +87,14 @@ effects = []
 type = "object"
 additionalProperties = false
 
+[tools.parameter_schema.properties.profile]
+type = "string"
+enum = ["default", "readable", "dense", "short_form"]
+default = "default"
+
+[tools.parameter_schema.properties.language]
+type = "string"
+
 [tools.parameter_schema.properties.max_duration_seconds]
 type = "number"
 exclusiveMinimum = 0
@@ -107,10 +115,9 @@ type = "integer"
 minimum = 1
 default = 40
 
-[tools.parameter_schema.properties.max_chars_per_second]
-type = "number"
-exclusiveMinimum = 0
-default = 20
+[tools.parameter_schema.properties.max_chars_total]
+type = "integer"
+minimum = 1
 
 [tools.parameter_schema.properties.pause_threshold_ms]
 type = "integer"
@@ -120,6 +127,54 @@ default = 500
 [tools.parameter_schema.properties.prefer_sentence_boundaries]
 type = "boolean"
 default = true
+
+[tools.parameter_schema.properties.prefer_clause_boundaries]
+type = "boolean"
+default = false
+
+[tools.parameter_schema.properties.merge_short_segments]
+type = "boolean"
+default = false
+
+[tools.parameter_schema.properties.protect_terms]
+type = "boolean"
+default = true
+
+[tools.parameter_schema.properties.glossary_rules]
+type = "array"
+default = []
+
+[tools.parameter_schema.properties.glossary_rules.items]
+type = "object"
+additionalProperties = false
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.source]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.target]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.find]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.replace]
+type = "string"
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.aliases]
+type = "array"
+items = { type = "string" }
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.protected]
+type = "boolean"
+default = false
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.is_regex]
+type = "boolean"
+default = false
+
+[tools.parameter_schema.properties.glossary_rules.items.properties.case_sensitive]
+type = "boolean"
+default = false
 
 [tools.inputs.transcript]
 artifact_types = ["asr_transcript"]

@@ -63,6 +63,8 @@ class SegmentUnit:
     end: float
     text: str
     source_segment_indexes: tuple[int, ...]
+    source_word_refs: tuple[dict[str, int], ...] = ()
+    protected_span_id: int | None = None
 
 
 def timed_segments_from_request(

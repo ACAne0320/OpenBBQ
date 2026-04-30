@@ -83,9 +83,16 @@ workflows:
           - name: subtitle_segments
             type: subtitle_segments
         parameters:
+          profile: default
           max_duration_seconds: 6
+          min_duration_seconds: 0.8
           max_lines: 2
           max_chars_per_line: 40
+          pause_threshold_ms: 500
+          prefer_sentence_boundaries: true
+          prefer_clause_boundaries: false
+          merge_short_segments: false
+          protect_terms: true
         on_error: abort
         max_retries: 0
 

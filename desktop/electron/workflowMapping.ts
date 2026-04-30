@@ -12,6 +12,7 @@ export type QuickstartRequest =
         asr_device: string;
         asr_compute_type: string;
         correct_transcript: boolean;
+        segment_parameters: Record<string, string | boolean | number>;
         step_order: string[];
         extra_steps: QuickstartExtraStep[];
       };
@@ -26,6 +27,7 @@ export type QuickstartRequest =
         asr_device: string;
         asr_compute_type: string;
         correct_transcript: boolean;
+        segment_parameters: Record<string, string | boolean | number>;
         step_order: string[];
         extra_steps: QuickstartExtraStep[];
         quality: string;
@@ -41,7 +43,7 @@ type QuickstartExtraStep = {
   tool_ref: string;
   inputs: Record<string, string>;
   outputs: Array<{ name: string; type: string }>;
-  parameters: Record<string, string | boolean>;
+  parameters: Record<string, string | boolean | number>;
 };
 
 function cloneSteps(steps: WorkflowStep[]): WorkflowStep[] {
@@ -127,6 +129,7 @@ export function buildQuickstartRequest(source: SourceDraft, steps: WorkflowStep[
     asr_device: parameterValue(steps, "transcribe", "device", "cpu"),
     asr_compute_type: parameterValue(steps, "transcribe", "compute_type", "int8"),
     correct_transcript: enabledStep(steps, "correct") !== undefined,
+    segment_parameters: segmentParameters(steps),
     step_order: steps.filter((step) => step.status !== "disabled").map((step) => step.id),
     extra_steps: extraStepsForSource(source, steps)
   };
@@ -155,6 +158,25 @@ export function buildQuickstartRequest(source: SourceDraft, steps: WorkflowStep[
   };
 }
 
+function segmentParameters(steps: WorkflowStep[]): Record<string, string | boolean | number> {
+  const segment = steps.find((step) => step.id === "segment");
+  if (!segment) {
+    return {};
+  }
+  return Object.fromEntries(segment.parameters.map((parameter) => [parameter.key, requestParameterValue(parameter)]));
+}
+
+function requestParameterValue(parameter: WorkflowStep["parameters"][number]): string | boolean | number {
+  if (parameter.kind === "toggle") {
+    return parameter.value;
+  }
+  const value = parameter.value.trim();
+  if (value !== "" && /^-?\d+(\.\d+)?$/.test(value)) {
+    return Number(value);
+  }
+  return value;
+}
+
 function extraStepsForSource(source: SourceDraft, steps: WorkflowStep[]): QuickstartExtraStep[] {
   const baseIds =
     source.kind === "remote_url"
@@ -171,7 +193,7 @@ function extraStepsForSource(source: SourceDraft, steps: WorkflowStep[]): Quicks
       parameters: Object.fromEntries(
         step.parameters.map((parameter) => [
           parameter.key,
-          parameter.kind === "toggle" ? parameter.value : parameter.value
+          requestParameterValue(parameter)
         ])
       )
     }));

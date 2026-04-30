@@ -12,6 +12,7 @@ from openbbq.application.quickstart import (
     write_youtube_subtitle_workflow,
 )
 from openbbq.application.quickstart_workflows import (
+    subtitle_workflow_template_for_source,
     write_local_subtitle_workflow as write_local_subtitle_workflow_direct,
     write_youtube_subtitle_workflow as write_youtube_subtitle_workflow_direct,
 )
@@ -52,6 +53,23 @@ def test_quickstart_re_exports_template_constants_for_compatibility():
     assert YOUTUBE_SUBTITLE_TEMPLATE_NAME == "openbbq.yaml"
     assert LOCAL_SUBTITLE_TEMPLATE_PACKAGE == "openbbq.workflow_templates.local_subtitle"
     assert LOCAL_SUBTITLE_TEMPLATE_NAME == "openbbq.yaml"
+
+
+def test_subtitle_template_exposes_segment_profile_as_select():
+    template = subtitle_workflow_template_for_source(source_kind="local_file")
+    steps = {step["id"]: step for step in template["steps"]}
+
+    profile = next(
+        parameter for parameter in steps["segment"]["parameters"] if parameter["key"] == "profile"
+    )
+
+    assert profile == {
+        "kind": "select",
+        "key": "profile",
+        "label": "Profile",
+        "value": "default",
+        "options": ("default", "readable", "dense", "short_form"),
+    }
 
 
 def test_direct_youtube_workflow_generation_renders_expected_config(tmp_path):
@@ -187,6 +205,34 @@ def test_direct_local_workflow_generation_can_skip_correction(tmp_path):
         "subtitle",
     ]
     assert steps["segment"]["inputs"]["transcript"] == "transcribe.transcript"
+
+
+def test_direct_local_workflow_generation_applies_segment_parameters(tmp_path):
+    generated = write_local_subtitle_workflow_direct(
+        workspace_root=tmp_path,
+        video_selector="project.art_source_video",
+        source_lang="ja",
+        target_lang="en",
+        provider="openai",
+        model="gpt-4.1-mini",
+        asr_model="small",
+        asr_device="cuda",
+        asr_compute_type="float16",
+        segment_parameters={
+            "profile": "readable",
+            "merge_short_segments": "true",
+            "max_chars_total": "64",
+        },
+        run_id="local-direct",
+    )
+
+    config = yaml.safe_load(generated.config_path.read_text(encoding="utf-8"))
+    steps = _workflow_steps(config, "local-to-srt")
+
+    segment = steps["segment"]["parameters"]
+    assert segment["profile"] == "readable"
+    assert segment["merge_short_segments"] is True
+    assert segment["max_chars_total"] == 64
 
 
 def test_direct_local_workflow_generation_inserts_extra_workflow_steps(tmp_path):

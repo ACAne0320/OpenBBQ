@@ -9,6 +9,7 @@ from uuid import uuid4
 import yaml
 
 from openbbq.domain.base import JsonObject, OpenBBQModel
+from openbbq.builtin_plugins.transcript.models import SegmentationParameters
 from openbbq.plugins.models import ToolSpec
 from openbbq.plugins.registry import discover_plugins
 
@@ -60,6 +61,7 @@ _SELECT_PARAMETER_OPTIONS = {
     ),
     ("faster_whisper.transcribe", "device"): ("cpu", "cuda"),
     ("faster_whisper.transcribe", "compute_type"): ("int8", "float16", "float32"),
+    ("transcript.segment", "profile"): ("default", "readable", "dense", "short_form"),
     ("subtitle.export", "format"): ("srt",),
 }
 
@@ -138,6 +140,7 @@ def write_youtube_subtitle_workflow(
     browser: str | None,
     browser_profile: str | None,
     correct_transcript: bool = True,
+    segment_parameters: JsonObject | None = None,
     step_order: tuple[str, ...] = (),
     extra_steps: tuple[WorkflowTemplate, ...] = (),
     run_id: str | None = None,
@@ -159,6 +162,7 @@ def write_youtube_subtitle_workflow(
         asr_device=asr_device,
         asr_compute_type=asr_compute_type,
         correct_transcript=correct_transcript,
+        segment_parameters=segment_parameters or {},
         quality=quality,
         auth=auth,
         browser=browser,
@@ -190,6 +194,7 @@ def write_local_subtitle_workflow(
     asr_device: str,
     asr_compute_type: str,
     correct_transcript: bool = True,
+    segment_parameters: JsonObject | None = None,
     step_order: tuple[str, ...] = (),
     extra_steps: tuple[WorkflowTemplate, ...] = (),
     run_id: str | None = None,
@@ -209,6 +214,7 @@ def write_local_subtitle_workflow(
         asr_device=asr_device,
         asr_compute_type=asr_compute_type,
         correct_transcript=correct_transcript,
+        segment_parameters=segment_parameters or {},
         step_order=step_order,
         extra_steps=extra_steps,
     )
@@ -236,6 +242,7 @@ def _youtube_subtitle_config(
     asr_device: str,
     asr_compute_type: str,
     correct_transcript: bool,
+    segment_parameters: JsonObject,
     quality: str,
     auth: str,
     browser: str | None,
@@ -267,6 +274,8 @@ def _youtube_subtitle_config(
     if not correct_transcript:
         _remove_transcript_correction(config, YOUTUBE_SUBTITLE_WORKFLOW_ID)
 
+    _apply_segment_parameters(steps, segment_parameters)
+
     translation_parameters = steps["translate"]["parameters"]
     translation_parameters["provider"] = provider
     translation_parameters["source_lang"] = source_lang
@@ -290,6 +299,7 @@ def _local_subtitle_config(
     asr_device: str,
     asr_compute_type: str,
     correct_transcript: bool,
+    segment_parameters: JsonObject,
     step_order: tuple[str, ...],
     extra_steps: tuple[WorkflowTemplate, ...],
 ) -> WorkflowTemplate:
@@ -312,6 +322,8 @@ def _local_subtitle_config(
     _set_optional(correction_parameters, "model", model)
     if not correct_transcript:
         _remove_transcript_correction(config, LOCAL_SUBTITLE_WORKFLOW_ID)
+
+    _apply_segment_parameters(steps, segment_parameters)
 
     translation_parameters = steps["translate"]["parameters"]
     translation_parameters["provider"] = provider
@@ -400,6 +412,18 @@ def _remove_transcript_correction(config: WorkflowTemplate, workflow_id: str) ->
     workflow["steps"] = [step for step in workflow["steps"] if step["id"] != "correct"]
     steps = _steps_by_id(config, workflow_id)
     steps["segment"]["inputs"]["transcript"] = "transcribe.transcript"
+
+
+def _apply_segment_parameters(
+    steps: dict[str, WorkflowTemplate], segment_parameters: JsonObject
+) -> None:
+    if not segment_parameters:
+        return
+    resolved = SegmentationParameters.model_validate(segment_parameters).model_dump(
+        mode="json",
+        exclude_none=True,
+    )
+    steps["segment"]["parameters"].update(resolved)
 
 
 def _desktop_step(step: WorkflowTemplate) -> WorkflowTemplate:

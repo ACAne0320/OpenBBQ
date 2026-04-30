@@ -65,8 +65,40 @@ export const workflowSteps: WorkflowStep[] = [
     inputs: { transcript: "correct.transcript" },
     outputs: [{ name: "subtitle_segments", type: "subtitle_segments" }],
     parameters: [
+      { kind: "select", key: "profile", label: "Profile", value: "default", options: ["default", "readable", "dense", "short_form"] },
       { kind: "text", key: "max_duration_seconds", label: "Max duration seconds", value: "6" },
-      { kind: "text", key: "max_lines", label: "Max lines", value: "2" }
+      { kind: "text", key: "min_duration_seconds", label: "Min duration seconds", value: "0.8" },
+      { kind: "text", key: "max_lines", label: "Max lines", value: "2" },
+      { kind: "text", key: "max_chars_per_line", label: "Max chars per line", value: "40" },
+      { kind: "text", key: "pause_threshold_ms", label: "Pause threshold ms", value: "500" },
+      {
+        kind: "toggle",
+        key: "prefer_sentence_boundaries",
+        label: "Prefer sentence boundaries",
+        description: "Prefer punctuation boundaries when splitting.",
+        value: true
+      },
+      {
+        kind: "toggle",
+        key: "prefer_clause_boundaries",
+        label: "Prefer clause boundaries",
+        description: "Prefer comma-like clause boundaries when splitting.",
+        value: false
+      },
+      {
+        kind: "toggle",
+        key: "merge_short_segments",
+        label: "Merge short segments",
+        description: "Merge generated units shorter than the minimum duration.",
+        value: false
+      },
+      {
+        kind: "toggle",
+        key: "protect_terms",
+        label: "Protect terms",
+        description: "Keep protected glossary terms in one subtitle unit when possible.",
+        value: true
+      }
     ]
   },
   {

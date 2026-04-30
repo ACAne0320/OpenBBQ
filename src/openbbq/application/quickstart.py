@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import Field
+
 from openbbq.application.artifacts import ArtifactImportRequest, import_artifact
 from openbbq.application.quickstart_workflows import (
     DEFAULT_YOUTUBE_QUALITY,
@@ -18,7 +20,7 @@ from openbbq.application.quickstart_workflows import (
     write_youtube_subtitle_workflow,
 )
 from openbbq.application.runs import RunCreateRequest, create_run
-from openbbq.domain.base import OpenBBQModel
+from openbbq.domain.base import JsonObject, OpenBBQModel
 from openbbq.errors import ValidationError
 from openbbq.runtime.secrets import SecretResolver
 from openbbq.runtime.settings import load_runtime_settings
@@ -71,6 +73,7 @@ class LocalSubtitleJobRequest(OpenBBQModel):
     asr_device: str | None = None
     asr_compute_type: str | None = None
     correct_transcript: bool = True
+    segment_parameters: JsonObject = Field(default_factory=dict)
     step_order: tuple[str, ...] = ()
     extra_steps: tuple[dict, ...] = ()
     output_path: Path | None = None
@@ -90,6 +93,7 @@ class YouTubeSubtitleJobRequest(OpenBBQModel):
     asr_device: str | None = None
     asr_compute_type: str | None = None
     correct_transcript: bool = True
+    segment_parameters: JsonObject = Field(default_factory=dict)
     step_order: tuple[str, ...] = ()
     extra_steps: tuple[dict, ...] = ()
     quality: str = DEFAULT_YOUTUBE_QUALITY
@@ -115,6 +119,7 @@ def create_local_subtitle_job(request: LocalSubtitleJobRequest) -> SubtitleJobRe
         asr_device=request.asr_device,
         asr_compute_type=request.asr_compute_type,
         correct_transcript=request.correct_transcript,
+        segment_parameters=request.segment_parameters,
         step_order=request.step_order,
         extra_steps=request.extra_steps,
     )
@@ -138,6 +143,7 @@ def create_local_subtitle_job(request: LocalSubtitleJobRequest) -> SubtitleJobRe
         asr_device=request.asr_device,
         asr_compute_type=request.asr_compute_type,
         correct_transcript=request.correct_transcript,
+        segment_parameters=request.segment_parameters,
         step_order=request.step_order,
         extra_steps=request.extra_steps,
         run_id=generated.run_id,
@@ -204,6 +210,7 @@ def create_youtube_subtitle_job(request: YouTubeSubtitleJobRequest) -> SubtitleJ
         asr_device=request.asr_device,
         asr_compute_type=request.asr_compute_type,
         correct_transcript=request.correct_transcript,
+        segment_parameters=request.segment_parameters,
         step_order=request.step_order,
         extra_steps=request.extra_steps,
         quality=request.quality,
