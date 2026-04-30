@@ -158,8 +158,11 @@ export function toTaskSummaryModel(task: ApiQuickstartTaskRecord): TaskSummary {
     id: task.run_id,
     title: sourceSummary,
     workflowName: workflowDisplayName(task.workflow_id),
+    sourceKind: task.source_kind,
+    sourceUri: task.source_uri,
     sourceSummary,
     status: task.status,
+    createdAt: task.created_at,
     updatedAt: task.updated_at
   };
 }

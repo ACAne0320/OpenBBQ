@@ -401,8 +401,11 @@ describe("desktop IPC actions", () => {
         id: "run_1",
         title: "Demo video",
         workflowName: "Remote video -> translated SRT",
+        sourceKind: "remote_url",
+        sourceUri: "https://www.youtube.com/watch?v=demo",
         sourceSummary: "Demo video",
         status: "completed",
+        createdAt: "2026-04-28T00:00:00+00:00",
         updatedAt: "2026-04-28T00:05:00+00:00"
       }
     ]);

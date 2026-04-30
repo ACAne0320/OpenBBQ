@@ -237,8 +237,11 @@ export function createMockClient(): OpenBBQClient {
           id: "run_sample",
           title: "Sample task",
           workflowName: "Remote video -> translated SRT",
+          sourceKind: "remote_url",
+          sourceUri: "https://www.youtube.com/watch?v=sample",
           sourceSummary: "Sample task",
           status: "failed",
+          createdAt: "2026-04-27T03:15:12.000Z",
           updatedAt: "2026-04-27T03:17:12.000Z"
         }
       ];

@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { Clock3, FileVideo, Link2, RefreshCw } from "lucide-react";
 
 import type { TaskSummary } from "../lib/types";
 import { Button } from "./Button";
@@ -25,6 +25,15 @@ function statusClass(status: TaskSummary["status"]): string {
   }
 
   return "bg-paper-side text-muted";
+}
+
+function sourceLabel(task: TaskSummary): string {
+  return task.sourceKind === "local_file" ? "File path" : "Video URL";
+}
+
+function formatTaskTimestamp(timestamp: string): string {
+  const match = timestamp.trim().match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/);
+  return match ? `${match[1]} ${match[2]}` : timestamp;
 }
 
 export function TaskHistory({ error, loading, onOpenTask, onRefresh, tasks }: TaskHistoryProps) {
@@ -67,18 +76,36 @@ export function TaskHistory({ error, loading, onOpenTask, onRefresh, tasks }: Ta
                 type="button"
                 aria-label={`Open ${task.title}`}
                 onClick={() => onOpenTask(task.id)}
-                className="grid min-h-[76px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-lg bg-paper px-4 py-3 text-left shadow-control transition-transform duration-150 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent [@media(hover:hover)]:hover:bg-paper-muted"
+                className="grid min-h-[108px] grid-cols-1 gap-4 rounded-lg bg-paper px-4 py-3 text-left shadow-control transition-transform duration-150 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center [@media(hover:hover)]:hover:bg-paper-muted"
               >
-                <span className="min-w-0">
+                <span className="grid min-w-0 gap-2">
                   <span className="block truncate text-base font-semibold text-ink-brown">{task.title}</span>
-                  <span className="mt-1 block truncate text-sm text-muted">{task.workflowName}</span>
-                  <span className="mt-1 block truncate text-xs text-muted">{task.sourceSummary}</span>
+                  <span className="block truncate text-sm font-medium text-muted">{task.workflowName}</span>
+                  <span className="grid min-w-0 gap-1.5 text-xs text-muted">
+                    <span className="flex min-w-0 items-center gap-2">
+                      {task.sourceKind === "local_file" ? (
+                        <FileVideo className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
+                      ) : (
+                        <Link2 className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
+                      )}
+                      <span className="shrink-0 font-semibold text-ink-brown">{sourceLabel(task)}</span>
+                      <span className="truncate" title={task.sourceUri}>
+                        {task.sourceUri}
+                      </span>
+                    </span>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Clock3 className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden="true" />
+                      <span className="shrink-0 font-semibold text-ink-brown">Created</span>
+                      <time className="truncate tabular-nums" dateTime={task.createdAt}>
+                        {formatTaskTimestamp(task.createdAt)}
+                      </time>
+                    </span>
+                  </span>
                 </span>
-                <span className="grid justify-items-end gap-2">
+                <span className="flex items-center justify-start sm:justify-end">
                   <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase ${statusClass(task.status)}`}>
                     {task.status}
                   </span>
-                  <span className="text-xs text-muted">{task.updatedAt}</span>
                 </span>
               </button>
             ))}

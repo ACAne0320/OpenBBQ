@@ -89,8 +89,11 @@ export type TaskSummary = {
   id: string;
   title: string;
   workflowName: string;
+  sourceKind: SourceKind;
+  sourceUri: string;
   sourceSummary: string;
   status: TaskStatus;
+  createdAt: string;
   updatedAt: string;
 };
 

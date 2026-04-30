@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import type { ApiRunRecord, ApiWorkflowEvent } from "../apiTypes";
-import { toTaskMonitorModel } from "../taskMapping";
+import type { ApiQuickstartTaskRecord, ApiRunRecord, ApiWorkflowEvent } from "../apiTypes";
+import { toTaskMonitorModel, toTaskSummaryModel } from "../taskMapping";
 
 const baseRun: ApiRunRecord = {
   id: "run_1",
@@ -15,6 +15,38 @@ const baseRun: ApiRunRecord = {
   latest_event_sequence: 3,
   error: null,
   created_by: "desktop"
+};
+
+const baseTask: ApiQuickstartTaskRecord = {
+  id: "task_run_1",
+  run_id: "run_1",
+  workflow_id: "youtube-to-srt",
+  workspace_root: "H:/workspace",
+  generated_project_root: "H:/workspace/.openbbq/generated/youtube-subtitle/run_1",
+  generated_config_path: "H:/workspace/.openbbq/generated/youtube-subtitle/run_1/openbbq.yaml",
+  plugin_paths: [],
+  source_kind: "remote_url",
+  source_uri: "https://www.youtube.com/watch?v=demo",
+  source_summary: "Demo video",
+  source_lang: "en",
+  target_lang: "zh",
+  provider: "openai",
+  model: "gpt-4o-mini",
+  asr_model: "base",
+  asr_device: "cpu",
+  asr_compute_type: "int8",
+  quality: "best",
+  auth: "auto",
+  browser: null,
+  browser_profile: null,
+  output_path: null,
+  source_artifact_id: null,
+  cache_key: "cache-1",
+  status: "completed",
+  created_at: "2026-04-28T00:00:00+00:00",
+  updated_at: "2026-04-28T00:05:00+00:00",
+  completed_at: "2026-04-28T00:05:00+00:00",
+  error: null
 };
 
 function event(sequence: number, type: string, stepId: string | null, message: string, level: ApiWorkflowEvent["level"] = "info"): ApiWorkflowEvent {
@@ -126,5 +158,21 @@ describe("toTaskMonitorModel", () => {
         unit: "seconds"
       }
     ]);
+  });
+});
+
+describe("toTaskSummaryModel", () => {
+  it("keeps video title separate from original source and timestamps", () => {
+    expect(toTaskSummaryModel(baseTask)).toEqual({
+      id: "run_1",
+      title: "Demo video",
+      workflowName: "Remote video -> translated SRT",
+      sourceKind: "remote_url",
+      sourceUri: "https://www.youtube.com/watch?v=demo",
+      sourceSummary: "Demo video",
+      status: "completed",
+      createdAt: "2026-04-28T00:00:00+00:00",
+      updatedAt: "2026-04-28T00:05:00+00:00"
+    });
   });
 });

@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import Request
 
+from openbbq.application.artifacts import list_artifacts, show_artifact
 from openbbq.api.schemas import SubtitleLocalJobRequest, SubtitleYouTubeJobRequest
 from openbbq.api.user_database import user_runtime_database
 from openbbq.application.quickstart import SubtitleJobResult
@@ -77,7 +78,12 @@ def record_youtube_subtitle_job(
         plugin_paths=plugin_paths,
         source_kind="remote_url",
         source_uri=body.url.strip(),
-        source_summary=body.url.strip(),
+        source_summary=_remote_video_title(
+            project_root=result.generated_project_root,
+            config_path=result.generated_config_path,
+            source_uri=body.url.strip(),
+        )
+        or body.url.strip(),
         source_lang=body.source_lang,
         target_lang=body.target_lang,
         provider=result.provider,
@@ -206,15 +212,55 @@ def _sync_task_with_run(
         "completed_at": run.completed_at,
         "error": run.error,
     }
+    source_summary = _remote_video_title_from_task(task)
+    if source_summary is not None and source_summary != task.source_summary:
+        update["source_summary"] = source_summary
     if (
         task.status == run.status
         and task.completed_at == run.completed_at
         and task.error == run.error
+        and task.source_summary == update.get("source_summary", task.source_summary)
     ):
         return task
     update["updated_at"] = _now()
     updated = task.model_copy(update=update)
     return database.upsert_quickstart_task(updated)
+
+
+def _remote_video_title_from_task(task: QuickstartTaskRecord) -> str | None:
+    if task.source_kind != "remote_url":
+        return None
+    return _remote_video_title(
+        project_root=task.generated_project_root,
+        config_path=task.generated_config_path,
+        source_uri=task.source_uri,
+    )
+
+
+def _remote_video_title(*, project_root: Path, config_path: Path, source_uri: str) -> str | None:
+    try:
+        artifacts = list_artifacts(
+            project_root=project_root,
+            config_path=config_path,
+            artifact_type="video",
+        )
+        for artifact in artifacts:
+            if artifact.current_version_id is None:
+                continue
+            version = show_artifact(
+                project_root=project_root,
+                config_path=config_path,
+                artifact_id=artifact.id,
+            ).current_version.record
+            title = version.metadata.get("title")
+            source_url = version.metadata.get("url")
+            if isinstance(source_url, str) and source_uri and source_url != source_uri:
+                continue
+            if isinstance(title, str) and title.strip():
+                return title.strip()
+    except (OpenBBQError, OSError, ValueError):
+        return None
+    return None
 
 
 def _read_result_run(result: SubtitleJobResult) -> RunRecord | None:

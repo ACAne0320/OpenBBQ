@@ -1329,6 +1329,17 @@ def test_quickstart_history_resolves_run_after_app_restart(tmp_path):
         "text-demo",
         {"type": "workflow.completed", "message": "Generated workflow completed."},
     )
+    generated_store.write_artifact_version(
+        artifact_type="video",
+        name="download.video",
+        content=b"video",
+        metadata={
+            "url": "https://www.youtube.com/watch?v=demo",
+            "title": "Real remote video title",
+        },
+        created_by_step_id="download",
+        lineage={"workflow_id": "text-demo"},
+    )
     write_run(
         generated_config.storage.state,
         RunRecord(
@@ -1393,6 +1404,7 @@ def test_quickstart_history_resolves_run_after_app_restart(tmp_path):
     assert tasks.status_code == 200
     assert tasks.json()["data"]["tasks"][0]["run_id"] == "run_generated"
     assert tasks.json()["data"]["tasks"][0]["status"] == "completed"
+    assert tasks.json()["data"]["tasks"][0]["source_summary"] == "Real remote video title"
 
 
 def test_quickstart_subtitle_route_reuses_existing_cached_task(tmp_path, monkeypatch):

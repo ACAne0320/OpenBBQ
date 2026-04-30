@@ -297,8 +297,11 @@ const persistedTask: TaskSummary = {
   id: "run_persisted",
   title: "Demo video",
   workflowName: "Remote video -> translated SRT",
+  sourceKind: "remote_url",
+  sourceUri: "https://www.youtube.com/watch?v=demo",
   sourceSummary: "https://www.youtube.com/watch?v=demo",
   status: "failed",
+  createdAt: "2026-04-28T00:00:00+00:00",
   updatedAt: "2026-04-28T00:05:00+00:00"
 };
 
