@@ -12,9 +12,7 @@ from openbbq.workflow_custom.models import WorkflowDefinition
 from openbbq.workflow_custom.repository import WorkflowDefinitionRepository
 
 
-def list_workflow_definitions(
-    *, custom_root: Path | None = None
-) -> tuple[WorkflowDefinition, ...]:
+def list_workflow_definitions(*, custom_root: Path | None = None) -> tuple[WorkflowDefinition, ...]:
     repository = WorkflowDefinitionRepository(custom_root)
     return (*_built_in_workflows(), *repository.list())
 
@@ -32,7 +30,9 @@ def save_workflow_definition(
     workflow: WorkflowDefinition, *, custom_root: Path | None = None
 ) -> WorkflowDefinition:
     if workflow.id in {LOCAL_SUBTITLE_TEMPLATE_ID, YOUTUBE_SUBTITLE_TEMPLATE_ID}:
-        raise ValidationError(f"Custom workflow id '{workflow.id}' conflicts with a built-in workflow.")
+        raise ValidationError(
+            f"Custom workflow id '{workflow.id}' conflicts with a built-in workflow."
+        )
     return WorkflowDefinitionRepository(custom_root).write(workflow)
 
 

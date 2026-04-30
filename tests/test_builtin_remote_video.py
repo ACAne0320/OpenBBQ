@@ -140,9 +140,10 @@ def test_remote_video_download_reuses_runtime_cache_for_same_parameters(tmp_path
     assert second_factory.calls == []
     assert first["outputs"]["video"]["metadata"]["cache_hit"] is False
     assert second["outputs"]["video"]["metadata"]["cache_hit"] is True
-    assert first["outputs"]["video"]["metadata"]["cache_key"] == second["outputs"]["video"][
-        "metadata"
-    ]["cache_key"]
+    assert (
+        first["outputs"]["video"]["metadata"]["cache_key"]
+        == second["outputs"]["video"]["metadata"]["cache_key"]
+    )
     assert first["outputs"]["video"]["file_path"] == second["outputs"]["video"]["file_path"]
 
 
@@ -173,9 +174,10 @@ def test_remote_video_download_cache_key_includes_quality(tmp_path):
 
     assert len(first_factory.calls) == 1
     assert len(second_factory.calls) == 1
-    assert first["outputs"]["video"]["metadata"]["cache_key"] != second["outputs"]["video"][
-        "metadata"
-    ]["cache_key"]
+    assert (
+        first["outputs"]["video"]["metadata"]["cache_key"]
+        != second["outputs"]["video"]["metadata"]["cache_key"]
+    )
 
 
 def test_remote_video_format_discovery_returns_select_options(tmp_path):
