@@ -1,10 +1,10 @@
 import { clsx } from "clsx";
-import { FilePlus2, ListChecks, Settings } from "lucide-react";
+import { FilePlus2, ListChecks, Settings, Workflow } from "lucide-react";
 import type { ReactNode } from "react";
 
 import openbbqIconColor from "../assets/openbbq-icon-color.png";
 
-export type NavItem = "New" | "Tasks" | "Settings";
+export type NavItem = "New" | "Workflows" | "Tasks" | "Settings";
 
 type AppShellProps = {
   active?: NavItem;
@@ -14,9 +14,10 @@ type AppShellProps = {
   children: ReactNode;
 };
 
-const navItems: NavItem[] = ["New", "Tasks", "Settings"];
+const navItems: NavItem[] = ["New", "Workflows", "Tasks", "Settings"];
 const navIcons = {
   New: FilePlus2,
+  Workflows: Workflow,
   Tasks: ListChecks,
   Settings
 } satisfies Record<NavItem, typeof FilePlus2>;
@@ -31,7 +32,7 @@ export function AppShell({ active, footerLabel, footerValue, onNavigate, childre
               <img className="h-7 w-7 shrink-0" src={openbbqIconColor} alt="OpenBBQ" />
               <span className="min-w-0 truncate">OpenBBQ</span>
             </div>
-            <nav className="grid grid-cols-3 gap-1 text-xs xl:grid-cols-1 xl:gap-1" aria-label="Primary">
+            <nav className="grid grid-cols-4 gap-1 text-xs xl:grid-cols-1 xl:gap-1" aria-label="Primary">
               {navItems.map((item) => {
                 const Icon = navIcons[item];
                 return (

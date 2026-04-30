@@ -204,6 +204,30 @@ class SubtitleWorkflowTemplateData(OpenBBQModel):
     steps: tuple[SubtitleWorkflowStepData, ...]
 
 
+class WorkflowDefinitionData(OpenBBQModel):
+    id: str
+    name: str
+    description: str = ""
+    origin: Literal["built_in", "custom"]
+    source_types: tuple[Literal["local_file", "remote_url"], ...]
+    result_types: tuple[str, ...]
+    steps: tuple[SubtitleWorkflowStepData, ...]
+    updated_at: str | None = None
+
+
+class WorkflowDefinitionListData(OpenBBQModel):
+    workflows: tuple[WorkflowDefinitionData, ...]
+
+
+class WorkflowDefinitionSaveRequest(OpenBBQModel):
+    id: str
+    name: str
+    description: str = ""
+    source_types: tuple[Literal["local_file", "remote_url"], ...]
+    result_types: tuple[str, ...] = ("subtitle",)
+    steps: tuple[SubtitleWorkflowStepData, ...]
+
+
 class WorkflowToolInputData(OpenBBQModel):
     artifact_types: tuple[str, ...]
     required: bool

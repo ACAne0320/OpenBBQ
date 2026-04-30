@@ -7,6 +7,28 @@ describe("createDesktopClient", () => {
   it("forwards calls to the preload API", async () => {
     const api = {
       chooseLocalMedia: vi.fn().mockResolvedValue({ kind: "local_file", path: "C:/video/sample.mp4", displayName: "sample.mp4" }),
+      listWorkflowDefinitions: vi.fn().mockResolvedValue([
+        {
+          id: "local-subtitle",
+          name: "Local video -> translated SRT",
+          description: "Local workflow",
+          origin: "built_in",
+          sourceTypes: ["local_file"],
+          resultTypes: ["subtitle"],
+          steps: workflowSteps
+        }
+      ]),
+      saveWorkflowDefinition: vi.fn().mockResolvedValue({
+        id: "local-subtitle-custom",
+        name: "Local custom",
+        description: "Custom workflow",
+        origin: "custom",
+        sourceTypes: ["local_file"],
+        resultTypes: ["subtitle"],
+        steps: workflowSteps,
+        updatedAt: "2026-04-30T00:00:00.000Z"
+      }),
+      getRemoteVideoFormats: vi.fn().mockResolvedValue([{ value: "best", label: "Best available" }]),
       getWorkflowTemplate: vi.fn().mockResolvedValue(workflowSteps),
       getWorkflowTools: vi.fn().mockResolvedValue([]),
       startSubtitleTask: vi.fn().mockResolvedValue({ runId: "run_1" }),
@@ -133,6 +155,23 @@ describe("createDesktopClient", () => {
       })
     ).resolves.toEqual({ runId: "run_1" });
     expect(api.startSubtitleTask).toHaveBeenCalled();
+    await expect(client.listWorkflowDefinitions()).resolves.toHaveLength(1);
+    await expect(
+      client.saveWorkflowDefinition({
+        id: "local-subtitle-custom",
+        name: "Local custom",
+        description: "Custom workflow",
+        sourceTypes: ["local_file"],
+        resultTypes: ["subtitle"],
+        steps: workflowSteps
+      })
+    ).resolves.toMatchObject({ origin: "custom" });
+    expect(api.listWorkflowDefinitions).toHaveBeenCalled();
+    expect(api.saveWorkflowDefinition).toHaveBeenCalled();
+    await expect(
+      client.getRemoteVideoFormats({ url: "https://example.test/watch", auth: "auto" })
+    ).resolves.toEqual([{ value: "best", label: "Best available" }]);
+    expect(api.getRemoteVideoFormats).toHaveBeenCalledWith({ url: "https://example.test/watch", auth: "auto" });
     await expect(client.getWorkflowTools()).resolves.toEqual([]);
     expect(api.getWorkflowTools).toHaveBeenCalled();
     await expect(client.listTasks()).resolves.toEqual([]);

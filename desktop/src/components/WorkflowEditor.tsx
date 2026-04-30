@@ -8,6 +8,10 @@ import { Toggle } from "./Toggle";
 type WorkflowEditorProps = {
   initialSteps: WorkflowStep[];
   availableTools?: WorkflowTool[];
+  title?: string;
+  description?: string;
+  continueLabel?: string;
+  onSaveAndUse?: (steps: WorkflowStep[]) => void;
   onContinue: (steps: WorkflowStep[]) => void;
   onBack?: () => void;
 };
@@ -151,7 +155,16 @@ function ParameterField({ onChange, parameter, stepId }: ParameterFieldProps) {
   );
 }
 
-export function WorkflowEditor({ availableTools = [], initialSteps, onBack, onContinue }: WorkflowEditorProps) {
+export function WorkflowEditor({
+  availableTools = [],
+  continueLabel = "Continue",
+  description,
+  initialSteps,
+  onBack,
+  onContinue,
+  onSaveAndUse,
+  title = "Arrange workflow"
+}: WorkflowEditorProps) {
   const [steps, setSteps] = useState<WorkflowStep[]>(initialSteps);
   const [selectedStepId, setSelectedStepId] = useState(initialSteps.find((step) => step.selected)?.id ?? initialSteps[0]?.id);
   const [selectedToolRef, setSelectedToolRef] = useState(availableTools[0]?.toolRef ?? "");
@@ -252,8 +265,8 @@ export function WorkflowEditor({ availableTools = [], initialSteps, onBack, onCo
       <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
         <p className="text-[11px] font-semibold uppercase text-muted">New task</p>
-        <h1 className="mt-2 text-[32px] font-semibold leading-tight tracking-[-0.022em] text-ink-brown">Arrange workflow</h1>
-        <p className="mt-2 text-sm text-muted">{templateTitle}</p>
+        <h1 className="mt-2 text-[32px] font-semibold leading-tight tracking-[-0.022em] text-ink-brown">{title}</h1>
+        <p className="mt-2 text-sm text-muted">{description ?? templateTitle}</p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs text-muted">
           <span className="rounded-full bg-paper-muted px-3 py-1.5 shadow-control">{steps.length} steps</span>
@@ -424,8 +437,13 @@ export function WorkflowEditor({ availableTools = [], initialSteps, onBack, onCo
         <Button disabled={!onBack} onClick={onBack} variant={onBack ? "secondary" : "disabled"}>
           Back
         </Button>
+        {onSaveAndUse ? (
+          <Button variant="secondary" onClick={() => onSaveAndUse(steps)}>
+            Save and use
+          </Button>
+        ) : null}
         <Button variant="primary" onClick={() => onContinue(steps)}>
-          Continue
+          {continueLabel}
         </Button>
       </footer>
     </section>

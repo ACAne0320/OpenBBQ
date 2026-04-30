@@ -11,11 +11,14 @@ import type {
   ApiProviderModel,
   ApiProviderConnectionTestData,
   ApiQuickstartTaskRecord,
+  ApiRemoteVideoFormatListData,
   ApiRunRecord,
   ApiRuntimeSettings,
   ApiSecretCheck,
   ApiSubtitleJobData,
   ApiSubtitleWorkflowTemplateData,
+  ApiWorkflowDefinition,
+  ApiWorkflowDefinitionListData,
   ApiWorkflowToolCatalogData,
   ApiWorkflowEvent
 } from "./apiTypes.js";
@@ -31,15 +34,19 @@ import type {
   ProviderConnectionTestInput,
   ProviderConnectionTestResult,
   ProviderModelOption,
+  RemoteVideoFormatInput,
   RuntimeModelDownloadJob,
   RuntimeModelStatus,
   RuntimeSettingsModel,
   SaveFasterWhisperDefaultsInput,
   SaveLlmProviderInput,
   SaveRuntimeDefaultsInput,
+  SaveWorkflowDefinitionInput,
   SecretStatus,
+  SelectOption,
   SourceDraft,
   StartSubtitleTaskInput,
+  WorkflowDefinition,
   WorkflowTool,
   WorkflowStep
 } from "../src/lib/types.js";
@@ -54,6 +61,15 @@ type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => Promise<unk
 export function registerOpenBBQIpc(context: IpcContext): () => void {
   const handlers: Array<[string, IpcHandler]> = [
     ["openbbq:choose-local-media", async () => chooseLocalMedia(context.window)],
+    ["openbbq:list-workflow-definitions", async () => listWorkflowDefinitions(context.getSidecar())],
+    [
+      "openbbq:save-workflow-definition",
+      async (_event, input) => saveWorkflowDefinition(context.getSidecar(), input as SaveWorkflowDefinitionInput)
+    ],
+    [
+      "openbbq:get-remote-video-formats",
+      async (_event, input) => getRemoteVideoFormats(context.getSidecar(), input as RemoteVideoFormatInput)
+    ],
     ["openbbq:get-workflow-template", async (_event, source) => getWorkflowTemplate(context.getSidecar(), source as SourceDraft)],
     ["openbbq:get-workflow-tools", async () => getWorkflowTools(context.getSidecar())],
     ["openbbq:start-subtitle-task", async (_event, input) => startSubtitleTask(context.getSidecar(), input as StartSubtitleTaskInput)],
@@ -145,7 +161,11 @@ export async function getWorkflowTemplate(sidecar: ManagedSidecar, source: Sourc
     sidecar.connection,
     `/quickstart/subtitle/template?${parameters.toString()}`
   );
-  return data.steps.map((step) => ({
+  return data.steps.map(toWorkflowStep);
+}
+
+function toWorkflowStep(step: ApiSubtitleWorkflowTemplateData["steps"][number]): WorkflowStep {
+  return {
     id: step.id,
     name: step.name,
     toolRef: step.tool_ref,
@@ -155,7 +175,85 @@ export async function getWorkflowTemplate(sidecar: ManagedSidecar, source: Sourc
     inputs: step.inputs ?? undefined,
     outputs: step.outputs ?? undefined,
     parameters: step.parameters
-  }));
+  };
+}
+
+function toWorkflowDefinition(workflow: ApiWorkflowDefinition): WorkflowDefinition {
+  return {
+    id: workflow.id,
+    name: workflow.name,
+    description: workflow.description,
+    origin: workflow.origin,
+    sourceTypes: workflow.source_types,
+    resultTypes: workflow.result_types,
+    steps: workflow.steps.map(toWorkflowStep),
+    updatedAt: workflow.updated_at ?? null
+  };
+}
+
+function workflowDefinitionBody(input: SaveWorkflowDefinitionInput) {
+  return {
+    id: input.id,
+    name: input.name,
+    description: input.description,
+    source_types: input.sourceTypes,
+    result_types: input.resultTypes,
+    steps: input.steps.map((step) => ({
+      id: step.id,
+      name: step.name,
+      tool_ref: step.toolRef,
+      summary: step.summary,
+      status: step.status,
+      selected: step.selected ?? null,
+      inputs: step.inputs ?? null,
+      outputs: step.outputs ?? null,
+      parameters: step.parameters
+    }))
+  };
+}
+
+export async function listWorkflowDefinitions(sidecar: ManagedSidecar): Promise<WorkflowDefinition[]> {
+  const data = await requestJson<ApiWorkflowDefinitionListData>(
+    sidecar.connection,
+    "/workflow-definitions"
+  );
+  return data.workflows.map(toWorkflowDefinition);
+}
+
+export async function saveWorkflowDefinition(
+  sidecar: ManagedSidecar,
+  input: SaveWorkflowDefinitionInput
+): Promise<WorkflowDefinition> {
+  const data = await requestJson<ApiWorkflowDefinition>(
+    sidecar.connection,
+    `/workflow-definitions/${encodeURIComponent(input.id)}`,
+    {
+      method: "PUT",
+      body: workflowDefinitionBody(input)
+    }
+  );
+  return toWorkflowDefinition(data);
+}
+
+export async function getRemoteVideoFormats(
+  sidecar: ManagedSidecar,
+  input: RemoteVideoFormatInput
+): Promise<SelectOption[]> {
+  const parameters = new URLSearchParams({
+    url: input.url,
+    auth: input.auth
+  });
+  if (input.browser) {
+    parameters.set("browser", input.browser);
+  }
+  if (input.browserProfile) {
+    parameters.set("browser_profile", input.browserProfile);
+  }
+  const data = await requestJson<ApiRemoteVideoFormatListData>(
+    sidecar.connection,
+    `/quickstart/remote-video/formats?${parameters.toString()}`
+  );
+  return data.formats;
 }
 
 export async function getWorkflowTools(sidecar: ManagedSidecar): Promise<WorkflowTool[]> {

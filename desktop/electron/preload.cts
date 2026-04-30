@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from "electron";
 
 const api = {
   chooseLocalMedia: () => ipcRenderer.invoke("openbbq:choose-local-media"),
+  listWorkflowDefinitions: () => ipcRenderer.invoke("openbbq:list-workflow-definitions"),
+  saveWorkflowDefinition: (input: unknown) => ipcRenderer.invoke("openbbq:save-workflow-definition", input),
+  getRemoteVideoFormats: (input: unknown) => ipcRenderer.invoke("openbbq:get-remote-video-formats", input),
   getWorkflowTemplate: (source: unknown) => ipcRenderer.invoke("openbbq:get-workflow-template", source),
   getWorkflowTools: () => ipcRenderer.invoke("openbbq:get-workflow-tools"),
   startSubtitleTask: (input: unknown) => ipcRenderer.invoke("openbbq:start-subtitle-task", input),

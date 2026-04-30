@@ -121,6 +121,25 @@ export type ApiSubtitleWorkflowTemplateData = {
   steps: ApiSubtitleWorkflowStep[];
 };
 
+export type ApiWorkflowDefinition = {
+  id: string;
+  name: string;
+  description: string;
+  origin: "built_in" | "custom";
+  source_types: Array<"local_file" | "remote_url">;
+  result_types: string[];
+  steps: ApiSubtitleWorkflowStep[];
+  updated_at?: string | null;
+};
+
+export type ApiWorkflowDefinitionListData = {
+  workflows: ApiWorkflowDefinition[];
+};
+
+export type ApiRemoteVideoFormatListData = {
+  formats: Array<{ value: string; label: string }>;
+};
+
 export type ApiWorkflowToolInputSpec = {
   artifact_types: string[];
   required: boolean;

@@ -49,7 +49,34 @@ export type WorkflowStep = {
   parameters: StepParameter[];
 };
 
+export type WorkflowDefinition = {
+  id: string;
+  name: string;
+  description: string;
+  origin: "built_in" | "custom";
+  sourceTypes: SourceKind[];
+  resultTypes: string[];
+  steps: WorkflowStep[];
+  updatedAt?: string | null;
+};
+
+export type SaveWorkflowDefinitionInput = {
+  id: string;
+  name: string;
+  description: string;
+  sourceTypes: SourceKind[];
+  resultTypes: string[];
+  steps: WorkflowStep[];
+};
+
 export type SelectOption = string | { value: string; label: string };
+
+export type RemoteVideoFormatInput = {
+  url: string;
+  auth: "auto" | "anonymous" | "browser_cookies";
+  browser?: string | null;
+  browserProfile?: string | null;
+};
 
 export type StepParameter =
   | { kind: "text"; key: string; label: string; value: string }

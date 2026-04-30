@@ -16,6 +16,7 @@ from openbbq.api.routes import (
     quickstart,
     runtime,
     runs,
+    workflow_definitions,
     workflows,
 )
 from openbbq.domain.base import OpenBBQModel
@@ -56,6 +57,7 @@ def create_app(settings: ApiAppSettings | None = None) -> FastAPI:
     app.include_router(plugins.router)
     app.include_router(runtime.router)
     app.include_router(quickstart.router)
+    app.include_router(workflow_definitions.router)
     app.include_router(workflows.router)
     app.include_router(runs.router)
     app.include_router(artifacts.router)

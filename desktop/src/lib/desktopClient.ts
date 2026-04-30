@@ -4,6 +4,9 @@ import type { OpenBBQClient } from "./apiClient";
 export function createDesktopClient(api: OpenBBQDesktopApi): OpenBBQClient {
   return {
     chooseLocalMedia: () => api.chooseLocalMedia(),
+    listWorkflowDefinitions: () => api.listWorkflowDefinitions(),
+    saveWorkflowDefinition: (input) => api.saveWorkflowDefinition(input),
+    getRemoteVideoFormats: (input) => api.getRemoteVideoFormats(input),
     getWorkflowTemplate: (source) => api.getWorkflowTemplate(source),
     getWorkflowTools: () => api.getWorkflowTools(),
     startSubtitleTask: (input) => api.startSubtitleTask(input),

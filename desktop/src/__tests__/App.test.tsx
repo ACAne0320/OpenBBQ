@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,25 +13,36 @@ vi.mock("../components/WorkflowEditor", () => ({
   WorkflowEditor: ({
     initialSteps,
     onBack,
-    onContinue
+    onContinue,
+    onSaveAndUse,
+    title = "Arrange workflow",
+    continueLabel = "Continue"
   }: {
     initialSteps: Array<{ id: string }>;
     onBack?: () => void;
     onContinue?: (steps: Array<{ id: string }>) => void;
+    onSaveAndUse?: (steps: Array<{ id: string }>) => void;
+    title?: string;
+    continueLabel?: string;
   }) => {
     workflowEditorRender(initialSteps);
     const remote = initialSteps[0]?.id === "download" || initialSteps[0]?.id === "fetch_source";
 
     return (
       <section aria-label="Mock workflow editor">
-        <h1>Arrange workflow</h1>
+        <h1>{title}</h1>
         <p>{remote ? "Remote video -> translated SRT" : "Local video -> translated SRT"}</p>
         <p data-testid="workflow-first-step">{initialSteps[0]?.id}</p>
         <button type="button" onClick={onBack}>
           Back
         </button>
+        {onSaveAndUse ? (
+          <button type="button" onClick={() => onSaveAndUse(initialSteps)}>
+            Save and use
+          </button>
+        ) : null}
         <button type="button" onClick={() => onContinue?.(initialSteps)}>
-          Continue
+          {continueLabel}
         </button>
       </section>
     );
@@ -69,6 +80,41 @@ function createTestClient(
 ): OpenBBQClient {
   return {
     getWorkflowTemplate,
+    async listWorkflowDefinitions() {
+      return [
+        {
+          id: "local-subtitle",
+          name: "Local video -> translated SRT",
+          description: "Local workflow",
+          origin: "built_in",
+          sourceTypes: ["local_file"],
+          resultTypes: ["subtitle"],
+          steps: workflowSteps
+        },
+        {
+          id: "youtube-subtitle",
+          name: "Remote video -> translated SRT",
+          description: "Remote workflow",
+          origin: "built_in",
+          sourceTypes: ["remote_url"],
+          resultTypes: ["subtitle"],
+          steps: remoteStepsFor("about:blank")
+        }
+      ];
+    },
+    async saveWorkflowDefinition(input) {
+      return {
+        ...input,
+        origin: "custom",
+        updatedAt: "2026-04-30T00:00:00.000Z"
+      };
+    },
+    async getRemoteVideoFormats() {
+      return [
+        { value: "18", label: "18 - MP4 - 640x360 - video + audio" },
+        { value: "best", label: "Best available" }
+      ];
+    },
     async getWorkflowTools() {
       return [];
     },
@@ -340,6 +386,85 @@ describe("App workflow flow", () => {
     expect(screen.getByText("No tasks yet")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Tasks" })).toHaveAttribute("aria-current", "page");
     expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
+  it("uses a workflow definition by choosing a source and running a task", async () => {
+    const user = userEvent.setup();
+    const startSubtitleTask = vi.fn().mockResolvedValue({ runId: "run_workflow" });
+    const getTaskMonitor = vi.fn().mockResolvedValue({ ...failedTask, id: "run_workflow" });
+    const getRemoteVideoFormats = vi.fn().mockResolvedValue([
+      { value: "18", label: "18 - MP4 - 640x360 - video + audio" },
+      { value: "best", label: "Best available" }
+    ]);
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      startSubtitleTask,
+      getTaskMonitor,
+      getRemoteVideoFormats
+    });
+
+    render(<App client={client} />);
+
+    await user.click(screen.getByRole("button", { name: "Workflows" }));
+    expect(await screen.findByRole("heading", { name: "Workflows" })).toBeInTheDocument();
+
+    const remoteCard = screen.getByText("Remote workflow").closest("li");
+    expect(remoteCard).not.toBeNull();
+    await user.click(within(remoteCard as HTMLElement).getByRole("button", { name: "Use" }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Remote video -> translated SRT" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Remote URL"), "https://example.com/workflow.mp4");
+    expect(await screen.findByRole("option", { name: "18 - MP4 - 640x360 - video + audio" })).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Quality"), "18");
+    await user.click(screen.getByRole("button", { name: "Run task" }));
+
+    expect(await screen.findByText("Task monitor")).toBeInTheDocument();
+    expect(getRemoteVideoFormats).toHaveBeenCalledWith({
+      url: "https://example.com/workflow.mp4",
+      auth: "auto",
+      browser: null,
+      browserProfile: null
+    });
+    expect(startSubtitleTask).toHaveBeenCalledWith({
+      source: { kind: "remote_url", url: "https://example.com/workflow.mp4" },
+      steps: expect.arrayContaining([
+        expect.objectContaining({
+          id: "download",
+          parameters: expect.arrayContaining([expect.objectContaining({ key: "quality", value: "18" })])
+        })
+      ])
+    });
+    expect(getTaskMonitor).toHaveBeenCalledWith("run_workflow");
+  });
+
+  it("customizes a built-in workflow and saves it as a custom workflow", async () => {
+    const user = userEvent.setup();
+    const saveWorkflowDefinition = vi.fn(async (input) => ({
+      ...input,
+      origin: "custom" as const,
+      updatedAt: "2026-04-30T00:00:00.000Z"
+    }));
+    const client = createTestClient(vi.fn().mockResolvedValue(workflowSteps), {
+      saveWorkflowDefinition
+    });
+
+    render(<App client={client} />);
+
+    await user.click(screen.getByRole("button", { name: "Workflows" }));
+    const localCard = await screen.findByText("Local workflow");
+    await user.click(within(localCard.closest("li") as HTMLElement).getByRole("button", { name: /customize/i }));
+
+    expect(await screen.findByRole("heading", { name: "Customize workflow" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save workflow" }));
+
+    expect(saveWorkflowDefinition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "local-subtitle-custom",
+        name: "Local video -> translated SRT custom",
+        sourceTypes: ["local_file"],
+        steps: workflowSteps
+      })
+    );
+    expect(await screen.findByRole("heading", { name: "Workflows" })).toBeInTheDocument();
   });
 
   it("opens Settings from the global navigation", async () => {

@@ -167,6 +167,184 @@ describe("desktop IPC actions", () => {
     );
   });
 
+  it("lists workflow definitions through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            workflows: [
+              {
+                id: "youtube-subtitle",
+                name: "Remote video -> translated SRT",
+                description: "Remote workflow",
+                origin: "built_in",
+                source_types: ["remote_url"],
+                result_types: ["subtitle"],
+                steps: [
+                  {
+                    id: "download",
+                    name: "Download Video",
+                    tool_ref: "remote_video.download",
+                    summary: "url -> video",
+                    status: "locked",
+                    parameters: [{ kind: "text", key: "url", label: "URL", value: "about:blank" }]
+                  }
+                ]
+              }
+            ]
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { listWorkflowDefinitions } = await import("../ipc");
+
+    await expect(listWorkflowDefinitions(sidecar)).resolves.toEqual([
+      {
+        id: "youtube-subtitle",
+        name: "Remote video -> translated SRT",
+        description: "Remote workflow",
+        origin: "built_in",
+        sourceTypes: ["remote_url"],
+        resultTypes: ["subtitle"],
+        steps: [
+          {
+            id: "download",
+            name: "Download Video",
+            toolRef: "remote_video.download",
+            summary: "url -> video",
+            status: "locked",
+            parameters: [{ kind: "text", key: "url", label: "URL", value: "about:blank" }]
+          }
+        ],
+        updatedAt: null
+      }
+    ]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/workflow-definitions",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("saves workflow definitions through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            id: "local-subtitle-custom",
+            name: "Local custom",
+            description: "Custom local workflow",
+            origin: "custom",
+            source_types: ["local_file"],
+            result_types: ["subtitle"],
+            steps: [
+              {
+                id: "extract_audio",
+                name: "Extract Audio",
+                tool_ref: "ffmpeg.extract_audio",
+                summary: "video -> audio",
+                status: "locked",
+                outputs: [{ name: "audio", type: "audio" }],
+                parameters: []
+              }
+            ],
+            updated_at: "2026-04-30T00:00:00.000Z"
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { saveWorkflowDefinition } = await import("../ipc");
+
+    await expect(
+      saveWorkflowDefinition(sidecar, {
+        id: "local-subtitle-custom",
+        name: "Local custom",
+        description: "Custom local workflow",
+        sourceTypes: ["local_file"],
+        resultTypes: ["subtitle"],
+        steps: [
+          {
+            id: "extract_audio",
+            name: "Extract Audio",
+            toolRef: "ffmpeg.extract_audio",
+            summary: "video -> audio",
+            status: "locked",
+            outputs: [{ name: "audio", type: "audio" }],
+            parameters: []
+          }
+        ]
+      })
+    ).resolves.toMatchObject({ id: "local-subtitle-custom", origin: "custom" });
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/workflow-definitions/local-subtitle-custom",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          id: "local-subtitle-custom",
+          name: "Local custom",
+          description: "Custom local workflow",
+          source_types: ["local_file"],
+          result_types: ["subtitle"],
+          steps: [
+            {
+              id: "extract_audio",
+              name: "Extract Audio",
+              tool_ref: "ffmpeg.extract_audio",
+              summary: "video -> audio",
+              status: "locked",
+              selected: null,
+              inputs: null,
+              outputs: [{ name: "audio", type: "audio" }],
+              parameters: []
+            }
+          ]
+        })
+      })
+    );
+  });
+
+  it("loads remote video format options through the sidecar", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            formats: [
+              { value: "18", label: "18 - MP4 - 640x360 - video + audio" },
+              { value: "best", label: "Best available" }
+            ]
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchImpl);
+    const { getRemoteVideoFormats } = await import("../ipc");
+
+    await expect(
+      getRemoteVideoFormats(sidecar, {
+        url: "https://example.test/watch",
+        auth: "browser_cookies",
+        browser: "edge",
+        browserProfile: "Default"
+      })
+    ).resolves.toEqual([
+      { value: "18", label: "18 - MP4 - 640x360 - video + audio" },
+      { value: "best", label: "Best available" }
+    ]);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:53124/quickstart/remote-video/formats?url=https%3A%2F%2Fexample.test%2Fwatch&auth=browser_cookies&browser=edge&browser_profile=Default",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
   it("lists persisted quickstart tasks through the sidecar", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(

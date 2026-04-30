@@ -6,25 +6,32 @@ import type {
   ProviderConnectionTestInput,
   ProviderConnectionTestResult,
   ProviderModelOption,
+  RemoteVideoFormatInput,
   RuntimeModelDownloadJob,
   RuntimeModelStatus,
   RuntimeSettingsModel,
   SaveFasterWhisperDefaultsInput,
   SaveLlmProviderInput,
   SaveRuntimeDefaultsInput,
+  SaveWorkflowDefinitionInput,
   ReviewModel,
   SecretStatus,
+  SelectOption,
   SourceDraft,
   StartSubtitleTaskInput,
   StartSubtitleTaskResult,
   TaskSummary,
   TaskMonitorModel,
+  WorkflowDefinition,
   WorkflowTool,
   WorkflowStep
 } from "./lib/types";
 
 export type OpenBBQDesktopApi = {
   chooseLocalMedia(): Promise<LocalMediaSelection | null>;
+  listWorkflowDefinitions(): Promise<WorkflowDefinition[]>;
+  saveWorkflowDefinition(input: SaveWorkflowDefinitionInput): Promise<WorkflowDefinition>;
+  getRemoteVideoFormats(input: RemoteVideoFormatInput): Promise<SelectOption[]>;
   getWorkflowTemplate(source: SourceDraft): Promise<WorkflowStep[]>;
   getWorkflowTools(): Promise<WorkflowTool[]>;
   startSubtitleTask(input: StartSubtitleTaskInput): Promise<StartSubtitleTaskResult>;

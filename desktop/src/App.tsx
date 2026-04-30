@@ -7,13 +7,24 @@ import { Settings } from "./components/Settings";
 import { SourceImport } from "./components/SourceImport";
 import { TaskHistory } from "./components/TaskHistory";
 import { TaskMonitor } from "./components/TaskMonitor";
+import { WorkflowLibrary } from "./components/WorkflowLibrary";
 import { WorkflowEditor } from "./components/WorkflowEditor";
+import { WorkflowUse } from "./components/WorkflowUse";
 import type { OpenBBQClient } from "./lib/apiClient";
 import { createDefaultClient } from "./lib/clientFactory";
 import { workflowSteps } from "./lib/mockData";
-import type { ReviewModel, Segment, SourceDraft, TaskMonitorModel, TaskSummary, WorkflowStep, WorkflowTool } from "./lib/types";
+import type {
+  ReviewModel,
+  Segment,
+  SourceDraft,
+  TaskMonitorModel,
+  TaskSummary,
+  WorkflowDefinition,
+  WorkflowStep,
+  WorkflowTool
+} from "./lib/types";
 
-type Screen = "source" | "workflow" | "tasks" | "monitor" | "results" | "settings";
+type Screen = "source" | "workflow" | "workflows" | "workflow-use" | "workflow-customize" | "tasks" | "monitor" | "results" | "settings";
 
 type AppProps = {
   client?: OpenBBQClient;
@@ -25,6 +36,7 @@ export function App({ client: providedClient }: AppProps = {}) {
   const templateRequestId = useRef(0);
   const taskRequestId = useRef(0);
   const taskListRequestId = useRef(0);
+  const workflowListRequestId = useRef(0);
   const reviewRequestId = useRef(0);
   const autoOpenedReviewRunId = useRef<string | null>(null);
   const retryRequestId = useRef(0);
@@ -33,6 +45,10 @@ export function App({ client: providedClient }: AppProps = {}) {
   const [source, setSource] = useState<SourceDraft | null>(null);
   const [steps, setSteps] = useState<WorkflowStep[]>(workflowSteps);
   const [workflowTools, setWorkflowTools] = useState<WorkflowTool[]>([]);
+  const [workflowDefinitions, setWorkflowDefinitions] = useState<WorkflowDefinition[]>([]);
+  const [workflowDefinitionsLoading, setWorkflowDefinitionsLoading] = useState(false);
+  const [workflowDefinitionsError, setWorkflowDefinitionsError] = useState<string | null>(null);
+  const [selectedWorkflowDefinition, setSelectedWorkflowDefinition] = useState<WorkflowDefinition | null>(null);
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
@@ -58,6 +74,10 @@ export function App({ client: providedClient }: AppProps = {}) {
 
   function invalidateTaskListRequest() {
     taskListRequestId.current += 1;
+  }
+
+  function invalidateWorkflowListRequest() {
+    workflowListRequestId.current += 1;
   }
 
   function cancelRetryState() {
@@ -100,11 +120,13 @@ export function App({ client: providedClient }: AppProps = {}) {
     invalidateTemplateRequest();
     invalidateTaskRequest();
     invalidateTaskListRequest();
+    invalidateWorkflowListRequest();
     invalidateReviewRequest();
     cancelRetryState();
     setSource(null);
     setSteps(workflowSteps);
     setWorkflowTools([]);
+    setSelectedWorkflowDefinition(null);
     setTask(null);
     autoOpenedReviewRunId.current = null;
     setTasksError(null);
@@ -144,6 +166,131 @@ export function App({ client: providedClient }: AppProps = {}) {
     }
   }
 
+  async function loadWorkflowDefinitions() {
+    const requestId = workflowListRequestId.current + 1;
+    workflowListRequestId.current = requestId;
+    invalidateTemplateRequest();
+    invalidateTaskRequest();
+    invalidateTaskListRequest();
+    invalidateReviewRequest();
+    cancelRetryState();
+    setWorkflowDefinitionsError(null);
+    setWorkflowDefinitionsLoading(true);
+    setScreen("workflows");
+    try {
+      const nextWorkflows = await client.listWorkflowDefinitions();
+      if (requestId !== workflowListRequestId.current) {
+        return;
+      }
+      setWorkflowDefinitions(nextWorkflows);
+    } catch (error) {
+      if (requestId !== workflowListRequestId.current) {
+        return;
+      }
+      setWorkflowDefinitionsError(formatLoadError("Could not load workflows", error));
+    } finally {
+      if (requestId === workflowListRequestId.current) {
+        setWorkflowDefinitionsLoading(false);
+      }
+    }
+  }
+
+  function openWorkflowUse(workflow: WorkflowDefinition) {
+    invalidateTemplateRequest();
+    invalidateTaskRequest();
+    invalidateTaskListRequest();
+    invalidateReviewRequest();
+    cancelRetryState();
+    setLoadError(null);
+    setSource(null);
+    setSteps(workflow.steps);
+    setSelectedWorkflowDefinition(workflow);
+    setScreen("workflow-use");
+  }
+
+  function customWorkflowDraft(workflow: WorkflowDefinition): WorkflowDefinition {
+    if (workflow.origin === "custom") {
+      return workflow;
+    }
+    return {
+      ...workflow,
+      id: `${workflow.id}-custom`,
+      name: `${workflow.name} custom`,
+      origin: "custom",
+      updatedAt: null
+    };
+  }
+
+  function openWorkflowCustomize(workflow: WorkflowDefinition) {
+    invalidateTemplateRequest();
+    invalidateTaskRequest();
+    invalidateTaskListRequest();
+    invalidateReviewRequest();
+    cancelRetryState();
+    setLoadError(null);
+    setSelectedWorkflowDefinition(customWorkflowDraft(workflow));
+    setSteps(workflow.steps);
+    setScreen("workflow-customize");
+    if (workflowTools.length === 0) {
+      void client
+        .getWorkflowTools()
+        .then(setWorkflowTools)
+        .catch((error) => setLoadError(formatLoadError("Could not load workflow tools", error)));
+    }
+  }
+
+  async function saveSelectedWorkflow(nextSteps: WorkflowStep[]) {
+    if (!selectedWorkflowDefinition) {
+      setLoadError("Could not save workflow: workflow is missing");
+      return null;
+    }
+    setLoadError(null);
+    try {
+      const saved = await client.saveWorkflowDefinition({
+        id: selectedWorkflowDefinition.id,
+        name: selectedWorkflowDefinition.name,
+        description: selectedWorkflowDefinition.description,
+        sourceTypes: selectedWorkflowDefinition.sourceTypes,
+        resultTypes: selectedWorkflowDefinition.resultTypes,
+        steps: nextSteps
+      });
+      setSelectedWorkflowDefinition(saved);
+      setSteps(saved.steps);
+      setWorkflowDefinitions((current) => [
+        ...current.filter((workflow) => workflow.id !== saved.id),
+        saved
+      ]);
+      return saved;
+    } catch (error) {
+      setLoadError(formatLoadError("Could not save workflow", error));
+      return null;
+    }
+  }
+
+  async function handleSaveWorkflow(nextSteps: WorkflowStep[]) {
+    const saved = await saveSelectedWorkflow(nextSteps);
+    if (saved) {
+      setScreen("workflows");
+    }
+  }
+
+  async function handleSaveAndUseWorkflow(nextSteps: WorkflowStep[]) {
+    const saved = await saveSelectedWorkflow(nextSteps);
+    if (saved) {
+      openWorkflowUse(saved);
+    }
+  }
+
+  async function handleWorkflowUseRun(sourceDraft: SourceDraft, runSteps: WorkflowStep[]) {
+    if (!selectedWorkflowDefinition) {
+      setLoadError("Could not start task: workflow is missing");
+      return;
+    }
+    setSource(sourceDraft);
+    setSteps(runSteps);
+    await handleWorkflowContinue(runSteps, sourceDraft);
+  }
+
   async function openTaskMonitor(runId: string) {
     const requestId = taskRequestId.current + 1;
     taskRequestId.current = requestId;
@@ -169,8 +316,9 @@ export function App({ client: providedClient }: AppProps = {}) {
     }
   }
 
-  async function handleWorkflowContinue(nextSteps: WorkflowStep[]) {
-    if (!source) {
+  async function handleWorkflowContinue(nextSteps: WorkflowStep[], sourceOverride?: SourceDraft) {
+    const runSource = sourceOverride ?? source;
+    if (!runSource) {
       setLoadError("Could not start task: source is missing");
       return;
     }
@@ -184,7 +332,7 @@ export function App({ client: providedClient }: AppProps = {}) {
     setRetryPending(false);
     setLoadError(null);
     try {
-      const started = await client.startSubtitleTask({ source, steps: nextSteps });
+      const started = await client.startSubtitleTask({ source: runSource, steps: nextSteps });
       if (requestId !== taskRequestId.current) {
         return;
       }
@@ -281,10 +429,16 @@ export function App({ client: providedClient }: AppProps = {}) {
       return;
     }
 
+    if (item === "Workflows") {
+      void loadWorkflowDefinitions();
+      return;
+    }
+
     if (item === "Settings") {
       invalidateTemplateRequest();
       invalidateTaskRequest();
       invalidateTaskListRequest();
+      invalidateWorkflowListRequest();
       invalidateReviewRequest();
       cancelRetryState();
       setLoadError(null);
@@ -336,6 +490,8 @@ export function App({ client: providedClient }: AppProps = {}) {
   const activeNav =
     screen === "settings"
       ? "Settings"
+      : screen === "workflows" || screen === "workflow-use" || screen === "workflow-customize"
+        ? "Workflows"
       : screen === "tasks" || screen === "monitor"
         ? "Tasks"
         : screen === "results"
@@ -350,12 +506,43 @@ export function App({ client: providedClient }: AppProps = {}) {
         </div>
       ) : null}
       {screen === "source" ? <SourceImport onContinue={handleSourceContinue} onChooseLocalMedia={client.chooseLocalMedia} /> : null}
+      {screen === "workflows" ? (
+        <WorkflowLibrary
+          error={workflowDefinitionsError}
+          loading={workflowDefinitionsLoading}
+          onCustomize={openWorkflowCustomize}
+          onRefresh={loadWorkflowDefinitions}
+          onUse={openWorkflowUse}
+          workflows={workflowDefinitions}
+        />
+      ) : null}
+      {screen === "workflow-use" && selectedWorkflowDefinition ? (
+        <WorkflowUse
+          workflow={selectedWorkflowDefinition}
+          onBack={() => setScreen("workflows")}
+          onChooseLocalMedia={client.chooseLocalMedia}
+          onLoadRemoteVideoFormats={client.getRemoteVideoFormats}
+          onRunTask={(nextSource, runSteps) => void handleWorkflowUseRun(nextSource, runSteps)}
+        />
+      ) : null}
       {screen === "workflow" ? (
         <WorkflowEditor
           initialSteps={steps}
           availableTools={workflowTools}
           onBack={handleBackToSource}
           onContinue={handleWorkflowContinue}
+        />
+      ) : null}
+      {screen === "workflow-customize" && selectedWorkflowDefinition ? (
+        <WorkflowEditor
+          initialSteps={steps}
+          availableTools={workflowTools}
+          title="Customize workflow"
+          description={selectedWorkflowDefinition.name}
+          continueLabel="Save workflow"
+          onBack={() => setScreen("workflows")}
+          onContinue={(nextSteps) => void handleSaveWorkflow(nextSteps)}
+          onSaveAndUse={(nextSteps) => void handleSaveAndUseWorkflow(nextSteps)}
         />
       ) : null}
       {screen === "tasks" ? (

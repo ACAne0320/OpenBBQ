@@ -7,6 +7,7 @@ import type {
   ProviderConnectionTestInput,
   ProviderConnectionTestResult,
   ProviderModelOption,
+  RemoteVideoFormatInput,
   ReviewModel,
   RuntimeModelDownloadJob,
   RuntimeModelStatus,
@@ -14,19 +15,25 @@ import type {
   SaveFasterWhisperDefaultsInput,
   SaveLlmProviderInput,
   SaveRuntimeDefaultsInput,
+  SaveWorkflowDefinitionInput,
   SecretStatus,
+  SelectOption,
   SourceDraft,
   StartSubtitleTaskInput,
   StartSubtitleTaskResult,
   StepParameter,
   TaskSummary,
   TaskMonitorModel,
+  WorkflowDefinition,
   WorkflowTool,
   WorkflowStep
 } from "./types";
 
 export type OpenBBQClient = {
   chooseLocalMedia?(): Promise<LocalMediaSelection | null>;
+  listWorkflowDefinitions(): Promise<WorkflowDefinition[]>;
+  saveWorkflowDefinition(input: SaveWorkflowDefinitionInput): Promise<WorkflowDefinition>;
+  getRemoteVideoFormats(input: RemoteVideoFormatInput): Promise<SelectOption[]>;
   getWorkflowTemplate(source: SourceDraft): Promise<WorkflowStep[]>;
   getWorkflowTools(): Promise<WorkflowTool[]>;
   startSubtitleTask(input: StartSubtitleTaskInput): Promise<StartSubtitleTaskResult>;
@@ -116,6 +123,27 @@ const workflowTools: WorkflowTool[] = [
   }
 ];
 
+const workflowDefinitions: WorkflowDefinition[] = [
+  {
+    id: "local-subtitle",
+    name: "Local video -> translated SRT",
+    description: "Extract audio, transcribe, translate, and prepare an SRT subtitle for review.",
+    origin: "built_in",
+    sourceTypes: ["local_file"],
+    resultTypes: ["subtitle"],
+    steps: workflowSteps
+  },
+  {
+    id: "youtube-subtitle",
+    name: "Remote video -> translated SRT",
+    description: "Download a remote video, transcribe, translate, and prepare an SRT subtitle for review.",
+    origin: "built_in",
+    sourceTypes: ["remote_url"],
+    resultTypes: ["subtitle"],
+    steps: [remoteDownloadStep({ kind: "remote_url", url: "about:blank" }), ...workflowSteps]
+  }
+];
+
 function initialFasterWhisperModels(cacheDir: string): RuntimeModelStatus[] {
   return fasterWhisperModelNames.map((model) => ({
     provider: "faster-whisper",
@@ -128,6 +156,7 @@ function initialFasterWhisperModels(cacheDir: string): RuntimeModelStatus[] {
 }
 
 export function createMockClient(): OpenBBQClient {
+  let customWorkflowDefinitions: WorkflowDefinition[] = [];
   let reviewState = cloneModel(reviewModel);
   let runtimeSettings: RuntimeSettingsModel = {
     configPath: "C:/Users/alex/.openbbq/config.toml",
@@ -165,6 +194,34 @@ export function createMockClient(): OpenBBQClient {
   ];
 
   return {
+    async listWorkflowDefinitions() {
+      return cloneModel([...workflowDefinitions, ...customWorkflowDefinitions]);
+    },
+    async saveWorkflowDefinition(input) {
+      const saved: WorkflowDefinition = {
+        ...input,
+        origin: "custom",
+        updatedAt: new Date(0).toISOString()
+      };
+      customWorkflowDefinitions = [
+        ...customWorkflowDefinitions.filter((workflow) => workflow.id !== saved.id),
+        saved
+      ];
+      return cloneModel(saved);
+    },
+    async getRemoteVideoFormats() {
+      return [
+        {
+          value: "best[ext=mp4][height<=720]/best[height<=720]/best",
+          label: "Best up to 720p"
+        },
+        {
+          value: "best[ext=mp4][height<=1080]/best[height<=1080]/best",
+          label: "Best up to 1080p"
+        },
+        { value: "best", label: "Best available" }
+      ];
+    },
     async getWorkflowTemplate(source) {
       return cloneModel(workflowTemplateForSource(source));
     },
