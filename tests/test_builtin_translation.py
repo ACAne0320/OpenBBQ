@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 
 import pytest
 
@@ -304,6 +306,192 @@ def test_translation_translate_splits_chunk_when_model_returns_too_few_segments(
     assert response["outputs"]["translation"]["content"][9]["text"] == "left-9"
     assert response["outputs"]["translation"]["content"][10]["text"] == "right-0"
     assert response["outputs"]["translation"]["content"][-1]["text"] == "right-9"
+
+
+def test_translation_translate_resumes_from_checkpoint(tmp_path, monkeypatch):
+    transcript = [
+        {"start": float(index), "end": float(index + 1), "text": f"segment-{index}"}
+        for index in range(4)
+    ]
+    calls = []
+
+    def failing_translate_chunk(**kwargs):
+        chunk = kwargs["chunk"]
+        calls.append([segment.text for segment in chunk])
+        if chunk[0].text == "segment-2":
+            raise RuntimeError("timeout")
+        return [
+            {
+                "start": segment.start,
+                "end": segment.end,
+                "source_text": segment.text,
+                "text": f"zh {segment.text}",
+            }
+            for segment in chunk
+        ]
+
+    monkeypatch.setattr(translation_plugin, "_translate_chunk", failing_translate_chunk)
+    request = {
+        "tool_name": "translate",
+        "work_dir": str(tmp_path / "translate-work"),
+        "parameters": {
+            "provider": "openai",
+            "source_lang": "en",
+            "target_lang": "zh-Hans",
+            "model": "gpt-4o-mini",
+            "max_segments_per_request": 2,
+            "completion_retry_rounds": 0,
+        },
+        "inputs": {"subtitle_segments": {"type": "subtitle_segments", "content": transcript}},
+        "runtime": runtime_provider_payload(),
+    }
+
+    with pytest.raises(RuntimeError, match="saved checkpoint"):
+        translation_plugin.run(request, client_factory=RecordingOpenAIClientFactory("[]"))
+
+    checkpoint = json.loads(
+        (tmp_path / "translate-work" / "translation-checkpoint.json").read_text(encoding="utf-8")
+    )
+    assert sorted(checkpoint["segments"]) == ["0", "1"]
+    assert calls == [["segment-0", "segment-1"], ["segment-2", "segment-3"]]
+
+    calls.clear()
+
+    def successful_translate_chunk(**kwargs):
+        chunk = kwargs["chunk"]
+        calls.append([segment.text for segment in chunk])
+        return [
+            {
+                "start": segment.start,
+                "end": segment.end,
+                "source_text": segment.text,
+                "text": f"zh {segment.text}",
+            }
+            for segment in chunk
+        ]
+
+    monkeypatch.setattr(translation_plugin, "_translate_chunk", successful_translate_chunk)
+
+    response = translation_plugin.run(request, client_factory=RecordingOpenAIClientFactory("[]"))
+
+    assert calls == [["segment-2", "segment-3"]]
+    assert [item["text"] for item in response["outputs"]["translation"]["content"]] == [
+        "zh segment-0",
+        "zh segment-1",
+        "zh segment-2",
+        "zh segment-3",
+    ]
+
+
+def test_translation_translate_completes_failed_chunk_by_single_segments(tmp_path, monkeypatch):
+    transcript = [
+        {"start": float(index), "end": float(index + 1), "text": f"segment-{index}"}
+        for index in range(4)
+    ]
+    calls = []
+
+    def flaky_translate_chunk(**kwargs):
+        chunk = kwargs["chunk"]
+        calls.append([segment.text for segment in chunk])
+        if len(chunk) > 1 and chunk[0].text == "segment-2":
+            raise RuntimeError("chunk timed out")
+        return [
+            {
+                "start": segment.start,
+                "end": segment.end,
+                "source_text": segment.text,
+                "text": f"zh {segment.text}",
+            }
+            for segment in chunk
+        ]
+
+    monkeypatch.setattr(translation_plugin, "_translate_chunk", flaky_translate_chunk)
+
+    response = translation_plugin.run(
+        {
+            "tool_name": "translate",
+            "work_dir": str(tmp_path / "translate-work"),
+            "parameters": {
+                "provider": "openai",
+                "source_lang": "en",
+                "target_lang": "zh-Hans",
+                "model": "gpt-4o-mini",
+                "max_segments_per_request": 2,
+                "completion_retry_rounds": 1,
+            },
+            "inputs": {"subtitle_segments": {"type": "subtitle_segments", "content": transcript}},
+            "runtime": runtime_provider_payload(),
+        },
+        client_factory=RecordingOpenAIClientFactory("[]"),
+    )
+
+    assert calls == [
+        ["segment-0", "segment-1"],
+        ["segment-2", "segment-3"],
+        ["segment-2"],
+        ["segment-3"],
+    ]
+    assert [item["text"] for item in response["outputs"]["translation"]["content"]] == [
+        "zh segment-0",
+        "zh segment-1",
+        "zh segment-2",
+        "zh segment-3",
+    ]
+
+
+def test_translation_translate_honors_max_concurrency(tmp_path, monkeypatch):
+    transcript = [
+        {"start": float(index), "end": float(index + 1), "text": f"segment-{index}"}
+        for index in range(4)
+    ]
+    active = 0
+    max_seen = 0
+    lock = threading.Lock()
+    two_active = threading.Event()
+
+    def blocking_translate_chunk(**kwargs):
+        nonlocal active, max_seen
+        chunk = kwargs["chunk"]
+        with lock:
+            active += 1
+            max_seen = max(max_seen, active)
+            if active >= 2:
+                two_active.set()
+        two_active.wait(timeout=1)
+        time.sleep(0.01)
+        with lock:
+            active -= 1
+        segment = chunk[0]
+        return [
+            {
+                "start": segment.start,
+                "end": segment.end,
+                "source_text": segment.text,
+                "text": f"zh {segment.text}",
+            }
+        ]
+
+    monkeypatch.setattr(translation_plugin, "_translate_chunk", blocking_translate_chunk)
+
+    translation_plugin.run(
+        {
+            "tool_name": "translate",
+            "work_dir": str(tmp_path / "translate-work"),
+            "parameters": {
+                "provider": "openai",
+                "source_lang": "en",
+                "target_lang": "zh-Hans",
+                "model": "gpt-4o-mini",
+                "max_segments_per_request": 1,
+                "max_concurrency": 2,
+            },
+            "inputs": {"subtitle_segments": {"type": "subtitle_segments", "content": transcript}},
+            "runtime": runtime_provider_payload(),
+        },
+        client_factory=RecordingOpenAIClientFactory("[]"),
+    )
+
+    assert max_seen == 2
 
 
 def test_translation_qa_reports_term_number_and_readability_issues():

@@ -30,6 +30,21 @@ type = "string"
 type = "number"
 default = 0
 
+[tools.parameter_schema.properties.max_segments_per_request]
+type = "integer"
+minimum = 1
+default = 20
+
+[tools.parameter_schema.properties.max_concurrency]
+type = "integer"
+minimum = 1
+default = 1
+
+[tools.parameter_schema.properties.completion_retry_rounds]
+type = "integer"
+minimum = 0
+default = 2
+
 [tools.parameter_schema.properties.system_prompt]
 type = "string"
 

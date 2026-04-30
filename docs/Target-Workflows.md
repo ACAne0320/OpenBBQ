@@ -134,15 +134,22 @@ Parameters:
 
 | Name | Type | Required | Description |
 |---|---|---|---|
+| `profile` | string | no | Built-in segmentation profile. Supported values are `default`, `readable`, `dense`, and `short_form`. Defaults to `default`. |
+| `language` | string | no | Optional language code for language-specific segmentation behavior. |
 | `max_duration_seconds` | number | no | Maximum duration for a subtitle unit. Defaults to `6`. |
 | `min_duration_seconds` | number | no | Minimum preferred duration before a pause or boundary split. Defaults to `0.8`. |
 | `max_lines` | integer | no | Maximum number of lines in each subtitle unit. Defaults to `2`. |
 | `max_chars_per_line` | integer | no | Maximum characters per line before pre-wrapping text. Defaults to `40`. |
+| `max_chars_total` | integer | no | Maximum total characters in a subtitle unit. Defaults to `max_chars_per_line * max_lines`. |
 | `max_chars_per_second` | number | no | Maximum preferred reading speed used when deciding where to split. Defaults to `20`. |
 | `pause_threshold_ms` | integer | no | Silence gap threshold that encourages a subtitle boundary. Defaults to `500`. |
 | `prefer_sentence_boundaries` | boolean | no | Prefer punctuation boundaries when splitting. Defaults to `true`. |
+| `prefer_clause_boundaries` | boolean | no | Prefer comma-like clause boundaries when splitting. Defaults to `false`. |
+| `merge_short_segments` | boolean | no | Merge generated units shorter than `min_duration_seconds` when limits still allow it. Defaults to `false`. |
+| `protect_terms` | boolean | no | Keep protected glossary terms in the same subtitle unit when possible. Defaults to `true`. |
+| `glossary_rules` | array | no | Optional glossary rules used for protected term spans during segmentation. |
 
-This step derives subtitle-ready timed units instead of treating Whisper decoding segments as final subtitle blocks.
+This step derives subtitle-ready timed units instead of treating Whisper decoding segments as final subtitle blocks. Word-level timestamps are used when available; otherwise the tool falls back to the ASR segment text and timing.
 
 ---
 
@@ -164,6 +171,9 @@ Parameters:
 | `source_lang` | string | yes | BCP-47 source language code. |
 | `model` | string | no | OpenAI-compatible model identifier. If omitted, the provider profile `default_chat_model` is used. |
 | `temperature` | number | no | Sampling temperature. Defaults to `0`. |
+| `max_segments_per_request` | integer | no | Maximum segment count sent to the model per request. Defaults to `20`. |
+| `max_concurrency` | integer | no | Maximum concurrent translation requests. Defaults to `1`. |
+| `completion_retry_rounds` | integer | no | Number of final single-segment retry rounds for missing translations. Defaults to `2`. |
 | `system_prompt` | string | no | Optional system prompt override. |
 | `glossary_rules` | array | no | Optional terminology rules forwarded to the translation prompt. Accepts `{source,target,aliases,protected}` and legacy `{find,replace}` forms. |
 
@@ -180,6 +190,7 @@ Runtime provider profiles:
   `sqlite:openbbq/providers/<name>/api_key`.
 
 The output `translation` artifact preserves the segment structure and timing from the input subtitle-ready segments while replacing text with translated content.
+During execution, the built-in plugin stores per-segment checkpoint state in the step work directory so a resumed workflow can skip already translated segments.
 
 > **Note:** This step requires outbound LLM API access. It is the only step in this pipeline that is non-deterministic.
 
