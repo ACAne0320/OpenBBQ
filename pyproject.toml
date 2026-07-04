@@ -1,0 +1,73 @@
+[project]
+name = "openbbq"
+version = "0.0.1"
+description = "Agent-friendly CLI for video translation and subtitle production."
+readme = "README.md"
+authors = [
+    { name = "ACAne0320", email = "nyaashino@gmail.com" }
+]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "pydantic>=2.13.4",
+    "rich>=15.0.0",
+    "typer>=0.26.7",
+    "yt-dlp>=2026.6.9",
+]
+
+[project.scripts]
+openbbq = "openbbq.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ACAne0320/OpenBBQ"
+Repository = "https://github.com/ACAne0320/OpenBBQ"
+Issues = "https://github.com/ACAne0320/OpenBBQ/issues"
+Documentation = "https://github.com/ACAne0320/OpenBBQ/tree/main/docs"
+
+[project.optional-dependencies]
+whispercpp = [
+    "pywhispercpp>=1.5.0",
+]
+mlx-whisper = [
+    "mlx-whisper>=0.4.3",
+]
+faster-whisper = [
+    "faster-whisper>=1.2.1",
+]
+whisperx = [
+    "whisperx>=3.8.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.17,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.15.19",
+    "ty>=0.0.53",
+]
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.uv.build-backend]
+source-include = [
+    "README.zh-CN.md",
+    "docs/install-agent.md",
+    "docs/install-agent.zh-CN.md",
+    "docs/usage.md",
+    "docs/usage.zh-CN.md",
+    "skills/**",
+]

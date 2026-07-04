@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ty/
+.coverage
+htmlcov/
+build/
+dist/
+wheels/
+*.egg-info/
+
+# Virtual environments / local dependency caches
+.venv/
+.uv-cache/
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+
+# OpenBBQ local workspaces and generated media
+workspaces/
+
+# Internal notes and design drafts
+docs/spark
+DESIGN.md
+
+# Experimental probes and large benchmark outputs are local-only for now.
+experiments/
+
+# ASR/model caches or downloaded weights
+models/
+*.gguf
+*.bin
+*.safetensors
