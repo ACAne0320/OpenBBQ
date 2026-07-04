@@ -67,6 +67,7 @@ source-include = [
     "README.zh-CN.md",
     "docs/install-agent.md",
     "docs/install-agent.zh-CN.md",
+    "docs/release.md",
     "docs/usage.md",
     "docs/usage.zh-CN.md",
     "skills/**",
