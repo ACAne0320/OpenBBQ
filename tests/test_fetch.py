@@ -93,6 +93,39 @@ def test_fetch_auth_exports_temp_cookies_and_cleans_up(tmp_path, monkeypatch) ->
     assert not cookie_file.exists()
 
 
+def test_fetch_auth_cookie_export_permission_error_is_structured(
+    tmp_path, monkeypatch
+) -> None:
+    wsdir = tmp_path / "ws"
+    wsdir.mkdir()
+    manifest = _manifest()
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(fetchlib, "_yt_dlp_command", lambda: ["yt-dlp"])
+
+    def fake_export(site: str) -> Path:
+        assert site == "youtube"
+        raise PermissionError("operation not permitted")
+
+    def fake_run(
+        args: list[str], *, on_progress=None, on_metadata=None
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="")
+
+    monkeypatch.setattr(fetchlib.auth_store, "export_netscape_temp", fake_export)
+    monkeypatch.setattr(fetchlib, "_run_yt_dlp", fake_run)
+
+    with pytest.raises(OpenBBQError) as raised:
+        fetchlib.fetch_media(wsdir, manifest, auth_site="youtube")
+
+    assert raised.value.code == "auth_cookie_export_failed"
+    assert raised.value.context["site"] == "youtube"
+    assert "OPENBBQ_HOME" in (raised.value.fix or "")
+    assert "--no-auth" in (raised.value.fix or "")
+    assert calls == []
+
+
 def test_fetch_auth_403_is_structured_and_cleans_cookie(tmp_path, monkeypatch) -> None:
     wsdir = tmp_path / "ws"
     wsdir.mkdir()

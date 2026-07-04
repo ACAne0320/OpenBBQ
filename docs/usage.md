@@ -42,6 +42,12 @@ openbbq auth browser-login youtube
 openbbq fetch --workspace workspaces/demo
 ```
 
+The browser auth profile is stored under `OPENBBQ_HOME`, defaulting to
+`~/.openbbq`. That location must be writable. In restricted sandboxes, run
+browser auth and `fetch` in a normal user environment, or set `OPENBBQ_HOME` to
+a writable path. For public videos where saved auth causes a 403, retry with
+`openbbq fetch --workspace workspaces/demo --no-auth`.
+
 ## Local File Workflow
 
 For a local video, skip `fetch`:
@@ -52,6 +58,12 @@ openbbq extract-audio --workspace workspaces/demo
 openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
 openbbq segment --workspace workspaces/demo
 ```
+
+## ASR And GPU
+
+`--gpu` is the default fast path when the selected ASR backend supports it. If a
+native backend crashes or fails inside a restricted sandbox, rerun `transcribe`
+outside the sandbox or retry with `--cpu`.
 
 ## Translate
 
@@ -87,6 +99,14 @@ Burn subtitles into the video:
 openbbq burn --workspace workspaces/demo
 ```
 
+Burning can take minutes. In JSON or non-TTY mode, stdout remains a single final
+JSON object; progress is written to the workspace manifest. Poll it from another
+terminal:
+
+```bash
+openbbq --json status --workspace workspaces/demo
+```
+
 ## ASS Presets
 
 ```bash
@@ -113,6 +133,10 @@ Agents should use JSON output:
 openbbq --json status --workspace workspaces/demo
 openbbq --json export --workspace workspaces/demo --to zh --mode bilingual --format ass
 ```
+
+Human Rich output is used only when stdout is an interactive TTY. In Codex, CI,
+or other non-TTY runners, OpenBBQ emits compact JSON automatically even when
+`--json` is omitted.
 
 The workspace manifest records completed, running, and failed stages. Poll
 `status` for progress during long tasks such as `fetch`, `transcribe`, and

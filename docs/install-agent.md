@@ -9,6 +9,8 @@ This guide is for AI agents. The goal is to install OpenBBQ on the user's machin
 - Ask the questions that affect install size and install path first.
 - Run `openbbq doctor --json`, then add only the missing pieces.
 - Ask before installing system packages, downloading models, writing browser login state, or configuring API keys.
+- Make sure `OPENBBQ_HOME` and user caches are writable before browser auth,
+  model downloads, and long media runs.
 - Finish with a passing `openbbq doctor`.
 
 ## Ask First
@@ -50,6 +52,9 @@ uv tool install '.[whispercpp]'
 openbbq doctor --json
 ```
 
+In Codex, CI, and other non-TTY runners, OpenBBQ may emit compact JSON even when
+`--json` is omitted. Prefer `--json` explicitly when an agent parses output.
+
 Use the output to decide what is missing:
 
 - Python must be 3.12 or newer.
@@ -57,6 +62,9 @@ Use the output to decide what is missing:
 - If the ASR backend is missing, install `pywhispercpp` by default. macOS wheels usually include Metal support. NVIDIA / Vulkan routes may need local toolkits and source builds.
 - If the model is missing, ask the user to confirm the model size, then run `openbbq models pull <model>`.
 - If YouTube requires login or human verification, run `openbbq auth browser-login youtube`.
+- Browser auth and authenticated `fetch` need a writable `OPENBBQ_HOME`
+  (default: `~/.openbbq`). In a restricted sandbox, run them in a normal user
+  environment or set `OPENBBQ_HOME` to a writable path.
 - If the user needs speaker diarization, install whisperX and confirm the Hugging Face token.
 - If the user wants API translation, configure the provider key.
 
@@ -87,6 +95,9 @@ HF_ENDPOINT=https://hf-mirror.com openbbq models pull large-v3-turbo
 ```
 
 Models are stored in OpenBBQ's global cache and reused across workspaces. They are not written into the video project directory.
+
+If a native ASR backend fails or crashes with `--gpu` in a restricted sandbox,
+rerun `transcribe` outside the sandbox or retry with `--cpu`.
 
 ## Finish
 

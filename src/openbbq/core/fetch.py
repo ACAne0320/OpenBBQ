@@ -281,7 +281,18 @@ def fetch_media(
     cookie_path: Path | None = None
     if auth_site is not None:
         policy = require_policy(auth_site)
-        cookie_path = auth_store.export_netscape_temp(policy.key)
+        try:
+            cookie_path = auth_store.export_netscape_temp(policy.key)
+        except OSError as e:
+            raise OpenBBQError(
+                "auth_cookie_export_failed",
+                site=policy.key,
+                detail=str(e),
+                fix=(
+                    "make OPENBBQ_HOME writable, or retry with --no-auth for "
+                    "public videos"
+                ),
+            ) from e
         cmd = [*base_cmd, "--cookies", str(cookie_path), *cmd[len(base_cmd) :]]
 
     try:

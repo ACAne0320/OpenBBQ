@@ -70,7 +70,7 @@ def _patch_burn(monkeypatch: pytest.MonkeyPatch, calls: dict[str, object]) -> No
 
 
 def test_burn_uses_last_ass_export_and_records_stage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path, manifest = _workspace(tmp_path)
     sub = _with_export(path, manifest)
@@ -84,6 +84,7 @@ def test_burn_uses_last_ass_export_and_records_stage(
     final = ws.read_manifest(path).stages[Stage.BURN]
     assert final.status is StageStatus.DONE
     assert final.artifact == "out/zh-burned.mp4"
+    assert "openbbq --json status --workspace" in capsys.readouterr().err
 
 
 def test_burn_accepts_output_and_ffmpeg_override(

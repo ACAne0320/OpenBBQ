@@ -47,13 +47,13 @@ Human workflow:
 
 ```bash
 openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
-cd workspace/demo
+cd workspaces/demo
 openbbq fetch
 openbbq extract-audio
 openbbq transcribe --model large-v3-turbo --language en --gpu
 openbbq segment
 openbbq translate init zh
-# fill in translations in workspaces/demo/translation.zh.json
+# fill in translations in translation.zh.json
 openbbq translate check zh
 openbbq export --to zh --mode bilingual --format ass --output out/zh.ass
 openbbq burn
@@ -66,6 +66,8 @@ openbbq --json status --workspace workspaces/demo
 ```
 
 Agents should use `--json` and pass the workspace explicitly with `-w`.
+OpenBBQ also switches to compact JSON automatically when stdout is not a TTY,
+which is expected in Codex, CI, and other agent runners.
 For long-running tasks, poll the workspace state with `openbbq status`.
 For subtitle tasks, follow `skills/openbbq-subtitles/SKILL.md`.
 
@@ -74,11 +76,11 @@ For local files, YouTube login, ASS presets, outputs, and command details, see
 
 ## Roadmap
 
-[ ] Windows/Linux support
-[ ] More ASR backends
-[ ] More video platform authentication support
-[ ] A visual translation step for people who want to translate manually
-[ ] ...
+- [ ] Windows and Linux support
+- [ ] More ASR backends
+- [ ] More video-platform authentication support
+- [ ] Visual translation review for manual translators
+- [ ] More subtitle editing and publishing workflows
 
 ## License
 

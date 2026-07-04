@@ -8,6 +8,7 @@
 - 先问清楚会影响下载量和安装方式的问题。
 - 先跑 `openbbq doctor --json`，再根据结果只补缺失项。
 - 安装系统包、下载模型、写入浏览器登录态、配置 API key 前，都先让用户确认。
+- 在 browser auth、模型下载和长媒体任务前，确认 `OPENBBQ_HOME` 和用户级缓存目录可写。
 - 最后以 `openbbq doctor` 通过作为安装完成的门槛。
 
 ## 先问用户
@@ -50,6 +51,9 @@ uv tool install '.[whispercpp]'
 openbbq doctor --json
 ```
 
+在 Codex、CI 和其他非 TTY 运行器里，即使没有传 `--json`，OpenBBQ 也可能输出紧凑
+JSON。Agent 需要解析输出时，优先显式使用 `--json`。
+
 按输出补缺失项。常见项如下：
 
 - Python 需要 3.12 或更新版本。
@@ -57,6 +61,8 @@ openbbq doctor --json
 - 缺 ASR 后端时，默认补 `pywhispercpp`。macOS 通常可直接用 wheel 的 Metal 支持；NVIDIA / Vulkan 路线可能需要本机 toolkit 和源码编译。
 - 缺模型时，先让用户确认模型大小，再执行 `openbbq models pull <model>`。
 - YouTube 需要登录或人机验证时，执行 `openbbq auth browser-login youtube`。
+- browser auth 和带登录态的 `fetch` 需要可写的 `OPENBBQ_HOME`（默认 `~/.openbbq`）。
+  受限 sandbox 中请在普通用户环境里运行，或把 `OPENBBQ_HOME` 指到可写目录。
 - 如果用户要说话人分离，再安装 whisperX 并确认 Hugging Face token。
 - 如果用户要 API 翻译，再配置对应 provider 的 key。
 
@@ -87,6 +93,9 @@ HF_ENDPOINT=https://hf-mirror.com openbbq models pull large-v3-turbo
 ```
 
 模型放在 OpenBBQ 的全局缓存里，跨 workspace 复用，不写进视频项目目录。
+
+如果原生 ASR 后端在受限 sandbox 中使用 `--gpu` 失败或崩溃，请在 sandbox 外重新运行
+`transcribe`，或改用 `--cpu` 重试。
 
 ## 完成检查
 

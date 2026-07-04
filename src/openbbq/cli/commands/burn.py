@@ -187,6 +187,11 @@ def burn(
 
     try:
         if output_obj.json_mode:
+            typer.echo(
+                "openbbq: burning subtitles; poll progress with "
+                f"`openbbq --json status --workspace {path}`",
+                err=True,
+            )
             outcome = media.burn_subtitles(
                 src, sub, dest, ffmpeg=ffmpeg, on_progress=heartbeat
             )

@@ -47,14 +47,14 @@ Human 工作流：
 
 ```bash
 openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
-cd workspace/demo
+cd workspaces/demo
 openbbq fetch
-openbbq extract-audio 
+openbbq extract-audio
 openbbq transcribe --model large-v3-turbo --language en --gpu
 openbbq segment
 openbbq translate init zh
-# 在 workspaces/demo/translation.zh.json 中填写翻译内容
-openbbq translate check zh 
+# 在 translation.zh.json 中填写翻译内容
+openbbq translate check zh
 openbbq export --to zh --mode bilingual --format ass --output out/zh.ass
 openbbq burn
 ```
@@ -66,6 +66,8 @@ openbbq --json status --workspace workspaces/demo
 ```
 
 Agent 通常使用 `--json`，并且使用 `-w` 显式指明 workspace
+当 stdout 不是 TTY 时，OpenBBQ 也会自动切到紧凑 JSON 输出；这在 Codex、CI
+和其他 Agent 运行器里是预期行为。
 当进行长任务时，使用 `openbbq status` 轮询工作空间状态
 在具体的字幕任务中参考 `skills/openbbq-subtitles/SKILL.md` 中的使用方法
 
@@ -73,11 +75,12 @@ Agent 通常使用 `--json`，并且使用 `-w` 显式指明 workspace
 [docs/usage.zh-CN.md](docs/usage.zh-CN.md)。
 
 ## 路线图
-[ ] Windows/Linux 支持
-[ ] 更多 ASR 后端支持
-[ ] 更多视频平台鉴权支持
-[ ] 可视化翻译步骤（给想自己翻译的人）
-[ ] ...
+
+- [ ] Windows 和 Linux 支持
+- [ ] 更多 ASR 后端支持
+- [ ] 更多视频平台鉴权支持
+- [ ] 面向人工翻译的可视化校对流程
+- [ ] 更多字幕编辑与发布工作流
 
 ## 许可证
 

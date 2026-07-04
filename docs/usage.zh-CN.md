@@ -41,6 +41,11 @@ openbbq auth browser-login youtube
 openbbq fetch --workspace workspaces/demo
 ```
 
+浏览器登录态保存在 `OPENBBQ_HOME` 下，默认是 `~/.openbbq`。这个目录需要可写。
+如果运行环境是受限 sandbox，请在普通用户环境里执行 browser auth 和 `fetch`，或把
+`OPENBBQ_HOME` 指到可写目录。公开视频如果因为已保存登录态触发 403，可以改用
+`openbbq fetch --workspace workspaces/demo --no-auth`。
+
 ## 本地文件流程
 
 本地视频可以跳过 `fetch`：
@@ -51,6 +56,11 @@ openbbq extract-audio --workspace workspaces/demo
 openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
 openbbq segment --workspace workspaces/demo
 ```
+
+## ASR 和 GPU
+
+所选 ASR 后端支持时，`--gpu` 是默认的快速路径。如果原生后端在受限 sandbox 中崩溃
+或失败，请在 sandbox 外重新运行 `transcribe`，或改用 `--cpu` 重试。
 
 ## 翻译
 
@@ -86,6 +96,13 @@ openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass
 openbbq burn --workspace workspaces/demo
 ```
 
+烧录可能需要几分钟。JSON 或非 TTY 模式下，stdout 仍然只输出最后的单个 JSON
+结果；进度会写进 workspace manifest。可以另开终端轮询：
+
+```bash
+openbbq --json status --workspace workspaces/demo
+```
+
 ## ASS 预设
 
 ```bash
@@ -110,6 +127,9 @@ Agent 应使用 JSON 输出：
 openbbq --json status --workspace workspaces/demo
 openbbq --json export --workspace workspaces/demo --to zh --mode bilingual --format ass
 ```
+
+只有 stdout 是交互式 TTY 时，OpenBBQ 才使用 Rich 人类可读输出。在 Codex、CI 或
+其他非 TTY 运行器里，即使没有显式传 `--json`，也会自动输出紧凑 JSON。
 
 工作空间 manifest 记录了已完成、运行中和失败的阶段。`fetch`、`transcribe`、
 `burn` 这类长任务可以通过 `status` 查询进度。
