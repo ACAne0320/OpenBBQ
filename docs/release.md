@@ -5,13 +5,15 @@ OpenBBQ publishes to PyPI from GitHub Actions with PyPI Trusted Publishing.
 ## One-time setup
 
 1. In GitHub, create an environment named `pypi`.
-2. In PyPI, add a trusted publisher for:
+2. In PyPI, open your account sidebar's **Publishing** page and add a pending trusted publisher for:
+   - PyPI project name: `openbbq`
    - owner: `ACAne0320`
    - repository: `OpenBBQ`
    - workflow: `publish.yml`
    - environment: `pypi`
 
 No PyPI token is stored in the repository. The workflow uses GitHub OIDC and `uv publish`.
+The pending publisher creates the PyPI project on first publish; it does not reserve the name before that first successful publish.
 
 ## Publish a version
 
