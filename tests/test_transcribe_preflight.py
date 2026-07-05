@@ -5,8 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
 import typer
 
+import openbbq.cli.commands.transcribe as transcribecmd
 from openbbq.cli.commands.transcribe import transcribe
 from openbbq.cli.output import Output
 from openbbq.core import workspace as ws
@@ -67,3 +69,47 @@ def test_transcribe_model_missing_does_not_touch_stage(tmp_path, monkeypatch) ->
         raise AssertionError("expected OpenBBQError")
 
     assert ws.read_manifest(path).stages == manifest.stages
+
+
+def test_transcribe_keyboard_interrupt_records_failed(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, manifest = _workspace(tmp_path)
+    audio = path / "media" / "audio.16k.wav"
+    audio.parent.mkdir()
+    audio.write_bytes(b"not needed")
+    manifest.stages[Stage.EXTRACT_AUDIO] = StageState(
+        status=StageStatus.DONE,
+        artifact="media/audio.16k.wav",
+        updated_at=datetime.now(timezone.utc),
+    )
+    ws.write_manifest(path, manifest)
+
+    class InterruptingBackend:
+        name = "test-asr"
+        install_hint = "install test-asr"
+        capabilities = set()
+
+        def default_model(self) -> str:
+            return "fake-model"
+
+        def has_model(self, name: str) -> bool:
+            return True
+
+        def is_available(self) -> bool:
+            return True
+
+        def transcribe(self, *args, **kwargs) -> None:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        transcribecmd, "get_backend", lambda backend: InterruptingBackend()
+    )
+    monkeypatch.setattr(transcribecmd.media, "wav_duration", lambda path: 2.0)
+
+    with pytest.raises(KeyboardInterrupt):
+        transcribe(_ctx(), workspace=str(path), model="fake-model")
+
+    failed = ws.read_manifest(path).stages[Stage.TRANSCRIBE]
+    assert failed.status is StageStatus.FAILED
+    assert failed.error == "interrupted"

@@ -16,6 +16,7 @@ class Result(OpenBBQModel):
     """
 
     ok: Literal[True] = True
+    next: str | None = None
 
     def payload(self) -> dict[str, object]:
         # mode="json": datetimes/enums become JSON-ready primitives; drop nulls

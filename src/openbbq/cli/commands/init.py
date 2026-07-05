@@ -24,6 +24,9 @@ class InitResult(Result):
             workspace=str(path),
             source_type=manifest.source.type,
             glossary=manifest.glossary,
+            next="openbbq fetch"
+            if manifest.source.type == "url"
+            else "openbbq extract-audio",
         )
 
     def render(self) -> str:

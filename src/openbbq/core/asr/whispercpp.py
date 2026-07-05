@@ -121,7 +121,8 @@ class WhisperCppBackend:
     def pull(
         self, name: str, on_progress: Callable[[int, int], None] | None = None
     ) -> Path:
-        if _info(name) is None:
+        info = _info(name)
+        if info is None:
             raise OpenBBQError("model_missing", model=name, fix="openbbq models list")
         path = _ggml_path(name)
         if path.exists():
@@ -129,7 +130,15 @@ class WhisperCppBackend:
         endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co").rstrip("/")
         url = f"{endpoint}/ggerganov/whisper.cpp/resolve/main/ggml-{name}.bin"
         try:
-            models.download(url, path, on_progress)
+            models.download(url, path, on_progress, expected_size_mb=info.size_mb)
+        except models.DownloadSizeMismatch as e:
+            raise OpenBBQError(
+                "model_size_mismatch",
+                model=name,
+                expected_mb=round(e.expected_size_mb, 1),
+                actual_mb=round(e.actual_bytes / 1024 / 1024, 1),
+                fix=f"retry download: openbbq models pull {name}",
+            ) from e
         except OSError as e:
             raise OpenBBQError("model_download_failed", model=name, detail=str(e)) from e
         return path

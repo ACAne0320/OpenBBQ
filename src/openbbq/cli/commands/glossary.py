@@ -162,8 +162,7 @@ def use(
     path = ws.resolve_workspace(workspace)
     manifest = ws.read_manifest(path)
     glossarylib.load(name)  # validate it exists / is well-formed before binding
-    manifest.glossary = name
-    ws.write_manifest(path, manifest)
+    ws.record_glossary_binding(path, manifest, name)
     output.emit(GlossaryUseResult(name=name, workspace=str(path)))
 
 

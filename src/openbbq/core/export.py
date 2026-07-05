@@ -14,7 +14,7 @@ from enum import StrEnum
 import re
 from typing import cast
 
-from openbbq.core.translate import is_filled
+from openbbq.core.translate import is_filled, verify_integrity
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import Cue, Cues, Translation
 
@@ -137,7 +137,10 @@ def _checked_targets(
     translation: Translation | None,
     mode: ExportMode,
     allow_missing: bool,
+    translation_lang: str | None,
 ) -> dict[int, str | None]:
+    if mode is not ExportMode.SOURCE and translation is not None:
+        verify_integrity(cues, translation, translation_lang or translation.target_lang)
     missing = missing_targets(cues, translation, mode)
     if missing and not allow_missing:
         raise OpenBBQError(
@@ -156,12 +159,13 @@ def render_srt(
     *,
     translation: Translation | None = None,
     allow_missing: bool = False,
+    translation_lang: str | None = None,
 ) -> str:
     """Render cues (+ optional translation) to an SRT string. Raises
     incomplete_translation when a target/bilingual export has untranslated cues
     and --allow-missing is unset.
     """
-    targets = _checked_targets(cues, translation, mode, allow_missing)
+    targets = _checked_targets(cues, translation, mode, allow_missing, translation_lang)
     blocks: list[str] = []
     for i, cue in enumerate(cues.cues, 1):
         body = "\n".join(_lines(cue, cues, translation, targets, mode))
@@ -403,13 +407,14 @@ def render_ass(
     translation: Translation | None = None,
     allow_missing: bool = False,
     preset: AssPreset = AssPreset.DEFAULT,
+    translation_lang: str | None = None,
 ) -> str:
     """Render cues (+ optional translation) to ASS.
 
     Bilingual ASS emits separate Dialogue events for target/source so each side
     can use independent font size, outline, and vertical position.
     """
-    targets = _checked_targets(cues, translation, mode, allow_missing)
+    targets = _checked_targets(cues, translation, mode, allow_missing, translation_lang)
     events: list[str] = []
     for cue in cues.cues:
         start = _ass_timestamp(cue.start)

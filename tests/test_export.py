@@ -441,6 +441,69 @@ def test_export_to_joins_worksheet(tmp_path) -> None:
     assert ws.read_manifest(path).stages[Stage.EXPORT].artifact == "out/zh.srt"
 
 
+def test_export_target_rejects_id_mismatch(tmp_path) -> None:
+    path, manifest = _workspace(tmp_path)
+    _with_cues(
+        path,
+        manifest,
+        _cues(
+            Cue(id=1, start=0, end=1, source="hi"),
+            Cue(id=2, start=1, end=2, source="bye"),
+        ),
+    )
+    _with_worksheet(path, _translation(_item(1, "hi", "你好")))
+
+    try:
+        export(_ctx(), workspace=str(path), to="zh")
+    except OpenBBQError as err:
+        assert err.code == "id_mismatch"
+    else:
+        raise AssertionError("expected OpenBBQError")
+
+
+def test_export_bilingual_rejects_id_mismatch(tmp_path) -> None:
+    path, manifest = _workspace(tmp_path)
+    _with_cues(
+        path,
+        manifest,
+        _cues(
+            Cue(id=1, start=0, end=1, source="hi"),
+            Cue(id=2, start=1, end=2, source="bye"),
+        ),
+    )
+    _with_worksheet(path, _translation(_item(1, "hi", "你好")))
+
+    try:
+        export(_ctx(), workspace=str(path), to="zh", mode=exp.ExportMode.BILINGUAL)
+    except OpenBBQError as err:
+        assert err.code == "id_mismatch"
+    else:
+        raise AssertionError("expected OpenBBQError")
+
+
+def test_export_rejects_source_drift(tmp_path) -> None:
+    path, manifest = _workspace(tmp_path)
+    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=1, source="hi")))
+    _with_worksheet(path, _translation(_item(1, "HELLO", "你好")))
+
+    try:
+        export(_ctx(), workspace=str(path), to="zh")
+    except OpenBBQError as err:
+        assert err.code == "source_drift"
+    else:
+        raise AssertionError("expected OpenBBQError")
+
+
+def test_export_source_mode_does_not_require_worksheet(tmp_path) -> None:
+    path, manifest = _workspace(tmp_path)
+    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=1, source="hi")))
+
+    export(_ctx(), workspace=str(path), to="zh", mode=exp.ExportMode.SOURCE)
+
+    srt = path / "out" / "en.srt"
+    assert srt.exists() and "hi\n" in srt.read_text()
+
+
 def test_export_to_missing_worksheet_errors(tmp_path) -> None:
     path, manifest = _workspace(tmp_path)
     _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=1, source="hi")))

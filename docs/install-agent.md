@@ -7,8 +7,8 @@ This guide is for AI agents. The goal is to install OpenBBQ on the user's machin
 - Do not install system dependencies without asking.
 - Do not download models without asking.
 - Ask the questions that affect install size and install path first.
-- Run `openbbq doctor --json`, then add only the missing pieces.
-- Ask before installing system packages, downloading models, writing browser login state, or configuring API keys.
+- Run `openbbq --json doctor`, then add only the missing pieces.
+- Ask before installing system packages, downloading models, or writing browser login state.
 - Make sure `OPENBBQ_HOME` and user caches are writable before browser auth,
   model downloads, and long media runs.
 - Finish with a passing `openbbq doctor`.
@@ -22,8 +22,6 @@ Confirm these details before installing:
 - Source language and target language.
 - Model size: `base` for a quick preview, `large-v3` or `large-v3-turbo` for production subtitles.
 - Whether the user needs hard-subtitle burning.
-- Whether the user needs speaker diarization.
-- Whether the user wants API translation.
 - Whether the machine has a GPU, and roughly what kind: Apple Silicon, NVIDIA, AMD / Intel, or CPU only.
 
 ## Bootstrap
@@ -46,10 +44,19 @@ Use a local repository install only for development or before a package has been
 uv tool install '.[whispercpp]'
 ```
 
+Then install the packaged agent skill so Claude Code can discover OpenBBQ:
+
+```bash
+openbbq skill install
+```
+
+This copies the skill to `~/.claude/skills/openbbq-subtitles/`. Agents that
+read skills directly from stdout can use `openbbq skill show`.
+
 ## Check The Environment
 
 ```bash
-openbbq doctor --json
+openbbq --json doctor
 ```
 
 In Codex, CI, and other non-TTY runners, OpenBBQ may emit compact JSON even when
@@ -65,8 +72,8 @@ Use the output to decide what is missing:
 - Browser auth and authenticated `fetch` need a writable `OPENBBQ_HOME`
   (default: `~/.openbbq`). In a restricted sandbox, run them in a normal user
   environment or set `OPENBBQ_HOME` to a writable path.
-- If the user needs speaker diarization, install whisperX and confirm the Hugging Face token.
-- If the user wants API translation, configure the provider key.
+- If the agent skill is missing or outdated, run `openbbq skill install` or
+  `openbbq skill install --force` as indicated by doctor.
 
 ## Models
 

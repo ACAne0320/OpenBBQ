@@ -218,14 +218,14 @@ def burn(
                 outcome = media.burn_subtitles(
                     src, sub, dest, ffmpeg=ffmpeg, on_progress=cb
                 )
-    except OpenBBQError as err:
+    except BaseException as err:
         ws.record_stage(
             path,
             manifest,
             Stage.BURN,
             StageState(
                 status=StageStatus.FAILED,
-                error=err.code,
+                error="interrupted" if isinstance(err, KeyboardInterrupt) else str(err),
                 updated_at=_now(),
             ),
         )

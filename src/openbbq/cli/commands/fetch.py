@@ -23,7 +23,6 @@ from rich.text import Text
 
 from ...core import fetch as fetchlib
 from ...core import workspace as ws
-from ...errors import OpenBBQError
 from ...schemas import Manifest, Progress, Stage, StageState, StageStatus
 from ..output import Output
 from ..results import Result
@@ -147,15 +146,13 @@ def _metadata_recorder(
     path: Path, manifest: Manifest
 ) -> Callable[[fetchlib.FetchMetadata], None]:
     def record(metadata: fetchlib.FetchMetadata) -> None:
-        changed = False
-        if metadata.title is not None and manifest.source.title != metadata.title:
-            manifest.source.title = metadata.title
-            changed = True
-        if metadata.author is not None and manifest.source.author is None:
-            manifest.source.author = metadata.author
-            changed = True
-        if changed:
-            ws.write_manifest(path, manifest)
+        ws.record_source_metadata(
+            path,
+            manifest,
+            title=metadata.title,
+            author=metadata.author,
+            author_if_missing=True,
+        )
 
     return record
 
@@ -285,7 +282,7 @@ def fetch(
                     metadata_status.stop()
                 if progress_running:
                     progress.stop()
-    except OpenBBQError as err:
+    except BaseException as err:
         if should_record:
             ws.record_stage(
                 path,
@@ -293,18 +290,21 @@ def fetch(
                 Stage.FETCH,
                 StageState(
                     status=StageStatus.FAILED,
-                    error=err.code,
+                    error="interrupted"
+                    if isinstance(err, KeyboardInterrupt)
+                    else str(err),
                     updated_at=_now(),
                 ),
             )
         raise
     if should_record:
-        if result.title is not None:
-            manifest.source.title = result.title
-        if result.author is not None:
-            manifest.source.author = result.author
-        if result.thumbnail is not None:
-            manifest.source.thumbnail = result.thumbnail
+        ws.record_source_metadata(
+            path,
+            manifest,
+            title=result.title,
+            author=result.author,
+            thumbnail=result.thumbnail,
+        )
         ws.record_stage(
             path,
             manifest,
@@ -323,5 +323,6 @@ def fetch(
             author=result.author,
             thumbnail=result.thumbnail,
             auth=result.auth,
+            next="openbbq extract-audio",
         )
     )

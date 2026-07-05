@@ -1611,17 +1611,8 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-faster-whisper = [
-    { name = "faster-whisper" },
-]
-mlx-whisper = [
-    { name = "mlx-whisper" },
-]
 whispercpp = [
     { name = "pywhispercpp" },
-]
-whisperx = [
-    { name = "whisperx" },
 ]
 
 [package.dev-dependencies]
@@ -1633,16 +1624,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "faster-whisper", marker = "extra == 'faster-whisper'", specifier = ">=1.2.1" },
-    { name = "mlx-whisper", marker = "extra == 'mlx-whisper'", specifier = ">=0.4.3" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pywhispercpp", marker = "extra == 'whispercpp'", specifier = ">=1.5.0" },
     { name = "rich", specifier = ">=15.0.0" },
     { name = "typer", specifier = ">=0.26.7" },
-    { name = "whisperx", marker = "extra == 'whisperx'", specifier = ">=3.8.6" },
     { name = "yt-dlp", specifier = ">=2026.6.9" },
 ]
-provides-extras = ["whispercpp", "mlx-whisper", "faster-whisper", "whisperx"]
+provides-extras = ["whispercpp"]
 
 [package.metadata.requires-dev]
 dev = [

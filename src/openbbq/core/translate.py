@@ -4,12 +4,15 @@ and validate a filled one.
 Source/target split, joined at export (DESIGN translate spec): ``cues.json`` is
 the immutable source product; each target language gets a ``translation@1``
 worksheet the Agent owns. ``build_worksheet`` prepares it (budget per cue +
-glossary map), ``check`` validates a filled one (integrity hard-fails; status is
-reported). Pure domain logic — no cli/output; failures surface as OpenBBQError.
+glossary map), ``apply_targets`` merges an id→target batch into it (how the
+Agent fills at scale without ad hoc scripts), ``check`` validates a filled one
+(integrity hard-fails; status is reported). Pure domain logic — no cli/output;
+failures surface as OpenBBQError.
 """
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 
@@ -93,7 +96,94 @@ def build_worksheet(
     return doc, generic
 
 
+# --- apply (translate apply) ---------------------------------------------------
+
+_TARGETS_FIX = 'write a JSON object mapping cue id to translated text: {"1": "译文", "2": "..."}'
+
+
+@dataclass(frozen=True)
+class ApplyReport:
+    applied: int  # targets merged this call
+    overwritten: int  # of those, how many replaced an already-filled target
+    filled: int  # worksheet-wide filled count after the merge
+    total: int
+
+
+def parse_targets(text: str) -> dict[int, str]:
+    """Parse a targets batch: a JSON object mapping cue id → translated text.
+
+    The minimal shape an Agent can Write without touching worksheet structure
+    (DESIGN §9 长视频分批). Keys are ids (JSON object keys arrive as strings);
+    values must be non-blank strings — a blank here is a mistake, not progress.
+    """
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise OpenBBQError(
+            "targets_invalid", detail=f"not valid JSON: {e}", fix=_TARGETS_FIX
+        ) from e
+    if not isinstance(raw, dict):
+        raise OpenBBQError(
+            "targets_invalid", detail="top level must be a JSON object", fix=_TARGETS_FIX
+        )
+    if not raw:
+        raise OpenBBQError("targets_invalid", detail="object is empty", fix=_TARGETS_FIX)
+    targets: dict[int, str] = {}
+    bad: list[str] = []
+    for key, value in raw.items():
+        try:
+            id_ = int(key)
+        except ValueError:
+            bad.append(key)
+            continue
+        if not isinstance(value, str) or not value.strip() or id_ in targets:
+            bad.append(key)
+            continue
+        targets[id_] = value
+    if bad:
+        raise OpenBBQError(
+            "targets_invalid",
+            keys=bad[:15],
+            detail="keys must be cue ids, values non-blank strings",
+            fix=_TARGETS_FIX,
+        )
+    return targets
+
+
+def apply_targets(worksheet: Translation, targets: dict[int, str]) -> ApplyReport:
+    """Merge a targets batch into the worksheet, in place. Partial batches are
+    fine (untouched ids keep their state); unknown ids hard-fail before any
+    mutation so a bad batch never half-applies.
+    """
+    known = {it.id for it in worksheet.items}
+    unknown = sorted(set(targets) - known)
+    if unknown:
+        raise OpenBBQError(
+            "unknown_ids",
+            ids=unknown[:15],
+            fix="use cue ids from the worksheet; re-read translation.<lang>.json",
+        )
+    applied = overwritten = 0
+    for it in worksheet.items:
+        if it.id in targets:
+            if is_filled(it.target):
+                overwritten += 1
+            it.target = targets[it.id]
+            applied += 1
+    filled = sum(1 for it in worksheet.items if is_filled(it.target))
+    return ApplyReport(
+        applied=applied, overwritten=overwritten, filled=filled, total=len(worksheet.items)
+    )
+
+
 # --- check (translate check) --------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TermIssue:
+    id: int
+    term: str
+    expected: str
 
 
 @dataclass(frozen=True)
@@ -101,14 +191,13 @@ class CheckReport:
     total: int
     filled: int
     missing: list[int]  # ids still untranslated (None or blank)
+    over_budget: list[int]  # filled ids whose target exceeds budget.max_chars
     term_warnings: int
+    term_issues: list[TermIssue]
 
 
-def check(cues: Cues, worksheet: Translation, lang: str) -> CheckReport:
-    """Validate a worksheet against its cues. Hard integrity violations raise;
-    completeness + term warnings are returned (the Agent's progress signal).
-    """
-    # --- hard integrity (worksheet is Agent-editable) ---
+def verify_integrity(cues: Cues, worksheet: Translation, lang: str) -> None:
+    """Hard-fail when an editable worksheet no longer matches its cues."""
     if worksheet.target_lang != lang:
         raise OpenBBQError(
             "lang_mismatch",
@@ -139,31 +228,69 @@ def check(cues: Cues, worksheet: Translation, lang: str) -> CheckReport:
                 "source_drift", id=it.id, fix="don't edit source; re-init (--force)"
             )
 
+
+def check(cues: Cues, worksheet: Translation, lang: str) -> CheckReport:
+    """Validate a worksheet against its cues. Hard integrity violations raise;
+    completeness + term warnings are returned (the Agent's progress signal).
+    """
+    verify_integrity(cues, worksheet, lang)
+
     # --- soft status ---
     missing = [it.id for it in worksheet.items if not is_filled(it.target)]
+    over_budget = _over_budget(worksheet)
+    term_issues = _term_issues(worksheet)
     return CheckReport(
         total=len(worksheet.items),
         filled=len(worksheet.items) - len(missing),
         missing=missing,
-        term_warnings=_term_warnings(worksheet),
+        over_budget=over_budget,
+        term_warnings=len(term_issues),
+        term_issues=term_issues,
     )
 
 
-def _term_warnings(worksheet: Translation) -> int:
+def _worksheet_profile(worksheet: Translation) -> seg.LanguageProfile:
+    """Rehydrate target params, borrowing only cjk-ness from the lang profile."""
+    cjk_profile, _ = seg.resolve_profile(worksheet.target_lang)
+    params = worksheet.params
+    return seg.LanguageProfile(
+        max_cps=params.max_cps,
+        max_chars_per_line=params.max_chars_per_line,
+        max_lines=params.max_lines,
+        min_dur=params.min_dur,
+        max_dur=params.max_dur,
+        min_gap=params.min_gap,
+        pause_threshold=params.pause_threshold,
+        cjk=cjk_profile.cjk,
+    )
+
+
+def _over_budget(worksheet: Translation) -> list[int]:
+    profile = _worksheet_profile(worksheet)
+    return [
+        it.id
+        for it in worksheet.items
+        if is_filled(it.target)
+        and seg.count_chars(it.target or "", profile) > it.budget.max_chars
+    ]
+
+
+def _term_issues(worksheet: Translation) -> list[TermIssue]:
     """Filled cues whose source carries a glossary term but whose target dropped
     the mapped translation (keep → source verbatim). Substring-level lint, soft.
     """
     if not worksheet.glossary:
-        return 0
-    warnings = 0
+        return []
+    issues: list[TermIssue] = []
     for it in worksheet.items:
         if not is_filled(it.target):
             continue
         target = it.target or ""
+        target_fold = target.casefold()
         for ref in worksheet.glossary:
             if not gl.contains_term(it.source, ref.source):
                 continue
             expect = ref.source if ref.keep else ref.target
-            if expect and expect not in target:
-                warnings += 1
-    return warnings
+            if expect and expect.casefold() not in target_fold:
+                issues.append(TermIssue(id=it.id, term=ref.source, expected=expect))
+    return issues

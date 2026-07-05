@@ -175,7 +175,31 @@ def transcribe(
                     use_gpu=use_gpu,
                     on_progress=cb,
                 )
-    except Exception as e:
+        transcript = Transcript(
+            language=result.language,
+            duration=duration,
+            asr=ASRInfo(
+                backend=asr.name,
+                model=name,
+                created_at=datetime.now(timezone.utc),
+            ),
+            segments=result.segments,
+        )
+        ws.write_text_atomic(
+            path / TRANSCRIPT_REL,
+            transcript.model_dump_json(indent=2, exclude_none=True),
+        )
+        ws.record_stage(
+            path,
+            manifest,
+            Stage.TRANSCRIBE,
+            StageState(
+                status=StageStatus.DONE,
+                artifact=TRANSCRIPT_REL,
+                updated_at=datetime.now(timezone.utc),
+            ),
+        )
+    except BaseException as e:
         ws.record_stage(
             path,
             manifest,
@@ -183,34 +207,11 @@ def transcribe(
             StageState(
                 status=StageStatus.FAILED,
                 updated_at=datetime.now(timezone.utc),
-                error=str(e),
+                error="interrupted" if isinstance(e, KeyboardInterrupt) else str(e),
             ),
         )
         raise
 
-    transcript = Transcript(
-        language=result.language,
-        duration=duration,
-        asr=ASRInfo(
-            backend=asr.name,
-            model=name,
-            created_at=datetime.now(timezone.utc),
-        ),
-        segments=result.segments,
-    )
-    (path / TRANSCRIPT_REL).write_text(
-        transcript.model_dump_json(indent=2, exclude_none=True)
-    )
-    ws.record_stage(
-        path,
-        manifest,
-        Stage.TRANSCRIBE,
-        StageState(
-            status=StageStatus.DONE,
-            artifact=TRANSCRIPT_REL,
-            updated_at=datetime.now(timezone.utc),
-        ),
-    )
     output.emit(
         TranscribeResult(
             artifact=TRANSCRIPT_REL,
@@ -220,5 +221,6 @@ def transcribe(
             model=name,
             duration_s=duration,
             elapsed_s=round(time.monotonic() - started, 2),
+            next="openbbq segment",
         )
     )

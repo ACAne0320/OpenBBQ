@@ -6,8 +6,8 @@
 
 - 不偷偷安装系统依赖，不偷偷下载模型。
 - 先问清楚会影响下载量和安装方式的问题。
-- 先跑 `openbbq doctor --json`，再根据结果只补缺失项。
-- 安装系统包、下载模型、写入浏览器登录态、配置 API key 前，都先让用户确认。
+- 先跑 `openbbq --json doctor`，再根据结果只补缺失项。
+- 安装系统包、下载模型、写入浏览器登录态前，都先让用户确认。
 - 在 browser auth、模型下载和长媒体任务前，确认 `OPENBBQ_HOME` 和用户级缓存目录可写。
 - 最后以 `openbbq doctor` 通过作为安装完成的门槛。
 
@@ -21,8 +21,6 @@
 - 源语言和目标语言。
 - 模型档位：`base` 适合快速预览，`large-v3` 或 `large-v3-turbo` 适合正式字幕。
 - 是否需要烧录硬字幕。
-- 是否需要说话人分离。
-- 是否需要调用 API 翻译。
 - 本机是否有 GPU，以及大致类型：Apple Silicon、NVIDIA、AMD / Intel，或只用 CPU。
 
 ## Bootstrap
@@ -45,10 +43,19 @@ uv tool install 'openbbq[whispercpp]'
 uv tool install '.[whispercpp]'
 ```
 
+然后安装随包发布的 agent skill，让 Claude Code 能发现 OpenBBQ：
+
+```bash
+openbbq skill install
+```
+
+这会把 skill 复制到 `~/.claude/skills/openbbq-subtitles/`。如果 agent 需要
+直接从 stdout 读取 skill 内容，可以使用 `openbbq skill show`。
+
 ## 检查环境
 
 ```bash
-openbbq doctor --json
+openbbq --json doctor
 ```
 
 在 Codex、CI 和其他非 TTY 运行器里，即使没有传 `--json`，OpenBBQ 也可能输出紧凑
@@ -63,8 +70,8 @@ JSON。Agent 需要解析输出时，优先显式使用 `--json`。
 - YouTube 需要登录或人机验证时，执行 `openbbq auth browser-login youtube`。
 - browser auth 和带登录态的 `fetch` 需要可写的 `OPENBBQ_HOME`（默认 `~/.openbbq`）。
   受限 sandbox 中请在普通用户环境里运行，或把 `OPENBBQ_HOME` 指到可写目录。
-- 如果用户要说话人分离，再安装 whisperX 并确认 Hugging Face token。
-- 如果用户要 API 翻译，再配置对应 provider 的 key。
+- 如果 agent skill 缺失或过期，按 doctor 提示执行 `openbbq skill install` 或
+  `openbbq skill install --force`。
 
 ## 模型
 

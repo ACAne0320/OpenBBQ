@@ -28,6 +28,21 @@ def _human_size(mb: float) -> str:
     return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb:.0f} MB"
 
 
+def _human_bytes(size: int) -> str:
+    mb = size / 1024 / 1024
+    return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb:.1f} MB"
+
+
+def _machine_progress_line(done: int, total: int) -> str:
+    if total:
+        percent = int(done / total * 100)
+        return (
+            f"openbbq: downloaded {_human_bytes(done)}/{_human_bytes(total)} "
+            f"({percent}%)"
+        )
+    return f"openbbq: downloaded {_human_bytes(done)}"
+
+
 class ModelReport(OpenBBQModel):
     name: str
     provider: str
@@ -104,7 +119,21 @@ def pull_model(
     started = time.monotonic()
     backend = _backend_for(name)
     if output.json_mode:  # machine: no bar — stdout is reserved for the JSON result
-        path = backend.pull(name)
+        typer.echo(
+            f"openbbq: pulling model {name}; download progress is on stderr",
+            err=True,
+        )
+        last_report = 0.0
+
+        def cb(done: int, total: int) -> None:
+            nonlocal last_report
+            now = time.monotonic()
+            if done != total and last_report and now - last_report < 1.0:
+                return
+            last_report = now
+            typer.echo(_machine_progress_line(done, total), err=True)
+
+        path = backend.pull(name, on_progress=cb)
     else:
         with Progress(
             TextColumn("[progress.description]{task.description}"),

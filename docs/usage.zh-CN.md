@@ -70,10 +70,13 @@ openbbq segment --workspace workspaces/demo
 openbbq translate init zh --workspace workspaces/demo
 ```
 
-填写每个 `target` 字段：
+填写 `workspaces/demo/translation.zh.json` 中的 `target` 字段——可以直接编辑
+文件，也可以分批合并：写一个 cue id → 译文的 JSON 对象，然后 apply（可重复
+执行，适合长视频分批）：
 
-```text
-workspaces/demo/translation.zh.json
+```bash
+echo '{"1": "第一句译文", "2": "第二句译文"}' > targets.json
+openbbq translate apply zh --workspace workspaces/demo targets.json
 ```
 
 检查工作表：
@@ -121,7 +124,7 @@ openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass
 
 ## Agent 使用
 
-Agent 应使用 JSON 输出：
+Agent 应把根级 `--json` 放在命令名前使用 JSON 输出：
 
 ```bash
 openbbq --json status --workspace workspaces/demo
@@ -134,11 +137,13 @@ openbbq --json export --workspace workspaces/demo --to zh --mode bilingual --for
 工作空间 manifest 记录了已完成、运行中和失败的阶段。`fetch`、`transcribe`、
 `burn` 这类长任务可以通过 `status` 查询进度。
 
-Codex 风格的 agent 还应该读取：
+为 Claude Code 安装随包发布的 agent skill：
 
-```text
-skills/openbbq-subtitles/SKILL.md
+```bash
+openbbq skill install
 ```
+
+需要直接从 stdout 读取 skill 内容的 agent 可以使用 `openbbq skill show`。
 
 ## 输出文件
 
@@ -163,7 +168,7 @@ openbbq fetch
 openbbq extract-audio
 openbbq transcribe
 openbbq segment
-openbbq translate init/check
+openbbq translate init/apply/check
 openbbq glossary list/show/new/use/suggest
 openbbq export
 openbbq burn

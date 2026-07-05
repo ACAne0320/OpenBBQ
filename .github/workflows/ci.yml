@@ -40,4 +40,6 @@ jobs:
         run: uv build
 
       - name: Smoke test wheel
-        run: uv run --isolated --no-project --with dist/*.whl openbbq --help
+        run: |
+          uv run --isolated --no-project --with dist/*.whl openbbq --help
+          uv run --isolated --no-project --with dist/*.whl openbbq --json doctor | python3 -c "import json, sys; json.load(sys.stdin)"

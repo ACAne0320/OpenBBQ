@@ -34,6 +34,7 @@ _LANG_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]+)*$")
 
 VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v", ".flv", ".wmv", ".ts"}
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".aac", ".ogg", ".opus", ".wma"}
+_STAGE_ORDER = tuple(Stage)
 
 
 # --- source typing + slug -----------------------------------------------------
@@ -85,32 +86,36 @@ def derive_slug(source_type: SourceType, ref: str) -> str:
 # --- manifest I/O -------------------------------------------------------------
 
 
-def write_manifest(ws: Path, manifest: Manifest) -> None:
-    # indent + exclude_none for a compact, readable manifest.
-    path = ws / MANIFEST_NAME
+def write_text_atomic(path: Path, content: str) -> None:
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
             "w",
             encoding="utf-8",
-            dir=ws,
-            prefix=f".{MANIFEST_NAME}.",
+            dir=path.parent,
+            prefix=f".{path.name}.",
             suffix=".tmp",
             delete=False,
         ) as tmp:
             tmp_path = Path(tmp.name)
-            tmp.write(manifest.model_dump_json(indent=2, exclude_none=True))
+            tmp.write(content)
         os.replace(tmp_path, path)
     finally:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
 
 
+def write_manifest(ws: Path, manifest: Manifest) -> None:
+    # indent + exclude_none for a compact, readable manifest.
+    path = ws / MANIFEST_NAME
+    write_text_atomic(path, manifest.model_dump_json(indent=2, exclude_none=True))
+
+
 def read_manifest(ws: Path) -> Manifest:
     """Load + fully validate a workspace's manifest (the strict gate)."""
     path = ws / MANIFEST_NAME
     try:
-        return Manifest.model_validate_json(path.read_text())
+        return Manifest.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, ValidationError) as e:
         raise OpenBBQError(
             "invalid_manifest",
@@ -127,7 +132,7 @@ def read_transcript(path: Path) -> Transcript:
     structured, agent-fixable error instead of a traceback.
     """
     try:
-        return Transcript.model_validate_json(path.read_text())
+        return Transcript.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, ValidationError) as e:
         raise OpenBBQError(
             "invalid_transcript",
@@ -143,7 +148,7 @@ def read_cues(path: Path) -> Cues:
     structured error instead of a raw ValidationError escaping the contract.
     """
     try:
-        return Cues.model_validate_json(path.read_text())
+        return Cues.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, ValidationError) as e:
         raise OpenBBQError(
             "invalid_cues",
@@ -180,7 +185,7 @@ def find_worksheets(ws: Path) -> list[str]:
 def read_translation(path: Path) -> Translation:
     """Load + validate a translation worksheet, mapping failures to a domain error."""
     try:
-        return Translation.model_validate_json(path.read_text())
+        return Translation.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, ValidationError) as e:
         raise OpenBBQError(
             "invalid_translation",
@@ -199,7 +204,7 @@ def _is_openbbq_workspace(d: Path) -> bool:
     if not path.is_file():
         return False
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
     return isinstance(data, dict) and str(data.get("schema", "")).startswith(
@@ -266,6 +271,26 @@ def init_workspace(
 # --- pipeline stage helpers (shared by extract-audio / transcribe / …) --------
 
 
+def _manifest_for_merge(ws: Path, fallback: Manifest) -> Manifest:
+    try:
+        return read_manifest(ws)
+    except OpenBBQError:
+        return fallback
+
+
+def _invalidate_later_stages(manifest: Manifest, stage: Stage) -> None:
+    index = _STAGE_ORDER.index(stage)
+    for later in _STAGE_ORDER[index + 1 :]:
+        if later in manifest.stages:
+            manifest.stages[later] = StageState(status=StageStatus.PENDING)
+
+
+def _sync_manifest_snapshot(target: Manifest, current: Manifest) -> None:
+    target.source = current.source
+    target.glossary = current.glossary
+    target.stages = current.stages
+
+
 def media_input(manifest: Manifest, workspace: Path | None = None) -> Path:
     """The media file to read: the fetched artifact, or a local source in place."""
     fetch = manifest.stages.get(Stage.FETCH)
@@ -280,9 +305,51 @@ def media_input(manifest: Manifest, workspace: Path | None = None) -> Path:
 
 
 def record_stage(ws: Path, manifest: Manifest, stage: Stage, state: StageState) -> None:
-    """Set a stage's state in the manifest and persist it (the work-log write)."""
-    manifest.stages[stage] = state
-    write_manifest(ws, manifest)
+    """Merge one stage state into the latest on-disk manifest."""
+    current = _manifest_for_merge(ws, manifest)
+    current.stages[stage] = state
+    if state.status in {StageStatus.RUNNING, StageStatus.DONE}:
+        _invalidate_later_stages(current, stage)
+    write_manifest(ws, current)
+    _sync_manifest_snapshot(manifest, current)
+
+
+def record_source_metadata(
+    ws: Path,
+    manifest: Manifest,
+    *,
+    title: str | None = None,
+    author: str | None = None,
+    thumbnail: str | None = None,
+    author_if_missing: bool = False,
+) -> None:
+    """Merge fetch-owned source metadata into the latest on-disk manifest."""
+    current = _manifest_for_merge(ws, manifest)
+    changed = False
+    if title is not None and current.source.title != title:
+        current.source.title = title
+        changed = True
+    if author is not None and (
+        not author_if_missing or current.source.author is None
+    ):
+        if current.source.author != author:
+            current.source.author = author
+            changed = True
+    if thumbnail is not None and current.source.thumbnail != thumbnail:
+        current.source.thumbnail = thumbnail
+        changed = True
+    if changed:
+        write_manifest(ws, current)
+    _sync_manifest_snapshot(manifest, current)
+
+
+def record_glossary_binding(ws: Path, manifest: Manifest, glossary: str) -> None:
+    """Merge a workspace glossary binding into the latest on-disk manifest."""
+    current = _manifest_for_merge(ws, manifest)
+    if current.glossary != glossary:
+        current.glossary = glossary
+        write_manifest(ws, current)
+    _sync_manifest_snapshot(manifest, current)
 
 
 def require_artifact(ws: Path, manifest: Manifest, stage: Stage, *, fix: str) -> Path:

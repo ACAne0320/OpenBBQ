@@ -27,6 +27,7 @@ wheels/
 
 # OpenBBQ local workspaces and generated media
 workspaces/
+OpenBBQ Workspace/
 
 # Internal notes and design drafts
 docs/spark

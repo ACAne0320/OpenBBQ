@@ -67,5 +67,6 @@ def extract_audio(
             artifact=AUDIO_REL,
             duration_s=duration,
             elapsed_s=round(time.monotonic() - started, 2),
+            next="openbbq transcribe",
         )
     )

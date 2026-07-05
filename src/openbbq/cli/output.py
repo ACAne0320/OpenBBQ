@@ -61,3 +61,7 @@ class Output:
         _err.print(line)
         if err.fix is not None:
             _err.print(f"[dim]fix:[/] {err.fix}")
+
+    def internal_error(self, err: Exception) -> None:
+        message = str(err) or err.__class__.__name__
+        print(_compact({"error": "internal", "message": message}))

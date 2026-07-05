@@ -21,6 +21,10 @@ from openbbq.errors import OpenBBQError
 from openbbq.schemas import Manifest, Source, Stage, StageState, StageStatus
 
 
+def _output_line(path: Path) -> str:
+    return f"openbbq-output\t{json.dumps(str(path))}\n"
+
+
 def _manifest() -> Manifest:
     return Manifest(
         created_at=datetime.now(timezone.utc),
@@ -45,7 +49,7 @@ def test_fetch_defaults_to_anonymous_ytdlp(tmp_path, monkeypatch) -> None:
             on_progress(fetchlib.FetchProgress(phase="download", done=512, total=1024))
         output = wsdir / "media" / "video.webm"
         output.write_bytes(b"media")
-        return subprocess.CompletedProcess(args, 0, stdout=str(output) + "\n")
+        return subprocess.CompletedProcess(args, 0, stdout=_output_line(output))
 
     monkeypatch.setattr(fetchlib, "_run_yt_dlp", fake_run)
 
@@ -81,7 +85,7 @@ def test_fetch_auth_exports_temp_cookies_and_cleans_up(tmp_path, monkeypatch) ->
         assert cookie_file.exists()
         output = wsdir / "media" / "video.webm"
         output.write_bytes(b"media")
-        return subprocess.CompletedProcess(args, 0, stdout=str(output) + "\n")
+        return subprocess.CompletedProcess(args, 0, stdout=_output_line(output))
 
     monkeypatch.setattr(fetchlib.auth_store, "export_netscape_temp", fake_export)
     monkeypatch.setattr(fetchlib, "_run_yt_dlp", fake_run)
@@ -220,7 +224,7 @@ def test_fetch_forwards_ytdlp_progress(tmp_path, monkeypatch) -> None:
             on_progress(fetchlib.FetchProgress(phase="download", done=7, total=11))
         output = wsdir / "media" / "video.webm"
         output.write_bytes(b"media")
-        return subprocess.CompletedProcess(args, 0, stdout=str(output) + "\n")
+        return subprocess.CompletedProcess(args, 0, stdout=_output_line(output))
 
     monkeypatch.setattr(fetchlib, "_run_yt_dlp", fake_run)
 
@@ -272,6 +276,34 @@ def test_fetch_collects_title_author_and_thumbnail(tmp_path, monkeypatch) -> Non
     assert result.title == "Demo Title"
     assert result.author == "Demo Channel"
     assert result.thumbnail == "media/Demo Title.webp"
+
+
+def test_fetch_requires_structured_after_move_output(tmp_path, monkeypatch) -> None:
+    wsdir = tmp_path / "ws"
+    wsdir.mkdir()
+    manifest = _manifest()
+    existing = wsdir / "media" / "old.webm"
+    existing.parent.mkdir()
+    existing.write_bytes(b"old")
+
+    monkeypatch.setattr(fetchlib, "_yt_dlp_command", lambda: ["yt-dlp"])
+
+    def fake_run(
+        args: list[str], *, on_progress=None, on_metadata=None
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            stdout=f"WARNING: keeping existing artifact {existing}\n",
+        )
+
+    monkeypatch.setattr(fetchlib, "_run_yt_dlp", fake_run)
+
+    with pytest.raises(OpenBBQError) as raised:
+        fetchlib.fetch_media(wsdir, manifest)
+
+    assert raised.value.code == "fetch_no_output"
+    assert "yt-dlp" in (raised.value.fix or "")
 
 
 def test_fetch_label_uses_only_action_and_format() -> None:

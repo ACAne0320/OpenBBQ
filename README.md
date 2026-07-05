@@ -69,7 +69,8 @@ Agents should use `--json` and pass the workspace explicitly with `-w`.
 OpenBBQ also switches to compact JSON automatically when stdout is not a TTY,
 which is expected in Codex, CI, and other agent runners.
 For long-running tasks, poll the workspace state with `openbbq status`.
-For subtitle tasks, follow `skills/openbbq-subtitles/SKILL.md`.
+For subtitle tasks, install the packaged agent skill with `openbbq skill install`;
+inspect it with `openbbq skill show`.
 
 For local files, YouTube login, ASS presets, outputs, and command details, see
 [docs/usage.md](docs/usage.md).

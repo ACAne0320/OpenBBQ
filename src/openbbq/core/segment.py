@@ -331,6 +331,10 @@ def finalize(
             if trimmed >= starts[idx - 1]:  # never cross the cue's own start
                 ends[idx - 1] = trimmed
 
+    for idx in range(n - 1):
+        # ASR word timestamps can already overlap; never let a cue cross the next.
+        ends[idx] = min(ends[idx], starts[idx + 1])
+
     cues: list[Cue] = []
     over_cps = 0
     over_cap = 0

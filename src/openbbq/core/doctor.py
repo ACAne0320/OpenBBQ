@@ -14,6 +14,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import skill as skilllib
 from .asr import ASRBackend, all_backends
 
 _HOMEBREW_FFMPEG_FULL = (
@@ -23,12 +24,42 @@ _HOMEBREW_FFMPEG_FULL = (
 _REQUIRED_SUBTITLE_FILTERS = frozenset({"ass", "subtitles"})
 
 
+def _dependency_hint(dep: str, *, libass: bool = False) -> str:
+    if dep == "ffmpeg":
+        if sys.platform == "darwin":
+            package = "ffmpeg-full" if libass else "ffmpeg"
+            return f"brew install {package}"
+        if sys.platform.startswith("linux"):
+            hint = "sudo apt install ffmpeg (package name may differ by distro)"
+            if libass:
+                hint += "; ensure the build includes libass subtitle filters"
+            return hint
+        if sys.platform == "win32":
+            hint = "winget install Gyan.FFmpeg  (or choco install ffmpeg)"
+            if libass:
+                hint += "; ensure the build includes libass subtitle filters"
+            return hint
+        return "install ffmpeg with your system package manager"
+    if dep == "yt-dlp":
+        if sys.platform == "darwin":
+            return "brew install yt-dlp  (or uv tool install yt-dlp)"
+        if sys.platform.startswith("linux"):
+            return (
+                "sudo apt install yt-dlp (package version may differ by distro), "
+                "or uv tool install yt-dlp"
+            )
+        if sys.platform == "win32":
+            return "winget install yt-dlp.yt-dlp  (or choco install yt-dlp)"
+    return f"install {dep} with your system package manager"
+
+
 @dataclass(frozen=True)
 class Check:
     name: str
     ok: bool
     detail: str  # version, path, or why it's missing
     fix: str | None = None  # remediation hint when not ok
+    required: bool = True  # false means guidance that should not fail doctor
 
 
 def _python() -> Check:
@@ -81,7 +112,7 @@ def _ffmpeg_candidates() -> list[Path]:
 def _ffmpeg() -> Check:
     path = shutil.which("ffmpeg")
     if path is None:
-        return Check("ffmpeg", False, "not on PATH", "brew install ffmpeg")
+        return Check("ffmpeg", False, "not on PATH", _dependency_hint("ffmpeg"))
     return Check("ffmpeg", True, path)
 
 
@@ -92,7 +123,7 @@ def _ffmpeg_subtitle_filters() -> Check:
             "ffmpeg subtitle filters",
             False,
             "no ffmpeg candidate found",
-            "install ffmpeg with libass support, e.g. Homebrew ffmpeg-full",
+            _dependency_hint("ffmpeg", libass=True),
         )
     checked: list[str] = []
     for candidate in candidates:
@@ -112,7 +143,7 @@ def _ffmpeg_subtitle_filters() -> Check:
         "ffmpeg subtitle filters",
         False,
         "; ".join(checked),
-        "install an ffmpeg build with libass, or pass --ffmpeg to openbbq burn",
+        f"{_dependency_hint('ffmpeg', libass=True)}, or pass --ffmpeg to openbbq burn",
     )
 
 
@@ -123,7 +154,7 @@ def _yt_dlp() -> Check:
             "yt-dlp",
             False,
             "not on PATH",
-            "uv tool install yt-dlp  (or pip install yt-dlp)",
+            _dependency_hint("yt-dlp"),
         )
     return Check("yt-dlp", True, path)
 
@@ -145,9 +176,41 @@ def _asr_backend(backend: ASRBackend) -> list[Check]:
     ]
 
 
+def _agent_skill(target: Path | None = None) -> Check:
+    path = skilllib.installed_skill_path(target)
+    try:
+        installed = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return Check(
+            "agent skill",
+            False,
+            f"missing: {path}",
+            "openbbq skill install",
+            required=False,
+        )
+    except OSError:
+        return Check(
+            "agent skill",
+            False,
+            f"unreadable: {path}",
+            "openbbq skill install --force",
+            required=False,
+        )
+    if installed != skilllib.packaged_skill_content():
+        return Check(
+            "agent skill",
+            False,
+            f"outdated: {path}",
+            "openbbq skill install --force",
+            required=False,
+        )
+    return Check("agent skill", True, str(path), required=False)
+
+
 def run_checks() -> list[Check]:
     """Every probe, in display order. Add a new check by appending here."""
     checks = [_python(), _ffmpeg(), _ffmpeg_subtitle_filters(), _yt_dlp()]
+    checks.append(_agent_skill())
     for backend in all_backends():
         checks.extend(_asr_backend(backend))
     return checks

@@ -52,14 +52,6 @@ _ID_PREFIX = "openbbq-id\t"
 _UPLOADER_PREFIX = "openbbq-uploader\t"
 _CHANNEL_PREFIX = "openbbq-channel\t"
 _CREATOR_PREFIX = "openbbq-creator\t"
-_PRINT_PREFIXES = (
-    _OUTPUT_PREFIX,
-    _TITLE_PREFIX,
-    _ID_PREFIX,
-    _UPLOADER_PREFIX,
-    _CHANNEL_PREFIX,
-    _CREATOR_PREFIX,
-)
 _THUMBNAIL_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif"}
 
 
@@ -192,16 +184,6 @@ def _extract_output_path(stdout: str, ws: Path) -> Path | None:
             path = ws / path
         if path.exists():
             return path
-
-    for line in reversed(stdout.splitlines()):
-        candidate = line.strip()
-        if not candidate or candidate.startswith((_PROGRESS_PREFIX, *_PRINT_PREFIXES)):
-            continue
-        path = Path(candidate)
-        if not path.is_absolute():
-            path = ws / path
-        if path.exists():
-            return path
     return None
 
 
@@ -325,7 +307,7 @@ def fetch_media(
     if output_path is None:
         raise OpenBBQError(
             "fetch_no_output",
-            fix="retry with yt-dlp directly; no output file was reported",
+            fix="check or upgrade the yt-dlp version; OpenBBQ requires --print after_move:filepath support",
         )
     title = _extract_print_value(proc.stdout, _TITLE_PREFIX)
     author = _extract_first_print_value(

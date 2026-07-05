@@ -73,10 +73,13 @@ Create a Chinese translation worksheet:
 openbbq translate init zh --workspace workspaces/demo
 ```
 
-Fill every `target` field in:
+Fill the `target` fields in `workspaces/demo/translation.zh.json` — either by
+editing the file directly, or in batches: write a JSON object mapping cue id →
+translated text and merge it (repeatable, ideal for long videos):
 
-```text
-workspaces/demo/translation.zh.json
+```bash
+echo '{"1": "第一句译文", "2": "第二句译文"}' > targets.json
+openbbq translate apply zh --workspace workspaces/demo targets.json
 ```
 
 Validate it:
@@ -127,7 +130,7 @@ segments or tighter translations.
 
 ## Agent Usage
 
-Agents should use JSON output:
+Agents should use JSON output with the root flag before the command:
 
 ```bash
 openbbq --json status --workspace workspaces/demo
@@ -142,11 +145,13 @@ The workspace manifest records completed, running, and failed stages. Poll
 `status` for progress during long tasks such as `fetch`, `transcribe`, and
 `burn`.
 
-Codex-style agents should also read:
+Install the packaged agent skill for Claude Code:
 
-```text
-skills/openbbq-subtitles/SKILL.md
+```bash
+openbbq skill install
 ```
+
+Agents that read the skill directly from stdout can use `openbbq skill show`.
 
 ## Outputs
 
@@ -171,7 +176,7 @@ openbbq fetch
 openbbq extract-audio
 openbbq transcribe
 openbbq segment
-openbbq translate init/check
+openbbq translate init/apply/check
 openbbq glossary list/show/new/use/suggest
 openbbq export
 openbbq burn

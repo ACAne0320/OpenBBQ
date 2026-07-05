@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -8,33 +9,64 @@ from rich.console import Group, RenderableType
 from rich.table import Table
 
 from ...core import workspace as ws
-from ...schemas import Manifest, Stage, StageState
+from ...schemas import Manifest, OpenBBQModel, SourceType, Stage, StageState, StageStatus
 from ..output import Output
 from ..results import Result
 
 
 # --- contract layer: status's stdout shape + how it renders -------------------
+class StatusSource(OpenBBQModel):
+    type: SourceType
+    ref: str
+
+
+class StatusStage(StageState):
+    stale: bool | None = None
+
+    @classmethod
+    def of(cls, state: StageState, now: datetime) -> StatusStage:
+        stale = None
+        if state.status is StageStatus.RUNNING and state.updated_at is not None:
+            updated_at = state.updated_at
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            if now - updated_at > timedelta(seconds=60):
+                stale = True
+        return cls(**state.model_dump(), stale=stale)
+
+
 class StatusResult(Result):
     workspace: str
-    source_type: str
+    source: StatusSource
+    glossary: str | None = None
     title: str | None = None
     author: str | None = None
     thumbnail: str | None = None
-    stages: dict[Stage, StageState]  # the work log — only stages actually run
+    worksheets: list[str]
+    stages: dict[Stage, StatusStage]  # the work log — only stages actually run
 
     @classmethod
     def of(cls, path: Path, manifest: Manifest) -> StatusResult:
+        now = datetime.now(timezone.utc)
         return cls(
             workspace=str(path),
-            source_type=manifest.source.type,
+            source=StatusSource(type=manifest.source.type, ref=manifest.source.ref),
+            glossary=manifest.glossary,
             title=manifest.source.title,
             author=manifest.source.author,
             thumbnail=manifest.source.thumbnail,
-            stages=manifest.stages,
+            worksheets=ws.find_worksheets(path),
+            stages={
+                stage: StatusStage.of(state, now)
+                for stage, state in manifest.stages.items()
+            },
         )
 
     def render(self) -> RenderableType:
-        head = f"workspace: {self.workspace}\n  source: {self.source_type}"
+        head = f"workspace: {self.workspace}\n  source: {self.source.type} {self.source.ref}"
+        head += f"\n  glossary: {self.glossary or '(none)'}"
+        worksheets = ", ".join(self.worksheets) if self.worksheets else "(none)"
+        head += f"\n  worksheets: {worksheets}"
         if self.title is not None:
             head += f"\n  title: {self.title}"
         if self.author is not None:
@@ -53,6 +85,8 @@ class StatusResult(Result):
                 "failed": "[red]failed[/]",
                 "done": "[green]done[/]",
             }.get(st.status.value, st.status.value)
+            if st.stale:
+                label += " [red](stale)[/]"
             detail = ""
             if st.progress is not None:
                 if (

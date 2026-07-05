@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 import sys
+import traceback
+from typing import Protocol, cast
 
 import typer
 from typer._click import ClickException  # typer >=0.26 bundles click privately
@@ -12,6 +15,24 @@ from .app import app
 from .output import Output
 
 __all__ = ["app", "main"]
+
+
+class _NoArgsHelpCommand(Protocol):
+    no_args_is_help: bool
+
+
+def _strip_json_flag(args: list[str]) -> list[str]:
+    # main() already chose machine mode from this flag; strip it so any position works.
+    return [arg for arg in args if arg != "--json"]
+
+
+def _disable_no_args_help(command: object) -> None:
+    if hasattr(command, "no_args_is_help"):
+        cast(_NoArgsHelpCommand, command).no_args_is_help = False
+    children = getattr(command, "commands", None)
+    if isinstance(children, Mapping):
+        for child in children.values():
+            _disable_no_args_help(child)
 
 
 def main() -> None:
@@ -33,8 +54,14 @@ def main() -> None:
 
     output = Output(json_mode=True)
     command = get_command(app)
+    _disable_no_args_help(command)
     try:
-        rv = command(args=sys.argv[1:], prog_name="openbbq", standalone_mode=False)
+        rv = command(
+            args=_strip_json_flag(sys.argv[1:]),
+            prog_name="openbbq",
+            standalone_mode=False,
+            obj=output,
+        )
     except OpenBBQError as err:
         output.error(err)
         raise SystemExit(1) from err
@@ -45,4 +72,8 @@ def main() -> None:
     except ClickException as err:  # missing/bad arg, unknown command, no command
         output.usage_error(err)
         raise SystemExit(err.exit_code) from err
+    except Exception as err:
+        traceback.print_exception(type(err), err, err.__traceback__, file=sys.stderr)
+        output.internal_error(err)
+        raise SystemExit(1) from err
     raise SystemExit(rv if isinstance(rv, int) else 0)

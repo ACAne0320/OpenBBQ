@@ -112,7 +112,9 @@ def segment(
         ),
         cues=outcome.cues,
     )
-    (path / CUES_REL).write_text(doc.model_dump_json(indent=2, exclude_none=True))
+    ws.write_text_atomic(
+        path / CUES_REL, doc.model_dump_json(indent=2, exclude_none=True)
+    )
     ws.record_stage(
         path,
         manifest,
@@ -132,5 +134,9 @@ def segment(
             source_lang=source_lang,
             generic_profile=generic,
             elapsed_s=round(time.monotonic() - started, 2),
+            next=(
+                "openbbq translate init <lang> "
+                "(or openbbq export for source-only subtitles)"
+            ),
         )
     )

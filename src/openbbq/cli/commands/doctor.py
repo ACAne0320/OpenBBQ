@@ -29,7 +29,7 @@ class DoctorResult(Result):
     @classmethod
     def of(cls, checks: list[core.Check]) -> DoctorResult:
         return cls(
-            healthy=all(c.ok for c in checks),
+            healthy=all(c.ok or not c.required for c in checks),
             checks=[CheckReport.of(c) for c in checks],
         )
 

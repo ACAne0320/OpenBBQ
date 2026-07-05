@@ -69,7 +69,8 @@ Agent 通常使用 `--json`，并且使用 `-w` 显式指明 workspace
 当 stdout 不是 TTY 时，OpenBBQ 也会自动切到紧凑 JSON 输出；这在 Codex、CI
 和其他 Agent 运行器里是预期行为。
 当进行长任务时，使用 `openbbq status` 轮询工作空间状态
-在具体的字幕任务中参考 `skills/openbbq-subtitles/SKILL.md` 中的使用方法
+在具体的字幕任务中先用 `openbbq skill install` 安装随包发布的 agent skill；
+也可以用 `openbbq skill show` 查看内容。
 
 本地文件流程、YouTube 登录、ASS 预设、输出文件和完整命令说明见
 [docs/usage.zh-CN.md](docs/usage.zh-CN.md)。

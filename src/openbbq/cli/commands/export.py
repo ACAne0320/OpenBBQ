@@ -91,7 +91,14 @@ def export(
     doc = ws.read_cues(cpath)
 
     translation = None
-    if to is not None:
+    translation_lang = None
+    resolved = mode or exp.default_mode(to)
+    if resolved is not exp.ExportMode.SOURCE:
+        if to is None:
+            raise OpenBBQError(
+                "translation_required", mode=resolved.value, fix="pass --to <lang>"
+            )
+        translation_lang = to
         wpath = ws.worksheet_path(path, to)  # validates lang
         if not wpath.is_file():
             raise OpenBBQError(
@@ -99,11 +106,6 @@ def export(
             )
         translation = ws.read_translation(wpath)
 
-    resolved = mode or exp.default_mode(to)
-    if resolved is not exp.ExportMode.SOURCE and translation is None:
-        raise OpenBBQError(
-            "translation_required", mode=resolved.value, fix="pass --to <lang>"
-        )
     if fmt == "ass":
         content = exp.render_ass(
             doc,
@@ -111,6 +113,7 @@ def export(
             translation=translation,
             allow_missing=allow_missing,
             preset=ass_preset,
+            translation_lang=translation_lang,
         )
     else:
         content = exp.render_srt(
@@ -118,6 +121,7 @@ def export(
             resolved,
             translation=translation,
             allow_missing=allow_missing,
+            translation_lang=translation_lang,
         )
 
     lang = exp.output_lang(doc, translation, resolved)
@@ -125,7 +129,7 @@ def export(
     if not dest.is_absolute():
         dest = path / dest
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(content)
+    ws.write_text_atomic(dest, content)
 
     # record the artifact relative to the workspace when it lives inside it
     try:
@@ -150,5 +154,6 @@ def export(
             ass_preset=ass_preset.value if fmt == "ass" else None,
             cues=len(doc.cues),
             elapsed_s=round(time.monotonic() - started, 2),
+            next="openbbq burn",
         )
     )

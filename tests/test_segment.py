@@ -238,6 +238,26 @@ def test_finalize_enforces_min_gap_by_trimming_previous_end() -> None:
     assert outcome.cues[1].start == 1.0
 
 
+def test_finalize_clamps_preexisting_asr_word_overlap() -> None:
+    words = [
+        W("Alpha", 1.0, 1.1),
+        W("bravo.", 1.1, 2.0),
+        W("Charlie", 1.05, 1.25),
+        W("delta.", 1.25, 1.8),
+    ]
+    outcome = seg.build_cues(
+        _transcript(Segment(id=0, start=1.0, end=2.0, text="x", words=words)),
+        _tight(max_chars_per_line=16),
+    )
+
+    assert [cue.source for cue in outcome.cues] == ["Alpha bravo.", "Charlie delta."]
+    assert all(cue.start <= cue.end for cue in outcome.cues)
+    assert all(
+        left.end <= right.start
+        for left, right in zip(outcome.cues, outcome.cues[1:])
+    )
+
+
 def test_finalize_counts_over_cps() -> None:
     # 29 chars in a sub-second cue, extended to min_dur 1.0 -> 29 cps > 21 (en)
     words = [

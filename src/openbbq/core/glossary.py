@@ -19,6 +19,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from openbbq.core.workspace import write_text_atomic
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import Glossary, Transcript
 
@@ -55,7 +56,7 @@ def load(name: str) -> Glossary:
             "glossary_not_found", name=name, fix=f"openbbq glossary new {name}"
         )
     try:
-        return Glossary.model_validate_json(path.read_text())
+        return Glossary.model_validate_json(path.read_text(encoding="utf-8"))
     except (OSError, ValidationError) as e:
         raise OpenBBQError(
             "invalid_glossary",
@@ -82,7 +83,7 @@ def scaffold(name: str, context: str | None = None) -> Path:
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     skeleton = Glossary(name=name, context=context, terms=[])
-    path.write_text(skeleton.model_dump_json(indent=2, exclude_none=True))
+    write_text_atomic(path, skeleton.model_dump_json(indent=2, exclude_none=True))
     return path
 
 

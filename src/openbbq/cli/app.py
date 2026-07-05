@@ -14,6 +14,7 @@ from .commands.glossary import app as glossary_app
 from .commands.init import init
 from .commands.models import app as models_app
 from .commands.segment import segment
+from .commands.skill import app as skill_app
 from .commands.status import status
 from .commands.transcribe import transcribe
 from .commands.translate import app as translate_app
@@ -29,6 +30,8 @@ def _root(
         bool, typer.Option("--json", help="Emit machine-readable JSON")
     ] = False,
 ) -> None:
+    if isinstance(ctx.obj, Output) and ctx.obj.json_mode:
+        return
     ctx.obj = Output.detect(json)
 
 
@@ -45,3 +48,4 @@ app.command()(burn)
 app.add_typer(models_app, name="models")
 app.add_typer(glossary_app, name="glossary")
 app.add_typer(auth_app, name="auth")
+app.add_typer(skill_app, name="skill")
