@@ -107,6 +107,35 @@ def test_agent_skill_check_reports_ok(tmp_path) -> None:
     assert check.fix is None
 
 
+def test_agent_skill_check_reports_any_supported_agent_install_ok(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    install = skilllib.install_for_agent(skilllib.SkillAgent.CODEX)[0]
+
+    check = doctor._agent_skill()
+
+    assert check.ok is True
+    assert "codex:" in check.detail
+    assert str(install.path / "SKILL.md") in check.detail
+    assert check.fix is None
+
+
+def test_agent_skill_check_reports_all_supported_targets_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    check = doctor._agent_skill()
+
+    assert check.ok is False
+    assert ".claude" in check.detail
+    assert ".codex" in check.detail
+    assert ".agents" in check.detail
+    assert ".copilot" not in check.detail
+    assert check.fix == "openbbq skill install"
+
+
 def test_agent_skill_check_reports_outdated(tmp_path) -> None:
     install = skilllib.install(tmp_path)
     (install.path / "SKILL.md").write_text("stale\n", encoding="utf-8")

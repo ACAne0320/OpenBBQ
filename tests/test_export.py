@@ -241,12 +241,12 @@ def test_render_ass_has_styles_and_dialogues() -> None:
     out = exp.render_ass(cues, exp.ExportMode.BILINGUAL, translation=tr)
     assert "[Script Info]" in out
     assert (
-        "Style: ZH_TOP,Hiragino Sans GB,60,&H00FFFFFF,&H000000FF,&H00000000,"
-        "&H80000000,0,0,0,0,100,100,0,0,1,3,0,2,80,80,96,1"
+        "Style: ZH_TOP,Hiragino Sans GB,68,&H00FFFFFF,&H000000FF,&H00000000,"
+        "&H80000000,0,0,0,0,100,100,0,0,1,3,0,2,80,80,62,1"
     ) in out
     assert (
-        "Style: EN,Arial,38,&H00FFFFFF,&H000000FF,&H00000000,"
-        "&H80000000,0,0,0,0,100,100,0,0,1,2,0,2,80,80,32,1"
+        "Style: EN,Arial,44,&H00FFFFFF,&H000000FF,&H00000000,"
+        "&H80000000,0,0,0,0,100,100,0,0,1,2,0,2,80,80,12,1"
     ) in out
     assert "Dialogue: 1,0:00:00.06,0:00:04.95,ZH_TOP,,0,0,0,,大家好\n" in out
     assert "Dialogue: 0,0:00:00.06,0:00:04.95,EN,,0,0,0,,Hello, everyone\n" in out
@@ -285,8 +285,8 @@ def test_render_ass_fansub_preset_uses_emphasized_target_style() -> None:
 
     assert "PlayResX: 1920\nPlayResY: 1080" in out
     assert (
-        "Style: ZH_TOP,Hiragino Sans GB,64,&H0068F8FF,&H000000FF,&H00000000,"
-        "&H80000000,0,0,0,0,100,100,0,0,1,4,0,2,80,80,104,1"
+        "Style: ZH_TOP,Hiragino Sans GB,68,&H00FFF7F2,&H000000FF,&H00FF901E,"
+        "&H80000000,0,0,0,0,100,100,0,0,1,3,0,2,80,80,62,1"
     ) in out
 
 

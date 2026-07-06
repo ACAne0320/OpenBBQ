@@ -44,14 +44,19 @@ Use a local repository install only for development or before a package has been
 uv tool install '.[whispercpp]'
 ```
 
-Then install the packaged agent skill so Claude Code can discover OpenBBQ:
+Then install the packaged agent skill. The default target is the shared agents
+directory:
 
 ```bash
 openbbq skill install
 ```
 
-This copies the skill to `~/.claude/skills/openbbq-subtitles/`. Agents that
-read skills directly from stdout can use `openbbq skill show`.
+This copies the skill to `~/.agents/skills/openbbq-subtitles/`. If the user's
+agent reads skills from a product-specific directory, install there instead:
+Claude Code uses `openbbq skill install --agent claude`, and Codex uses
+`openbbq skill install --agent codex`. To install all supported targets at once,
+use `openbbq skill install --agent all`. Agents that read skills directly from
+stdout can use `openbbq skill show`.
 
 ## Check The Environment
 

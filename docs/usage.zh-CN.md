@@ -110,13 +110,11 @@ openbbq --json status --workspace workspaces/demo
 
 ```bash
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset default
-openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset compact
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset fansub
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset mobile
 ```
 
 - `default`：常规 16:9 横屏视频。
-- `compact`：占用更少底部空间。
 - `fansub`：译文行更醒目。
 - `mobile`：面向 9:16 竖屏视频，使用竖屏画布和更大的底部安全区。
 
@@ -137,11 +135,16 @@ openbbq --json export --workspace workspaces/demo --to zh --mode bilingual --for
 工作空间 manifest 记录了已完成、运行中和失败的阶段。`fetch`、`transcribe`、
 `burn` 这类长任务可以通过 `status` 查询进度。
 
-为 Claude Code 安装随包发布的 agent skill：
+安装随包发布的 agent skill。默认目标是共享 agents 目录：
 
 ```bash
 openbbq skill install
 ```
+
+这会写入 `~/.agents/skills/openbbq-subtitles/`。如果当前 agent 读取自己的
+skills 目录，Claude Code 使用 `openbbq skill install --agent claude`，Codex
+使用 `openbbq skill install --agent codex`。一次安装所有支持目标使用
+`openbbq skill install --agent all`。
 
 需要直接从 stdout 读取 skill 内容的 agent 可以使用 `openbbq skill show`。
 

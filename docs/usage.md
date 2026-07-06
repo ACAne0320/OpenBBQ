@@ -114,13 +114,11 @@ openbbq --json status --workspace workspaces/demo
 
 ```bash
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset default
-openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset compact
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset fansub
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset mobile
 ```
 
 - `default`: normal 16:9 horizontal video.
-- `compact`: less bottom space.
 - `fansub`: more prominent translated line.
 - `mobile`: 9:16 vertical video with a vertical canvas and larger bottom safe
   area.
@@ -145,11 +143,17 @@ The workspace manifest records completed, running, and failed stages. Poll
 `status` for progress during long tasks such as `fetch`, `transcribe`, and
 `burn`.
 
-Install the packaged agent skill for Claude Code:
+Install the packaged agent skill. The default target is the shared agents
+directory:
 
 ```bash
 openbbq skill install
 ```
+
+This writes to `~/.agents/skills/openbbq-subtitles/`. If your agent reads a
+product-specific skills directory, use `openbbq skill install --agent claude` or
+`openbbq skill install --agent codex`. To install all supported targets at once,
+use `openbbq skill install --agent all`.
 
 Agents that read the skill directly from stdout can use `openbbq skill show`.
 

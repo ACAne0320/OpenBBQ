@@ -1,32 +1,54 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Sequence
 
 import typer
 from rich.console import RenderableType
 from rich.text import Text
 
 from ...core import skill as skilllib
+from ...errors import OpenBBQError
+from ...schemas import OpenBBQModel
 from ..output import Output
 from ..results import Result
 
 app = typer.Typer(no_args_is_help=True)
 
 
-class SkillInstallResult(Result):
+class SkillInstallEntry(OpenBBQModel):
     path: str
     files: int
+
+
+class SkillInstallResult(Result):
+    path: str | None = None
+    files: int | None = None
+    installs: list[SkillInstallEntry] | None = None
 
     @classmethod
     def of(cls, install: skilllib.SkillInstall) -> SkillInstallResult:
         return cls(path=str(install.path), files=install.files)
 
-    def render(self) -> str:
-        return (
-            f"[green]✓[/] agent skill installed: {self.path}\n"
-            "  next: run `openbbq doctor` to verify Claude Code can discover it"
+    @classmethod
+    def of_many(cls, installs: Sequence[skilllib.SkillInstall]) -> SkillInstallResult:
+        if len(installs) == 1:
+            return cls.of(installs[0])
+        return cls(
+            installs=[
+                SkillInstallEntry(path=str(install.path), files=install.files)
+                for install in installs
+            ]
         )
+
+    def render(self) -> str:
+        next_step = "  next: run `openbbq doctor` to verify agent skill discovery"
+        if self.installs is not None:
+            lines = ["[green]✓[/] agent skill installed:"]
+            lines.extend(f"  - {install.path}" for install in self.installs)
+            lines.append(next_step)
+            return "\n".join(lines)
+        return f"[green]✓[/] agent skill installed: {self.path}\n{next_step}"
 
 
 class SkillShowResult(Result):
@@ -47,11 +69,18 @@ class SkillShowResult(Result):
 @app.command()
 def install(
     ctx: typer.Context,
+    agent: Annotated[
+        skilllib.SkillAgent,
+        typer.Option(
+            "--agent",
+            help="agent target to install for: claude, codex, agents, or all",
+        ),
+    ] = skilllib.SkillAgent.AGENTS,
     target: Annotated[
         Path | None,
         typer.Option(
             "--target",
-            help="directory that will contain openbbq-subtitles/ (default: ~/.claude/skills)",
+            help="custom directory that will contain openbbq-subtitles/",
         ),
     ] = None,
     force: Annotated[
@@ -59,9 +88,17 @@ def install(
         typer.Option("--force", help="overwrite an existing installed skill"),
     ] = False,
 ) -> None:
-    """Install the packaged OpenBBQ agent skill for Claude Code."""
+    """Install the packaged OpenBBQ agent skill."""
     output: Output = ctx.obj
-    output.emit(SkillInstallResult.of(skilllib.install(target, force=force)))
+    if target is not None:
+        if agent is not skilllib.SkillAgent.AGENTS:
+            raise OpenBBQError(
+                "invalid_skill_options",
+                fix="use either --agent or --target, not both",
+            )
+        output.emit(SkillInstallResult.of(skilllib.install(target, force=force)))
+        return
+    output.emit(SkillInstallResult.of_many(skilllib.install_for_agent(agent, force=force)))
 
 
 @app.command()

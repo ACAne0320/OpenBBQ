@@ -43,14 +43,18 @@ uv tool install 'openbbq[whispercpp]'
 uv tool install '.[whispercpp]'
 ```
 
-然后安装随包发布的 agent skill，让 Claude Code 能发现 OpenBBQ：
+然后安装随包发布的 agent skill。默认目标是共享 agents 目录：
 
 ```bash
 openbbq skill install
 ```
 
-这会把 skill 复制到 `~/.claude/skills/openbbq-subtitles/`。如果 agent 需要
-直接从 stdout 读取 skill 内容，可以使用 `openbbq skill show`。
+这会把 skill 复制到 `~/.agents/skills/openbbq-subtitles/`。如果用户当前使用的
+agent 只读取自己的 skills 目录，就安装到对应目录：Claude Code 使用
+`openbbq skill install --agent claude`，Codex 使用
+`openbbq skill install --agent codex`。一次安装所有支持目标使用
+`openbbq skill install --agent all`。如果 agent 需要直接从 stdout 读取 skill
+内容，可以使用 `openbbq skill show`。
 
 ## 检查环境
 

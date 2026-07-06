@@ -27,7 +27,6 @@ class ExportMode(StrEnum):
 
 class AssPreset(StrEnum):
     DEFAULT = "default"
-    COMPACT = "compact"
     FANSUB = "fansub"
     MOBILE = "mobile"
 
@@ -198,8 +197,8 @@ class _AssPresetConfig:
 
 
 _WHITE = "&H00FFFFFF"
-_YELLOW = "&H0068F8FF"  # ASS uses AABBGGRR; this is warm yellow.
-_SOFT_BLUE = "&H00FFD680"
+_SOFT_WHITE = "&H00FFF7F2"  # ASS uses AABBGGRR; this is #F2F7FF.
+_DODGER_BLUE = "&H00FF901E"  # ASS uses AABBGGRR; this is #1E90FF.
 _ASS_SECONDARY = "&H000000FF"
 _BLACK = "&H00000000"
 _BACK = "&H80000000"
@@ -238,24 +237,12 @@ _ASS_PRESETS: dict[AssPreset, _AssPresetConfig] = {
         play_res_x=1920,
         play_res_y=1080,
         styles=(
-            _style("ZH", "Hiragino Sans GB", 60, margin_v=46, outline_width=3),
-            _style("ZH_TOP", "Hiragino Sans GB", 60, margin_v=96, outline_width=3),
-            _style("EN", "Arial", 38, margin_v=32, outline_width=2),
-            _style("EN_TOP", "Arial", 38, margin_v=88, outline_width=2),
-            _style("DEFAULT", "Arial", 46, margin_v=42, outline_width=2),
-            _style("DEFAULT_TOP", "Arial", 46, margin_v=92, outline_width=2),
-        ),
-    ),
-    AssPreset.COMPACT: _AssPresetConfig(
-        play_res_x=1920,
-        play_res_y=1080,
-        styles=(
-            _style("ZH", "Hiragino Sans GB", 52, margin_v=34, outline_width=3),
-            _style("ZH_TOP", "Hiragino Sans GB", 52, margin_v=78, outline_width=3),
-            _style("EN", "Arial", 32, margin_v=24, outline_width=2),
-            _style("EN_TOP", "Arial", 32, margin_v=70, outline_width=2),
-            _style("DEFAULT", "Arial", 40, margin_v=32, outline_width=2),
-            _style("DEFAULT_TOP", "Arial", 40, margin_v=76, outline_width=2),
+            _style("ZH", "Hiragino Sans GB", 68, margin_v=18, outline_width=3),
+            _style("ZH_TOP", "Hiragino Sans GB", 68, margin_v=62, outline_width=3),
+            _style("EN", "Arial", 44, margin_v=12, outline_width=2),
+            _style("EN_TOP", "Arial", 44, margin_v=92, outline_width=2),
+            _style("DEFAULT", "Arial", 52, margin_v=14, outline_width=2),
+            _style("DEFAULT_TOP", "Arial", 52, margin_v=72, outline_width=2),
         ),
     ),
     AssPreset.FANSUB: _AssPresetConfig(
@@ -265,36 +252,40 @@ _ASS_PRESETS: dict[AssPreset, _AssPresetConfig] = {
             _style(
                 "ZH",
                 "Hiragino Sans GB",
-                64,
-                margin_v=48,
-                outline_width=4,
-                primary=_YELLOW,
+                68,
+                margin_v=18,
+                outline_width=3,
+                primary=_SOFT_WHITE,
+                outline=_DODGER_BLUE,
             ),
             _style(
                 "ZH_TOP",
                 "Hiragino Sans GB",
-                64,
-                margin_v=104,
-                outline_width=4,
-                primary=_YELLOW,
+                68,
+                margin_v=62,
+                outline_width=3,
+                primary=_SOFT_WHITE,
+                outline=_DODGER_BLUE,
             ),
-            _style("EN", "Arial", 38, margin_v=30, outline_width=2, primary=_WHITE),
-            _style("EN_TOP", "Arial", 38, margin_v=90, outline_width=2),
+            _style("EN", "Arial", 44, margin_v=12, outline_width=2, primary=_WHITE),
+            _style("EN_TOP", "Arial", 44, margin_v=92, outline_width=2),
             _style(
                 "DEFAULT",
                 "Arial",
-                48,
-                margin_v=44,
-                outline_width=3,
-                primary=_SOFT_BLUE,
+                52,
+                margin_v=14,
+                outline_width=2,
+                primary=_SOFT_WHITE,
+                outline=_DODGER_BLUE,
             ),
             _style(
                 "DEFAULT_TOP",
                 "Arial",
-                48,
-                margin_v=98,
-                outline_width=3,
-                primary=_SOFT_BLUE,
+                52,
+                margin_v=72,
+                outline_width=2,
+                primary=_SOFT_WHITE,
+                outline=_DODGER_BLUE,
             ),
         ),
     ),

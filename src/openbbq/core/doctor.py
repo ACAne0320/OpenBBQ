@@ -176,7 +176,7 @@ def _asr_backend(backend: ASRBackend) -> list[Check]:
     ]
 
 
-def _agent_skill(target: Path | None = None) -> Check:
+def _agent_skill_at(target: Path, *, fix: str = "openbbq skill install") -> Check:
     path = skilllib.installed_skill_path(target)
     try:
         installed = path.read_text(encoding="utf-8")
@@ -185,7 +185,7 @@ def _agent_skill(target: Path | None = None) -> Check:
             "agent skill",
             False,
             f"missing: {path}",
-            "openbbq skill install",
+            fix,
             required=False,
         )
     except OSError:
@@ -193,7 +193,7 @@ def _agent_skill(target: Path | None = None) -> Check:
             "agent skill",
             False,
             f"unreadable: {path}",
-            "openbbq skill install --force",
+            f"{fix} --force",
             required=False,
         )
     if installed != skilllib.packaged_skill_content():
@@ -201,10 +201,61 @@ def _agent_skill(target: Path | None = None) -> Check:
             "agent skill",
             False,
             f"outdated: {path}",
-            "openbbq skill install --force",
+            f"{fix} --force",
             required=False,
         )
     return Check("agent skill", True, str(path), required=False)
+
+
+def _agent_skill(target: Path | None = None) -> Check:
+    if target is not None:
+        return _agent_skill_at(target)
+
+    current: list[str] = []
+    outdated: list[str] = []
+    unreadable: list[str] = []
+    missing: list[str] = []
+    packaged = skilllib.packaged_skill_content()
+    for agent in skilllib.SUPPORTED_AGENTS:
+        path = skilllib.installed_skill_path(skilllib.target_for_agent(agent))
+        label = f"{agent.value}: {path}"
+        try:
+            installed = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            missing.append(label)
+        except OSError:
+            unreadable.append(label)
+        else:
+            if installed == packaged:
+                current.append(label)
+            else:
+                outdated.append(label)
+
+    if unreadable:
+        return Check(
+            "agent skill",
+            False,
+            "unreadable: " + ", ".join(unreadable),
+            "openbbq skill install --agent all --force",
+            required=False,
+        )
+    if outdated:
+        return Check(
+            "agent skill",
+            False,
+            "outdated: " + ", ".join(outdated),
+            "openbbq skill install --agent all --force",
+            required=False,
+        )
+    if current:
+        return Check("agent skill", True, "installed: " + ", ".join(current), required=False)
+    return Check(
+        "agent skill",
+        False,
+        "missing: " + ", ".join(missing),
+        "openbbq skill install",
+        required=False,
+    )
 
 
 def run_checks() -> list[Check]:

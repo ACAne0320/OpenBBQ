@@ -62,7 +62,7 @@ def export(
         exp.AssPreset,
         typer.Option(
             "--ass-preset",
-            help="ASS style preset: default | compact | fansub | mobile",
+            help="ASS style preset: default | fansub | mobile",
         ),
     ] = exp.AssPreset.DEFAULT,
     allow_missing: Annotated[

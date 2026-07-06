@@ -14,8 +14,6 @@ OpenBBQ 提供了一系列可组合的工具，涵盖视频下载、音频提取
 
 所以 OpenBBQ 的愿景是，做一个开源、开放的字幕翻译平台。
 
-## 快速开始
-
 ## 前置条件
 
 - Python 3.12 或更新版本
@@ -43,37 +41,12 @@ openbbq doctor
 
 ## 使用
 
-Human 工作流：
-
-```bash
-openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
-cd workspaces/demo
-openbbq fetch
-openbbq extract-audio
-openbbq transcribe --model large-v3-turbo --language en --gpu
-openbbq segment
-openbbq translate init zh
-# 在 translation.zh.json 中填写翻译内容
-openbbq translate check zh
-openbbq export --to zh --mode bilingual --format ass --output out/zh.ass
-openbbq burn
-```
-
-Agent 工作流：
-
-```bash
-openbbq --json status --workspace workspaces/demo
-```
-
-Agent 通常使用 `--json`，并且使用 `-w` 显式指明 workspace
-当 stdout 不是 TTY 时，OpenBBQ 也会自动切到紧凑 JSON 输出；这在 Codex、CI
-和其他 Agent 运行器里是预期行为。
-当进行长任务时，使用 `openbbq status` 轮询工作空间状态
-在具体的字幕任务中先用 `openbbq skill install` 安装随包发布的 agent skill；
-也可以用 `openbbq skill show` 查看内容。
-
 本地文件流程、YouTube 登录、ASS 预设、输出文件和完整命令说明见
-[docs/usage.zh-CN.md](docs/usage.zh-CN.md)。
+[使用指南](docs/usage.zh-CN.md)。
+
+Agent 安装和随包发布的 OpenBBQ skill 说明见
+[Agent 安装指南](docs/install-agent.zh-CN.md) 和
+[OpenBBQ Skill](src/openbbq/skills/openbbq-subtitles/SKILL.md)。
 
 ## 路线图
 

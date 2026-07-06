@@ -2,14 +2,26 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
+from enum import StrEnum
 from importlib import resources
 from importlib.resources.abc import Traversable
 from pathlib import Path
+from typing import Sequence
 
 from ..errors import OpenBBQError
 
 SKILL_NAME = "openbbq-subtitles"
 _SKILL_PARTS = ("skills", SKILL_NAME)
+
+
+class SkillAgent(StrEnum):
+    CLAUDE = "claude"
+    CODEX = "codex"
+    AGENTS = "agents"
+    ALL = "all"
+
+
+SUPPORTED_AGENTS = (SkillAgent.CLAUDE, SkillAgent.CODEX, SkillAgent.AGENTS)
 
 
 @dataclass(frozen=True)
@@ -19,7 +31,30 @@ class SkillInstall:
 
 
 def default_target() -> Path:
-    return Path.home() / ".claude" / "skills"
+    return target_for_agent(SkillAgent.AGENTS)
+
+
+def target_for_agent(agent: SkillAgent) -> Path:
+    home = Path.home()
+    match agent:
+        case SkillAgent.CLAUDE:
+            return home / ".claude" / "skills"
+        case SkillAgent.CODEX:
+            return home / ".codex" / "skills"
+        case SkillAgent.AGENTS:
+            return home / ".agents" / "skills"
+        case SkillAgent.ALL:
+            raise OpenBBQError(
+                "invalid_skill_agent",
+                agent=agent.value,
+                fix="choose one of: claude, codex, agents",
+            )
+
+
+def targets_for_agent(agent: SkillAgent) -> list[Path]:
+    if agent is SkillAgent.ALL:
+        return [target_for_agent(target) for target in SUPPORTED_AGENTS]
+    return [target_for_agent(agent)]
 
 
 def packaged_skill_dir() -> Traversable:
@@ -72,8 +107,7 @@ def _packaged_files() -> list[tuple[Path, Traversable]]:
     return files
 
 
-def install(target: Path | None = None, *, force: bool = False) -> SkillInstall:
-    root = default_target() if target is None else target.expanduser()
+def _install_to_root(root: Path, *, force: bool = False) -> SkillInstall:
     dest = root / SKILL_NAME
     if dest.exists():
         if not force:
@@ -98,3 +132,27 @@ def install(target: Path | None = None, *, force: bool = False) -> SkillInstall:
         files += 1
 
     return SkillInstall(path=dest, files=files)
+
+
+def install(target: Path | None = None, *, force: bool = False) -> SkillInstall:
+    root = default_target() if target is None else target.expanduser()
+    return _install_to_root(root, force=force)
+
+
+def install_for_agent(agent: SkillAgent, *, force: bool = False) -> list[SkillInstall]:
+    roots = targets_for_agent(agent)
+    return install_targets(roots, force=force)
+
+
+def install_targets(roots: Sequence[Path], *, force: bool = False) -> list[SkillInstall]:
+    if not force:
+        for root in roots:
+            root = root.expanduser()
+            dest = root / SKILL_NAME
+            if dest.exists():
+                raise OpenBBQError(
+                    "skill_exists",
+                    path=str(dest),
+                    fix="openbbq skill install --force",
+                )
+    return [_install_to_root(root.expanduser(), force=force) for root in roots]

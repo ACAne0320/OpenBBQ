@@ -14,8 +14,6 @@ Raw untranslated material is "raw meat"; the translated, subtitled result is "co
 
 OpenBBQ is meant to be an open-source, open subtitle translation platform.
 
-## Quick Start
-
 ## Requirements
 
 - Python 3.12 or newer
@@ -41,39 +39,14 @@ openbbq models pull large-v3-turbo
 openbbq doctor
 ```
 
-## Use
-
-Human workflow:
-
-```bash
-openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
-cd workspaces/demo
-openbbq fetch
-openbbq extract-audio
-openbbq transcribe --model large-v3-turbo --language en --gpu
-openbbq segment
-openbbq translate init zh
-# fill in translations in translation.zh.json
-openbbq translate check zh
-openbbq export --to zh --mode bilingual --format ass --output out/zh.ass
-openbbq burn
-```
-
-Agent workflow:
-
-```bash
-openbbq --json status --workspace workspaces/demo
-```
-
-Agents should use `--json` and pass the workspace explicitly with `-w`.
-OpenBBQ also switches to compact JSON automatically when stdout is not a TTY,
-which is expected in Codex, CI, and other agent runners.
-For long-running tasks, poll the workspace state with `openbbq status`.
-For subtitle tasks, install the packaged agent skill with `openbbq skill install`;
-inspect it with `openbbq skill show`.
+## Usage
 
 For local files, YouTube login, ASS presets, outputs, and command details, see
-[docs/usage.md](docs/usage.md).
+the [Usage Guide](docs/usage.md).
+
+For agent setup and the packaged OpenBBQ skill, see the
+[Agent Install Guide](docs/install-agent.md) and the
+[OpenBBQ Skill](src/openbbq/skills/openbbq-subtitles/SKILL.md).
 
 ## Roadmap
 

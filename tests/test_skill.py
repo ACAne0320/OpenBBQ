@@ -36,6 +36,28 @@ def _installed_files(path: Path) -> list[Path]:
     return [p for p in path.rglob("*") if p.is_file()]
 
 
+def test_skill_install_defaults_to_shared_agents_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    code, stdout, _stderr = _run_cli(
+        ["--json", "skill", "install"],
+        monkeypatch,
+        capsys,
+    )
+
+    data = _single_json(stdout)
+    installed = tmp_path / ".agents" / "skills" / skilllib.SKILL_NAME
+    assert code == 0
+    assert data["path"] == str(installed)
+    assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
+        skilllib.packaged_skill_content()
+    )
+    assert not (tmp_path / ".claude").exists()
+    assert not (tmp_path / ".codex").exists()
+
+
 def test_skill_install_copies_files_to_target_and_reports_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -105,6 +127,74 @@ def test_skill_install_force_overwrites_existing_install(
     assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
         skilllib.packaged_skill_content()
     )
+
+
+def test_skill_install_agent_codex_uses_codex_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    code, stdout, _stderr = _run_cli(
+        ["--json", "skill", "install", "--agent", "codex"],
+        monkeypatch,
+        capsys,
+    )
+
+    data = _single_json(stdout)
+    installed = tmp_path / ".codex" / "skills" / skilllib.SKILL_NAME
+    assert code == 0
+    assert data["path"] == str(installed)
+    assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
+        skilllib.packaged_skill_content()
+    )
+
+
+def test_skill_install_agent_all_installs_supported_targets_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    code, stdout, _stderr = _run_cli(
+        ["--json", "skill", "install", "--agent", "all"],
+        monkeypatch,
+        capsys,
+    )
+
+    data = _single_json(stdout)
+    expected = {
+        tmp_path / ".claude" / "skills" / skilllib.SKILL_NAME,
+        tmp_path / ".codex" / "skills" / skilllib.SKILL_NAME,
+        tmp_path / ".agents" / "skills" / skilllib.SKILL_NAME,
+    }
+    installed = {Path(item["path"]) for item in data["installs"]}
+    assert code == 0
+    assert installed == expected
+    assert not (tmp_path / ".copilot").exists()
+
+
+def test_skill_install_target_cannot_be_combined_with_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, stdout, _stderr = _run_cli(
+        [
+            "--json",
+            "skill",
+            "install",
+            "--agent",
+            "codex",
+            "--target",
+            str(tmp_path),
+        ],
+        monkeypatch,
+        capsys,
+    )
+
+    data = _single_json(stdout)
+    assert code == 1
+    assert data == {
+        "error": "invalid_skill_options",
+        "fix": "use either --agent or --target, not both",
+    }
 
 
 def test_skill_show_returns_packaged_content(
