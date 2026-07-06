@@ -23,13 +23,15 @@ OpenBBQ 提供了一系列可组合的工具，涵盖视频下载、音频提取
 - 一个 ASR 模型，模型不随安装包一起下载，安装后用 `openbbq models list` 查看可用档位，再显式执行 `openbbq models pull ...`。
 - 如果需要下载的视频平台要求登录、人机验证或浏览器挑战，需要本机桌面浏览器；
 
-## For Agent
+## 安装
+
+### Agent 安装
 
 ```markdown
 查看[安装指南](https://raw.githubusercontent.com/ACAne0320/OpenBBQ/main/docs/install-agent.zh-CN.md)，帮我安装[OpenBBQ](https://github.com/ACAne0320/OpenBBQ)
 ```
 
-## 手动安装
+### 手动安装
 
 ```bash
 uv tool install 'openbbq[whispercpp]'

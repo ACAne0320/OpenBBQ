@@ -23,13 +23,15 @@ OpenBBQ is meant to be an open-source, open subtitle translation platform.
 - An ASR model. Models are not downloaded with the package. After installation, run `openbbq models list`, then explicitly run `openbbq models pull ...`
 - A local desktop browser if the video platform requires login, human verification, or a browser challenge
 
-## For Agent
+## Install
+
+### Agent Install
 
 ```markdown
 Read the [install guide](https://raw.githubusercontent.com/ACAne0320/OpenBBQ/main/docs/install-agent.md) and help me install [OpenBBQ](https://github.com/ACAne0320/OpenBBQ).
 ```
 
-## Manual Install
+### Manual Install
 
 ```bash
 uv tool install 'openbbq[whispercpp]'
