@@ -11,7 +11,14 @@ from typing import Sequence
 from ..errors import OpenBBQError
 
 SKILL_NAME = "openbbq-subtitles"
-_SKILL_PARTS = ("skills", SKILL_NAME)
+
+
+class SkillName(StrEnum):
+    SUBTITLES = "openbbq-subtitles"
+    BILIBILI_COVER_SAFE_AREA = "bilibili-cover-safe-area"
+
+
+_DEFAULT_SKILL = SkillName.SUBTITLES
 
 
 class SkillAgent(StrEnum):
@@ -63,8 +70,8 @@ def targets_for_agent(agent: SkillAgent) -> list[Path]:
     return [target_for_agent(agent)]
 
 
-def packaged_skill_dir() -> Traversable:
-    root = resources.files("openbbq").joinpath(*_SKILL_PARTS)
+def packaged_skill_dir(name: SkillName = _DEFAULT_SKILL) -> Traversable:
+    root = resources.files("openbbq").joinpath("skills", name.value)
     if not root.is_dir():
         raise OpenBBQError(
             "skill_packaging_error",
@@ -74,9 +81,13 @@ def packaged_skill_dir() -> Traversable:
     return root
 
 
-def packaged_skill_md(language: SkillLanguage = SkillLanguage.EN) -> Traversable:
+def packaged_skill_md(
+    language: SkillLanguage = SkillLanguage.EN,
+    *,
+    name: SkillName = _DEFAULT_SKILL,
+) -> Traversable:
     filename = "SKILL.zh-CN.md" if language is SkillLanguage.ZH_CN else "SKILL.md"
-    path = packaged_skill_dir().joinpath(filename)
+    path = packaged_skill_dir(name).joinpath(filename)
     if not path.is_file():
         raise OpenBBQError(
             "skill_packaging_error",
@@ -86,24 +97,45 @@ def packaged_skill_md(language: SkillLanguage = SkillLanguage.EN) -> Traversable
     return path
 
 
-def packaged_skill_path(language: SkillLanguage = SkillLanguage.EN) -> str:
-    return str(packaged_skill_md(language))
+def packaged_skill_path(
+    language: SkillLanguage = SkillLanguage.EN,
+    *,
+    name: SkillName = _DEFAULT_SKILL,
+) -> str:
+    return str(packaged_skill_md(language, name=name))
 
 
-def packaged_skill_content(language: SkillLanguage = SkillLanguage.EN) -> str:
-    return packaged_skill_md(language).read_text(encoding="utf-8")
+def packaged_skill_content(
+    language: SkillLanguage = SkillLanguage.EN,
+    *,
+    name: SkillName = _DEFAULT_SKILL,
+) -> str:
+    return packaged_skill_md(language, name=name).read_text(encoding="utf-8")
 
 
-def packaged_skill_contents() -> dict[SkillLanguage, str]:
-    return {language: packaged_skill_content(language) for language in SkillLanguage}
+def packaged_skill_contents(
+    name: SkillName = _DEFAULT_SKILL,
+) -> dict[SkillLanguage, str]:
+    return {
+        language: packaged_skill_content(language, name=name)
+        for language in SkillLanguage
+    }
 
 
-def installed_skill_path(target: Path | None = None) -> Path:
+def installed_skill_path(
+    target: Path | None = None,
+    *,
+    name: SkillName = _DEFAULT_SKILL,
+) -> Path:
     root = default_target() if target is None else target.expanduser()
-    return root / SKILL_NAME / "SKILL.md"
+    return root / name.value / "SKILL.md"
 
 
-def _packaged_files(language: SkillLanguage) -> list[tuple[Path, Traversable]]:
+def _packaged_files(
+    language: SkillLanguage,
+    *,
+    name: SkillName,
+) -> list[tuple[Path, Traversable]]:
     files: list[tuple[Path, Traversable]] = []
 
     def walk(prefix: Path, source: Traversable) -> None:
@@ -114,10 +146,10 @@ def _packaged_files(language: SkillLanguage) -> list[tuple[Path, Traversable]]:
             elif child.is_file():
                 files.append((rel, child))
 
-    walk(Path(), packaged_skill_dir())
+    walk(Path(), packaged_skill_dir(name))
     if language is SkillLanguage.ZH_CN:
         files = [
-            (Path("SKILL.md"), packaged_skill_md(SkillLanguage.ZH_CN))
+            (Path("SKILL.md"), packaged_skill_md(SkillLanguage.ZH_CN, name=name))
             if rel == Path("SKILL.md")
             else (rel, source)
             for rel, source in files
@@ -128,10 +160,11 @@ def _packaged_files(language: SkillLanguage) -> list[tuple[Path, Traversable]]:
 def _install_to_root(
     root: Path,
     *,
+    name: SkillName,
     force: bool = False,
     language: SkillLanguage = SkillLanguage.EN,
 ) -> SkillInstall:
-    dest = root / SKILL_NAME
+    dest = root / name.value
     if dest.exists():
         if not force:
             raise OpenBBQError(
@@ -148,7 +181,7 @@ def _install_to_root(
     dest.mkdir()
 
     files = 0
-    for rel, source in _packaged_files(language):
+    for rel, source in _packaged_files(language, name=name):
         out = dest / rel
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(source.read_bytes())
@@ -160,33 +193,36 @@ def _install_to_root(
 def install(
     target: Path | None = None,
     *,
+    name: SkillName = _DEFAULT_SKILL,
     force: bool = False,
     language: SkillLanguage = SkillLanguage.EN,
 ) -> SkillInstall:
     root = default_target() if target is None else target.expanduser()
-    return _install_to_root(root, force=force, language=language)
+    return _install_to_root(root, name=name, force=force, language=language)
 
 
 def install_for_agent(
     agent: SkillAgent,
     *,
+    name: SkillName = _DEFAULT_SKILL,
     force: bool = False,
     language: SkillLanguage = SkillLanguage.EN,
 ) -> list[SkillInstall]:
     roots = targets_for_agent(agent)
-    return install_targets(roots, force=force, language=language)
+    return install_targets(roots, name=name, force=force, language=language)
 
 
 def install_targets(
     roots: Sequence[Path],
     *,
+    name: SkillName = _DEFAULT_SKILL,
     force: bool = False,
     language: SkillLanguage = SkillLanguage.EN,
 ) -> list[SkillInstall]:
     if not force:
         for root in roots:
             root = root.expanduser()
-            dest = root / SKILL_NAME
+            dest = root / name.value
             if dest.exists():
                 raise OpenBBQError(
                     "skill_exists",
@@ -194,6 +230,8 @@ def install_targets(
                     fix="openbbq skill install --force",
                 )
     return [
-        _install_to_root(root.expanduser(), force=force, language=language)
+        _install_to_root(
+            root.expanduser(), name=name, force=force, language=language
+        )
         for root in roots
     ]

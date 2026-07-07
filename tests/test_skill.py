@@ -116,6 +116,66 @@ def test_skill_install_can_install_chinese_skill_as_main_markdown(
     assert (installed / "references" / "workflows.zh-CN.md").is_file()
 
 
+def test_skill_install_can_choose_bilibili_cover_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, stdout, _stderr = _run_cli(
+        [
+            "--json",
+            "skill",
+            "install",
+            "--target",
+            str(tmp_path),
+            "--name",
+            "bilibili-cover-safe-area",
+        ],
+        monkeypatch,
+        capsys,
+    )
+
+    data = _single_json(stdout)
+    name = skilllib.SkillName.BILIBILI_COVER_SAFE_AREA
+    installed = tmp_path / name.value
+    assert code == 0
+    assert data["path"] == str(installed)
+    assert data["language"] == "en"
+    assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
+        skilllib.packaged_skill_content(name=name)
+    )
+    assert not (installed / "scripts").exists()
+
+
+def test_skill_install_can_choose_chinese_bilibili_cover_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, stdout, _stderr = _run_cli(
+        [
+            "--json",
+            "skill",
+            "install",
+            "--target",
+            str(tmp_path),
+            "--name",
+            "bilibili-cover-safe-area",
+            "--language",
+            "zh-CN",
+        ],
+        monkeypatch,
+        capsys,
+    )
+
+    data = _single_json(stdout)
+    name = skilllib.SkillName.BILIBILI_COVER_SAFE_AREA
+    installed = tmp_path / name.value
+    assert code == 0
+    assert data["path"] == str(installed)
+    assert data["language"] == "zh-CN"
+    assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
+        skilllib.packaged_skill_content(skilllib.SkillLanguage.ZH_CN, name=name)
+    )
+    assert (installed / "SKILL.zh-CN.md").is_file()
+
+
 def test_skill_install_refuses_existing_install_without_force(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -264,3 +324,19 @@ def test_skill_show_can_return_chinese_content(
     assert data["content"] == skilllib.packaged_skill_content(
         skilllib.SkillLanguage.ZH_CN
     )
+
+
+def test_skill_show_can_choose_bilibili_cover_skill(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, stdout, _stderr = _run_cli(
+        ["--json", "skill", "show", "--name", "bilibili-cover-safe-area"],
+        monkeypatch,
+        capsys,
+    )
+
+    data = _single_json(stdout)
+    name = skilllib.SkillName.BILIBILI_COVER_SAFE_AREA
+    assert code == 0
+    assert data["path"].endswith("skills/bilibili-cover-safe-area/SKILL.md")
+    assert data["content"] == skilllib.packaged_skill_content(name=name)

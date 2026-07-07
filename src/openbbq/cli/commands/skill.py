@@ -96,9 +96,16 @@ def install(
         Path | None,
         typer.Option(
             "--target",
-            help="custom directory that will contain openbbq-subtitles/",
+            help="custom directory that will contain the installed skill folder",
         ),
     ] = None,
+    name: Annotated[
+        skilllib.SkillName,
+        typer.Option(
+            "--name",
+            help="packaged skill to install",
+        ),
+    ] = skilllib.SkillName.SUBTITLES,
     force: Annotated[
         bool,
         typer.Option("--force", help="overwrite an existing installed skill"),
@@ -121,13 +128,17 @@ def install(
             )
         output.emit(
             SkillInstallResult.of(
-                skilllib.install(target, force=force, language=language)
+                skilllib.install(
+                    target, name=name, force=force, language=language
+                )
             )
         )
         return
     output.emit(
         SkillInstallResult.of_many(
-            skilllib.install_for_agent(agent, force=force, language=language)
+            skilllib.install_for_agent(
+                agent, name=name, force=force, language=language
+            )
         )
     )
 
@@ -135,6 +146,13 @@ def install(
 @app.command()
 def show(
     ctx: typer.Context,
+    name: Annotated[
+        skilllib.SkillName,
+        typer.Option(
+            "--name",
+            help="packaged skill to show",
+        ),
+    ] = skilllib.SkillName.SUBTITLES,
     language: Annotated[
         skilllib.SkillLanguage,
         typer.Option(
@@ -146,8 +164,8 @@ def show(
     """Print the packaged OpenBBQ agent skill markdown."""
     output: Output = ctx.obj
     result = SkillShowResult(
-        path=skilllib.packaged_skill_path(language),
-        content=skilllib.packaged_skill_content(language),
+        path=skilllib.packaged_skill_path(language, name=name),
+        content=skilllib.packaged_skill_content(language, name=name),
     )
     if output.json_mode:
         output.emit(result)
