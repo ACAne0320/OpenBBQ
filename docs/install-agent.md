@@ -58,6 +58,11 @@ Claude Code uses `openbbq skill install --agent claude`, and Codex uses
 use `openbbq skill install --agent all`. Agents that read skills directly from
 stdout can use `openbbq skill show`.
 
+The default installed skill language is English. To install the Chinese version,
+use `openbbq skill install --language zh-CN`. Installation copies the full skill
+directory, including `references/`, so referenced workflow notes are available to
+the agent.
+
 ## Check The Environment
 
 ```bash

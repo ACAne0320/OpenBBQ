@@ -19,16 +19,22 @@ app = typer.Typer(no_args_is_help=True)
 class SkillInstallEntry(OpenBBQModel):
     path: str
     files: int
+    language: str
 
 
 class SkillInstallResult(Result):
     path: str | None = None
     files: int | None = None
+    language: str | None = None
     installs: list[SkillInstallEntry] | None = None
 
     @classmethod
     def of(cls, install: skilllib.SkillInstall) -> SkillInstallResult:
-        return cls(path=str(install.path), files=install.files)
+        return cls(
+            path=str(install.path),
+            files=install.files,
+            language=install.language.value,
+        )
 
     @classmethod
     def of_many(cls, installs: Sequence[skilllib.SkillInstall]) -> SkillInstallResult:
@@ -36,7 +42,11 @@ class SkillInstallResult(Result):
             return cls.of(installs[0])
         return cls(
             installs=[
-                SkillInstallEntry(path=str(install.path), files=install.files)
+                SkillInstallEntry(
+                    path=str(install.path),
+                    files=install.files,
+                    language=install.language.value,
+                )
                 for install in installs
             ]
         )
@@ -45,10 +55,16 @@ class SkillInstallResult(Result):
         next_step = "  next: run `openbbq doctor` to verify agent skill discovery"
         if self.installs is not None:
             lines = ["[green]✓[/] agent skill installed:"]
-            lines.extend(f"  - {install.path}" for install in self.installs)
+            lines.extend(
+                f"  - {install.path} ({install.language})"
+                for install in self.installs
+            )
             lines.append(next_step)
             return "\n".join(lines)
-        return f"[green]✓[/] agent skill installed: {self.path}\n{next_step}"
+        return (
+            f"[green]✓[/] agent skill installed: {self.path} ({self.language})"
+            f"\n{next_step}"
+        )
 
 
 class SkillShowResult(Result):
@@ -87,6 +103,13 @@ def install(
         bool,
         typer.Option("--force", help="overwrite an existing installed skill"),
     ] = False,
+    language: Annotated[
+        skilllib.SkillLanguage,
+        typer.Option(
+            "--language",
+            help="skill language to install: en or zh-CN",
+        ),
+    ] = skilllib.SkillLanguage.EN,
 ) -> None:
     """Install the packaged OpenBBQ agent skill."""
     output: Output = ctx.obj
@@ -96,16 +119,36 @@ def install(
                 "invalid_skill_options",
                 fix="use either --agent or --target, not both",
             )
-        output.emit(SkillInstallResult.of(skilllib.install(target, force=force)))
+        output.emit(
+            SkillInstallResult.of(
+                skilllib.install(target, force=force, language=language)
+            )
+        )
         return
-    output.emit(SkillInstallResult.of_many(skilllib.install_for_agent(agent, force=force)))
+    output.emit(
+        SkillInstallResult.of_many(
+            skilllib.install_for_agent(agent, force=force, language=language)
+        )
+    )
 
 
 @app.command()
-def show(ctx: typer.Context) -> None:
+def show(
+    ctx: typer.Context,
+    language: Annotated[
+        skilllib.SkillLanguage,
+        typer.Option(
+            "--language",
+            help="skill language to show: en or zh-CN",
+        ),
+    ] = skilllib.SkillLanguage.EN,
+) -> None:
     """Print the packaged OpenBBQ agent skill markdown."""
     output: Output = ctx.obj
-    result = SkillShowResult.packaged()
+    result = SkillShowResult(
+        path=skilllib.packaged_skill_path(language),
+        content=skilllib.packaged_skill_content(language),
+    )
     if output.json_mode:
         output.emit(result)
         return

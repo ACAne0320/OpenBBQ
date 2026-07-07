@@ -51,9 +51,12 @@ def test_skill_install_defaults_to_shared_agents_target(
     installed = tmp_path / ".agents" / "skills" / skilllib.SKILL_NAME
     assert code == 0
     assert data["path"] == str(installed)
+    assert data["language"] == "en"
     assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
         skilllib.packaged_skill_content()
     )
+    assert (installed / "references" / "glossary.md").is_file()
+    assert (installed / "references" / "workflows.md").is_file()
     assert not (tmp_path / ".claude").exists()
     assert not (tmp_path / ".codex").exists()
 
@@ -72,10 +75,45 @@ def test_skill_install_copies_files_to_target_and_reports_json(
     assert code == 0
     assert data["ok"] is True
     assert data["path"] == str(installed)
+    assert data["language"] == "en"
     assert data["files"] == len(_installed_files(installed))
     assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
         skilllib.packaged_skill_content()
     )
+    assert (installed / "references" / "glossary.md").is_file()
+    assert (installed / "references" / "workflows.md").is_file()
+
+
+def test_skill_install_can_install_chinese_skill_as_main_markdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, stdout, _stderr = _run_cli(
+        [
+            "--json",
+            "skill",
+            "install",
+            "--target",
+            str(tmp_path),
+            "--language",
+            "zh-CN",
+        ],
+        monkeypatch,
+        capsys,
+    )
+
+    data = _single_json(stdout)
+    installed = tmp_path / skilllib.SKILL_NAME
+    assert code == 0
+    assert data["path"] == str(installed)
+    assert data["language"] == "zh-CN"
+    assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
+        skilllib.packaged_skill_content(skilllib.SkillLanguage.ZH_CN)
+    )
+    assert (installed / "SKILL.zh-CN.md").read_text(encoding="utf-8") == (
+        skilllib.packaged_skill_content(skilllib.SkillLanguage.ZH_CN)
+    )
+    assert (installed / "references" / "glossary.zh-CN.md").is_file()
+    assert (installed / "references" / "workflows.zh-CN.md").is_file()
 
 
 def test_skill_install_refuses_existing_install_without_force(
@@ -144,6 +182,7 @@ def test_skill_install_agent_codex_uses_codex_target(
     installed = tmp_path / ".codex" / "skills" / skilllib.SKILL_NAME
     assert code == 0
     assert data["path"] == str(installed)
+    assert data["language"] == "en"
     assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
         skilllib.packaged_skill_content()
     )
@@ -167,8 +206,10 @@ def test_skill_install_agent_all_installs_supported_targets_only(
         tmp_path / ".agents" / "skills" / skilllib.SKILL_NAME,
     }
     installed = {Path(item["path"]) for item in data["installs"]}
+    languages = {item["language"] for item in data["installs"]}
     assert code == 0
     assert installed == expected
+    assert languages == {"en"}
     assert not (tmp_path / ".copilot").exists()
 
 
@@ -208,3 +249,18 @@ def test_skill_show_returns_packaged_content(
     assert code == 0
     assert data["path"].endswith("skills/openbbq-subtitles/SKILL.md")
     assert data["content"] == skilllib.packaged_skill_content()
+
+
+def test_skill_show_can_return_chinese_content(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, stdout, _stderr = _run_cli(
+        ["--json", "skill", "show", "--language", "zh-CN"], monkeypatch, capsys
+    )
+
+    data = _single_json(stdout)
+    assert code == 0
+    assert data["path"].endswith("skills/openbbq-subtitles/SKILL.zh-CN.md")
+    assert data["content"] == skilllib.packaged_skill_content(
+        skilllib.SkillLanguage.ZH_CN
+    )

@@ -56,6 +56,10 @@ agent 只读取自己的 skills 目录，就安装到对应目录：Claude Code 
 `openbbq skill install --agent all`。如果 agent 需要直接从 stdout 读取 skill
 内容，可以使用 `openbbq skill show`。
 
+默认安装英文 skill。需要安装中文版时使用
+`openbbq skill install --language zh-CN`。安装会复制完整 skill 目录，包括
+`references/`，因此 skill 中引用的工作流说明也会随安装一起可用。
+
 ## 检查环境
 
 ```bash

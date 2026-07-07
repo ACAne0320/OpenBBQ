@@ -9,234 +9,98 @@ description: >-
 <!-- Generated from SKILL.zh-CN.md (the maintainer-authored source). To change
      this skill, edit the Chinese source first, then regenerate this file. -->
 
-Use this skill when an agent is asked to create subtitles, translate subtitles,
-or produce a subtitled video with OpenBBQ. Prefer OpenBBQ's atomic CLI commands
-over ad hoc scripts.
+Use this skill when a user asks OpenBBQ to make subtitles, translate subtitles,
+create bilingual subtitles/videos, burn subtitles, transcribe video/audio, or
+continue an OpenBBQ workspace. The default target is a **generic single-video
+workflow**; follow user-specific batch conventions only when the user
+explicitly provides them.
 
-## Operating Rules
+Prefer OpenBBQ's atomic CLI commands over ad hoc scripts.
+
+## Required Rules
 
 - Use `openbbq --json ...` for automation unless the user explicitly wants the
-  human terminal UI. The `next` field in success payloads is only a suggested
-  next command and may not always be exact.
-- Fill translations only two ways: edit the worksheet directly with the Edit
-  tool, or write batch files and merge them with `openbbq translate apply`.
-  **Never** write a one-off script that edits the worksheet.
-- After an interruption, run `openbbq --json status --workspace <ws>` to inspect
-  the workspace state, then continue or rerun the relevant failed/stale/pending
-  stage.
-- The manifest is the source of truth for completed/running/failed stages. The
-  translate stage carries real `progress` (filled/total); a `running` stage
-  marked `stale` means the original process is likely dead and that stage is
-  safe to rerun. Rerunning a stage automatically resets downstream stages to
-  pending.
-- Quote URL arguments in shells such as zsh:
-  `openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'`.
-- Long tasks (`fetch`, `transcribe`, `burn`, `models pull`) write progress to
-  the workspace (or stderr); poll `openbbq --json status --workspace <ws>` if
-  you need progress outside the foreground command.
-- When the agent is running in a sandbox, it usually cannot use the existing GPU
-  for ASR transcription acceleration. Ask the user whether they allow running
-  the `transcribe` command outside the sandbox when GPU acceleration is needed.
+  human terminal UI. The `next` field is only a suggestion and may be wrong.
+- Fill translations only two ways: edit the worksheet with the Edit tool, or
+  write batch files and merge them with `openbbq translate apply`. **Never**
+  write a one-off script that edits the worksheet.
+- After an interruption, run `openbbq --json status --workspace <ws>`. The
+  manifest is the source of truth for stage state; a `running` stage marked
+  `stale` is usually safe to rerun. Rerunning an upstream stage resets
+  downstream stages to pending.
+- Quote URL arguments in shells such as zsh.
+- Long tasks (`fetch`, `transcribe`, `burn`, `models pull`) may require status
+  polling.
+- In a sandbox, the agent usually cannot use the local GPU for ASR. When GPU
+  transcription is needed, ask whether the user allows running `transcribe`
+  outside the sandbox.
 - For the default bilingual-video workflow, do not burn SRT. Export bilingual
   ASS and burn ASS.
-- Pick ASS presets by target surface: use `fansub` for a more prominent
-  bilingual style, and `mobile` for 9:16 vertical video.
+- Pick ASS presets by target surface: `fansub` for prominent bilingual subtitles,
+  and `mobile` for 9:16 vertical video.
 
-## Runtime Preflight
+## When To Read References
 
-On the first subtitle job on a machine, or when a command reports an
-environment/dependency error, run:
+- For series, anime, games, brands, courses, interviews, or other named-entity
+  heavy content, or whenever `glossary suggest` returns candidates: read
+  `references/glossary.md`.
+- For full YouTube/local-file command templates, translation batch format, and
+  completion QA: read `references/workflows.md`.
+- For conceptual answers or checking an existing workspace state, this file is
+  usually enough.
 
-```bash
-openbbq doctor
-```
+## Generic Single-Video Flow
 
-Before final transcription, confirm the Whisper model is cached, such as
-`large-v3-turbo`; if missing, download the model you need:
+1. Runtime preflight: on the first subtitle job on a machine, or after dependency
+   errors, run `openbbq doctor`. Before final transcription, confirm the Whisper
+   model is cached; if missing, run `openbbq models pull <model>`.
+2. Initialize a workspace. YouTube URLs and local files both use
+   `openbbq init --workspace <ws>`; for series/named content, prepare or reuse a
+   glossary and bind it during `init` with `--glossary <name>`.
+3. For YouTube input, first check auth: `openbbq auth status youtube`. If auth is
+   configured, prefer `openbbq fetch --workspace <ws> --auth youtube`; otherwise
+   try anonymous fetch. If anonymous fetch fails because of cookies/bot checks,
+   run `openbbq auth browser-login youtube`.
+4. For local files, skip fetch; after YouTube fetch, continue with
+   `extract-audio`.
+5. Transcribe, usually with `openbbq transcribe --workspace <ws> --model
+   large-v3-turbo --language <lang> --gpu`. If the sandbox cannot use GPU,
+   follow the required rule above.
+6. Named-entity pass: after transcription, always run
+   `openbbq glossary suggest --workspace <ws>`. Use `references/glossary.md` to
+   actively audit ASR proper-noun mistakes, spelling variants, and new key terms;
+   update the glossary before `segment`. If `segment` already ran, rerun
+   `segment` and `translate init` after updating the glossary.
+7. Segment, then initialize translation with `translate init <lang>`.
+8. Fill translations: for few cues, use the Edit tool; for many cues, write a
+   `{id: target}` batch JSON and merge it with `openbbq translate apply <lang>
+   --workspace <ws> <batch.json>`.
+9. Check with `openbbq translate check <lang> --workspace <ws>` and clear
+   `missing`, `over_budget`, and `term_issues`.
+10. Export and burn: default to bilingual ASS, then burn. Pick `--ass-preset`
+    by target surface.
+11. Completion QA: follow `references/workflows.md` to check status,
+    `translate check`, output MP4 duration/size, and a rendered subtitle frame.
 
-```bash
-openbbq models pull large-v3-turbo
-```
+## Glossary Principles
 
-For hard-subtitle burning, `doctor` must report ASS/subtitles ffmpeg filters.
-On macOS, Homebrew `ffmpeg-full` is a practical libass-enabled build.
+Glossary is a living document used for ASR biasing, segment correction, and
+`translate check` term consistency. Series or named-entity heavy content should
+actively maintain one.
 
-## Glossary (strongly recommended for series / named content)
+Core decisions:
 
-The glossary is a **living document you curate together with the user**. It
-feeds three touchpoints at once: ASR biasing (fewer misheard proper nouns),
-transcript correction during segment, and translated-term consistency checks
-(`term_issues` in `translate check`).
+- ASR mistakes or spelling variants: add the incorrect form to an existing
+  term's `aliases`, or add a canonical `source` and put the incorrect form in
+  `aliases`. Do not let these errors flow into `segment`, especially for
+  bilingual hard subtitles where the English source text is rendered.
+- Confirmed new key terms: add them if the translation is known; otherwise ask
+  the user or mark them as pending in `note`.
+- One-off common words / low-confidence candidates: do not add them to the
+  glossary and do not block the workflow.
 
-Any series, or content with names, places, terminology, or brands, should have a
-maintained glossary. If these terms are discovered only after transcription,
-still add them to the glossary: the current workspace can use them during
-segment/translate, and future related videos can use them for ASR biasing.
-
-For example, when translating *Frieren: Beyond Journey's End*, create a
-`frieren` glossary:
-
-```bash
-openbbq glossary new frieren --context "Frieren: Beyond Journey's End, fantasy anime"
-```
-
-The `context` is the short series/topic background. After creation, maintain
-the `terms` in `~/.openbbq/glossaries/<name>.json`:
-
-- `source`: canonical source text used by ASR biasing, correction, and term
-  checks.
-- `target`: established translation.
-- `aliases`: common ASR mishearings, spelling variants, or alternate names;
-  segment corrects them back to `source`.
-- `note`: disambiguation context for the agent.
-- `keep: true`: keep the source form untranslated in the target language.
-
-```text
-~/.openbbq/glossaries/frieren.json
-```
-
-```json
-{
-  "schema": "openbbq/glossary@1",
-  "name": "frieren",
-  "context": "Frieren: Beyond Journey's End, fantasy anime",
-  "terms": [
-    {
-      "source": "Frieren",
-      "target": "芙莉莲",
-      "aliases": ["Freiren", "Freeran", "Fearin", "Frieran", "Freerun", "Freer", "Furian"],
-      "note": "series & title character"
-    },
-    {
-      "source": "Himmel",
-      "target": "辛美尔",
-      "note": "hero of the party"
-    },
-    {
-      "source": "Heiter",
-      "target": "海塔",
-      "aliases": ["Heider", "Haider", "Hyder"],
-      "note": "priest"
-    }
-  ]
-}
-```
-
-Workflow:
-
-1. At the start, confirm core terms with the user (names, places, proper nouns,
-   established translations) and record them in the glossary. Do not invent
-   official translations on your own.
-2. When the glossary is known up front, bind it during `init` with
-   `--glossary <name>`. If the workspace already exists, bind it with
-   `openbbq glossary use <name> --workspace <ws>`.
-3. After `transcribe`, run `openbbq glossary suggest --workspace <ws>`: it mines
-   the transcript for candidate terms. **Confirm candidates with the user**
-   before folding them into the glossary.
-4. If the glossary is bound before a stage starts, `transcribe` / `segment` /
-   `translate init` use it automatically; the worksheet embeds the glossary map,
-   and translations should follow it.
-5. `translate check` returns `term_issues` (`[{id, term, expected}]`) naming cues
-   whose translations dropped an established term. Fix each one and re-apply.
-
-## Full YouTube Workflow
-
-For YouTube URLs, anonymous fetch is tried first. If fetch fails because of
-authentication, bot checks, or cookies, run the browser login once on a desktop
-UI:
-
-```bash
-openbbq auth browser-login youtube
-```
-
-For series or named-entity-heavy content, prepare or reuse a glossary first. If
-none exists, create one and maintain its terms as described in the Glossary
-section. When the glossary is known, bind it during `init` so ASR, segment, and
-translate can all use it:
-
-```bash
-openbbq init --workspace workspaces/demo --glossary frieren '<youtube-url>'
-openbbq fetch --workspace workspaces/demo
-openbbq extract-audio --workspace workspaces/demo
-openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
-openbbq glossary suggest --workspace workspaces/demo
-openbbq segment --workspace workspaces/demo
-openbbq translate init zh --workspace workspaces/demo
-```
-
-After `glossary suggest`, show candidate terms to the user for confirmation. If
-new terms are accepted, use the Edit tool to update the glossary file before
-continuing to `segment`. If there was no glossary at first but transcription
-reveals names or terms, run `openbbq glossary new <name> --context "..."`, edit
-the terms, bind it with `openbbq glossary use <name> --workspace workspaces/demo`,
-then continue to `segment`. Non-series content without named entities can skip
-the glossary commands.
-
-Then fill the translations. Read `workspaces/demo/translation.zh.json` first for
-the sources, each cue's char budget (`budget.max_chars`, computed from the
-target language's CPS), and the glossary map. Keep every translation **within
-its budget** (overruns get named in `over_budget` at check time). Do not write
-helper scripts, and do not rewrite the whole worksheet file:
-
-- Few cues (<= ~30): edit the `target` fields in place with the Edit tool.
-- More cues: write one or more batch files containing only translations: a JSON
-  object mapping cue id to translated text.
-
-  ```json
-  {"1": "第一句译文", "2": "第二句译文"}
-  ```
-
-  Merge each batch. This is repeatable; later batches do not disturb earlier
-  results:
-
-  ```bash
-  openbbq translate apply zh --workspace workspaces/demo targets.batch1.json
-  ```
-
-When every cue is filled:
-
-```bash
-openbbq translate check zh --workspace workspaces/demo
-```
-
-Check reports three signals. Clear all of them before exporting: `missing`
-(untranslated ids), `over_budget` (ids over their budget; tighten the wording
-and re-apply), and `term_issues` (entries that dropped glossary translations).
-Then:
-
-```bash
-openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --output out/zh.ass
-openbbq burn --workspace workspaces/demo
-```
-
-You can pass a preset during export:
-
-```bash
-openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset mobile
-```
-
-Final artifacts:
-
-- `out/zh.ass`: bilingual ASS subtitles.
-- `out/zh-burned.mp4`: MP4 with hard-burned subtitles.
-
-## Local File Workflow
-
-For a local video, skip `fetch`. If a glossary already exists, pass
-`--glossary <name>` during `init` as well:
-
-```bash
-openbbq init --workspace workspaces/demo --glossary frieren /path/to/video.mp4
-openbbq extract-audio --workspace workspaces/demo
-openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
-openbbq glossary suggest --workspace workspaces/demo
-openbbq segment --workspace workspaces/demo
-openbbq translate init zh --workspace workspaces/demo
-```
-
-If there is no glossary, remove `--glossary frieren` and follow the YouTube
-workflow rule after transcription to decide whether to create and bind one. Then
-fill/check/export/burn exactly as in the YouTube workflow.
+See `references/glossary.md` for the full schema, examples, and active audit
+workflow.
 
 ## Boundaries
 

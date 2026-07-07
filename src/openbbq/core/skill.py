@@ -21,6 +21,11 @@ class SkillAgent(StrEnum):
     ALL = "all"
 
 
+class SkillLanguage(StrEnum):
+    EN = "en"
+    ZH_CN = "zh-CN"
+
+
 SUPPORTED_AGENTS = (SkillAgent.CLAUDE, SkillAgent.CODEX, SkillAgent.AGENTS)
 
 
@@ -28,6 +33,7 @@ SUPPORTED_AGENTS = (SkillAgent.CLAUDE, SkillAgent.CODEX, SkillAgent.AGENTS)
 class SkillInstall:
     path: Path
     files: int
+    language: SkillLanguage
 
 
 def default_target() -> Path:
@@ -68,8 +74,9 @@ def packaged_skill_dir() -> Traversable:
     return root
 
 
-def packaged_skill_md() -> Traversable:
-    path = packaged_skill_dir().joinpath("SKILL.md")
+def packaged_skill_md(language: SkillLanguage = SkillLanguage.EN) -> Traversable:
+    filename = "SKILL.zh-CN.md" if language is SkillLanguage.ZH_CN else "SKILL.md"
+    path = packaged_skill_dir().joinpath(filename)
     if not path.is_file():
         raise OpenBBQError(
             "skill_packaging_error",
@@ -79,12 +86,16 @@ def packaged_skill_md() -> Traversable:
     return path
 
 
-def packaged_skill_path() -> str:
-    return str(packaged_skill_md())
+def packaged_skill_path(language: SkillLanguage = SkillLanguage.EN) -> str:
+    return str(packaged_skill_md(language))
 
 
-def packaged_skill_content() -> str:
-    return packaged_skill_md().read_text(encoding="utf-8")
+def packaged_skill_content(language: SkillLanguage = SkillLanguage.EN) -> str:
+    return packaged_skill_md(language).read_text(encoding="utf-8")
+
+
+def packaged_skill_contents() -> dict[SkillLanguage, str]:
+    return {language: packaged_skill_content(language) for language in SkillLanguage}
 
 
 def installed_skill_path(target: Path | None = None) -> Path:
@@ -92,7 +103,7 @@ def installed_skill_path(target: Path | None = None) -> Path:
     return root / SKILL_NAME / "SKILL.md"
 
 
-def _packaged_files() -> list[tuple[Path, Traversable]]:
+def _packaged_files(language: SkillLanguage) -> list[tuple[Path, Traversable]]:
     files: list[tuple[Path, Traversable]] = []
 
     def walk(prefix: Path, source: Traversable) -> None:
@@ -104,10 +115,22 @@ def _packaged_files() -> list[tuple[Path, Traversable]]:
                 files.append((rel, child))
 
     walk(Path(), packaged_skill_dir())
+    if language is SkillLanguage.ZH_CN:
+        files = [
+            (Path("SKILL.md"), packaged_skill_md(SkillLanguage.ZH_CN))
+            if rel == Path("SKILL.md")
+            else (rel, source)
+            for rel, source in files
+        ]
     return files
 
 
-def _install_to_root(root: Path, *, force: bool = False) -> SkillInstall:
+def _install_to_root(
+    root: Path,
+    *,
+    force: bool = False,
+    language: SkillLanguage = SkillLanguage.EN,
+) -> SkillInstall:
     dest = root / SKILL_NAME
     if dest.exists():
         if not force:
@@ -125,26 +148,41 @@ def _install_to_root(root: Path, *, force: bool = False) -> SkillInstall:
     dest.mkdir()
 
     files = 0
-    for rel, source in _packaged_files():
+    for rel, source in _packaged_files(language):
         out = dest / rel
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(source.read_bytes())
         files += 1
 
-    return SkillInstall(path=dest, files=files)
+    return SkillInstall(path=dest, files=files, language=language)
 
 
-def install(target: Path | None = None, *, force: bool = False) -> SkillInstall:
+def install(
+    target: Path | None = None,
+    *,
+    force: bool = False,
+    language: SkillLanguage = SkillLanguage.EN,
+) -> SkillInstall:
     root = default_target() if target is None else target.expanduser()
-    return _install_to_root(root, force=force)
+    return _install_to_root(root, force=force, language=language)
 
 
-def install_for_agent(agent: SkillAgent, *, force: bool = False) -> list[SkillInstall]:
+def install_for_agent(
+    agent: SkillAgent,
+    *,
+    force: bool = False,
+    language: SkillLanguage = SkillLanguage.EN,
+) -> list[SkillInstall]:
     roots = targets_for_agent(agent)
-    return install_targets(roots, force=force)
+    return install_targets(roots, force=force, language=language)
 
 
-def install_targets(roots: Sequence[Path], *, force: bool = False) -> list[SkillInstall]:
+def install_targets(
+    roots: Sequence[Path],
+    *,
+    force: bool = False,
+    language: SkillLanguage = SkillLanguage.EN,
+) -> list[SkillInstall]:
     if not force:
         for root in roots:
             root = root.expanduser()
@@ -155,4 +193,7 @@ def install_targets(roots: Sequence[Path], *, force: bool = False) -> list[Skill
                     path=str(dest),
                     fix="openbbq skill install --force",
                 )
-    return [_install_to_root(root.expanduser(), force=force) for root in roots]
+    return [
+        _install_to_root(root.expanduser(), force=force, language=language)
+        for root in roots
+    ]

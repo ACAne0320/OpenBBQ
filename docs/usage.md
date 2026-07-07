@@ -155,6 +155,9 @@ product-specific skills directory, use `openbbq skill install --agent claude` or
 `openbbq skill install --agent codex`. To install all supported targets at once,
 use `openbbq skill install --agent all`.
 
+English is installed by default. Use `openbbq skill install --language zh-CN` for
+the Chinese version. The full skill directory is copied, including `references/`.
+
 Agents that read the skill directly from stdout can use `openbbq skill show`.
 
 ## Outputs
