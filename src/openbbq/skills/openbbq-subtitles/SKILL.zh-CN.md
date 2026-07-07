@@ -52,10 +52,13 @@
 7. 分段并初始化翻译：`segment` 后跑 `translate init <lang>`。
 8. 填译文：少量 cue 用 Edit 工具；大量 cue 写 `{id: target}` 批次 JSON，再用
    `openbbq translate apply <lang> --workspace <ws> <batch.json>` 合并。
-9. 检查：跑 `openbbq translate check <lang> --workspace <ws>`，清掉 `missing`、
+9. 机械检查：跑 `openbbq translate check <lang> --workspace <ws>`，清掉 `missing`、
    `over_budget`、`term_issues`。
-10. 导出和烧录：默认导出双语 ASS，再 burn。导出时可按场景选择 `--ass-preset`。
-11. 完成 QA：按 `references/workflows.zh-CN.md` 检查 status、translate check、
+10. 翻译质量自审：导出前抽查或通读 worksheet，主动修正误译、不自然、语气不符、
+    上下文断裂、术语漂移和双语 source/target 不匹配的问题。修订后重新
+    `translate apply` 和 `translate check`。
+11. 导出和烧录：默认导出双语 ASS，再 burn。导出时可按场景选择 `--ass-preset`。
+12. 完成 QA：按 `references/workflows.zh-CN.md` 检查 status、translate check、
     输出 MP4 时长/大小，并截帧确认字幕渲染。
 
 ## Glossary 原则

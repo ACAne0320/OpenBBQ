@@ -56,7 +56,7 @@ openbbq translate apply zh --workspace workspaces/demo targets.batch1.json
 
 可多批合并；后续批次不会影响未覆盖的译文。
 
-## 检查、导出、烧录
+## 检查、自审、导出、烧录
 
 ```bash
 openbbq translate check zh --workspace workspaces/demo
@@ -65,6 +65,18 @@ openbbq burn --workspace workspaces/demo --subtitle out/zh.ass --output out/zh-b
 ```
 
 `translate check` 的 `missing`、`over_budget`、`term_issues` 必须清零后再导出。
+
+导出前做一次 agent 翻译质量自审，避免烧录后才发现问题。最低要求：
+
+- 对照 `translation.zh.json` 的 source/target，抽查或通读完整 worksheet。
+- 主动修正误译、漏译、过度意译、中文不自然、语气不符、上下文承接断裂。
+- 检查专名/术语是否前后一致；双语输出时检查英文 source 行与中文 target 是否
+  指向同一含义。
+- 修订只通过 Edit 工具或 `{id: target}` 批次 JSON + `translate apply` 完成。
+- 自审修订后重新跑 `openbbq translate check zh --workspace workspaces/demo`；
+  仍要保持 `missing`、`over_budget`、`term_issues` 清零。
+
+只有通过机械检查和质量自审后，才进入 `export` / `burn`。
 
 ## 完成 QA
 

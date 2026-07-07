@@ -75,11 +75,15 @@ Prefer OpenBBQ's atomic CLI commands over ad hoc scripts.
 8. Fill translations: for few cues, use the Edit tool; for many cues, write a
    `{id: target}` batch JSON and merge it with `openbbq translate apply <lang>
    --workspace <ws> <batch.json>`.
-9. Check with `openbbq translate check <lang> --workspace <ws>` and clear
-   `missing`, `over_budget`, and `term_issues`.
-10. Export and burn: default to bilingual ASS, then burn. Pick `--ass-preset`
+9. Mechanical check: run `openbbq translate check <lang> --workspace <ws>` and
+   clear `missing`, `over_budget`, and `term_issues`.
+10. Translation quality self-review: before export, spot-check or read through
+    the worksheet and proactively fix mistranslations, unnatural phrasing, tone
+    mismatches, broken context, term drift, and bilingual source/target
+    mismatches. After revisions, rerun `translate apply` and `translate check`.
+11. Export and burn: default to bilingual ASS, then burn. Pick `--ass-preset`
     by target surface.
-11. Completion QA: follow `references/workflows.md` to check status,
+12. Completion QA: follow `references/workflows.md` to check status,
     `translate check`, output MP4 duration/size, and a rendered subtitle frame.
 
 ## Glossary Principles

@@ -58,7 +58,7 @@ openbbq translate apply zh --workspace workspaces/demo targets.batch1.json
 
 Multiple batches are fine; later batches only overwrite provided cue ids.
 
-## Check, Export, Burn
+## Check, Self-Review, Export, Burn
 
 ```bash
 openbbq translate check zh --workspace workspaces/demo
@@ -67,6 +67,23 @@ openbbq burn --workspace workspaces/demo --subtitle out/zh.ass --output out/zh-b
 ```
 
 Clear `missing`, `over_budget`, and `term_issues` before export.
+
+Before export, perform an agent translation quality self-review to avoid finding
+translation problems only after burn. Minimum requirements:
+
+- Compare source/target pairs in `translation.zh.json`; spot-check or read
+  through the full worksheet.
+- Proactively fix mistranslations, omissions, over-loose translations,
+  unnatural target-language phrasing, tone mismatches, and broken context.
+- Check whether names and terms stay consistent; for bilingual output, confirm
+  source and target lines express the same meaning.
+- Make revisions only with the Edit tool or a `{id: target}` batch JSON merged
+  by `translate apply`.
+- After self-review revisions, rerun `openbbq translate check zh --workspace
+  workspaces/demo`; `missing`, `over_budget`, and `term_issues` must remain
+  clear.
+
+Only export and burn after both mechanical checks and quality self-review pass.
 
 ## Completion QA
 
