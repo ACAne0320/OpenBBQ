@@ -110,13 +110,6 @@ def install(
         bool,
         typer.Option("--force", help="overwrite an existing installed skill"),
     ] = False,
-    language: Annotated[
-        skilllib.SkillLanguage,
-        typer.Option(
-            "--language",
-            help="skill language to install: en or zh-CN",
-        ),
-    ] = skilllib.SkillLanguage.EN,
 ) -> None:
     """Install the packaged OpenBBQ agent skill."""
     output: Output = ctx.obj
@@ -128,17 +121,13 @@ def install(
             )
         output.emit(
             SkillInstallResult.of(
-                skilllib.install(
-                    target, name=name, force=force, language=language
-                )
+                skilllib.install(target, name=name, force=force)
             )
         )
         return
     output.emit(
         SkillInstallResult.of_many(
-            skilllib.install_for_agent(
-                agent, name=name, force=force, language=language
-            )
+            skilllib.install_for_agent(agent, name=name, force=force)
         )
     )
 

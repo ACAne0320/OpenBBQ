@@ -55,8 +55,11 @@ def test_skill_install_defaults_to_shared_agents_target(
     assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
         skilllib.packaged_skill_content()
     )
+    assert not (installed / "SKILL.zh-CN.md").exists()
     assert (installed / "references" / "glossary.md").is_file()
     assert (installed / "references" / "workflows.md").is_file()
+    assert not (installed / "references" / "glossary.zh-CN.md").exists()
+    assert not (installed / "references" / "workflows.zh-CN.md").exists()
     assert not (tmp_path / ".claude").exists()
     assert not (tmp_path / ".codex").exists()
 
@@ -80,40 +83,11 @@ def test_skill_install_copies_files_to_target_and_reports_json(
     assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
         skilllib.packaged_skill_content()
     )
+    assert not (installed / "SKILL.zh-CN.md").exists()
     assert (installed / "references" / "glossary.md").is_file()
     assert (installed / "references" / "workflows.md").is_file()
-
-
-def test_skill_install_can_install_chinese_skill_as_main_markdown(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    code, stdout, _stderr = _run_cli(
-        [
-            "--json",
-            "skill",
-            "install",
-            "--target",
-            str(tmp_path),
-            "--language",
-            "zh-CN",
-        ],
-        monkeypatch,
-        capsys,
-    )
-
-    data = _single_json(stdout)
-    installed = tmp_path / skilllib.SKILL_NAME
-    assert code == 0
-    assert data["path"] == str(installed)
-    assert data["language"] == "zh-CN"
-    assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
-        skilllib.packaged_skill_content(skilllib.SkillLanguage.ZH_CN)
-    )
-    assert (installed / "SKILL.zh-CN.md").read_text(encoding="utf-8") == (
-        skilllib.packaged_skill_content(skilllib.SkillLanguage.ZH_CN)
-    )
-    assert (installed / "references" / "glossary.zh-CN.md").is_file()
-    assert (installed / "references" / "workflows.zh-CN.md").is_file()
+    assert not (installed / "references" / "glossary.zh-CN.md").exists()
+    assert not (installed / "references" / "workflows.zh-CN.md").exists()
 
 
 def test_skill_install_can_choose_bilibili_cover_skill(
@@ -142,38 +116,8 @@ def test_skill_install_can_choose_bilibili_cover_skill(
     assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
         skilllib.packaged_skill_content(name=name)
     )
+    assert not (installed / "SKILL.zh-CN.md").exists()
     assert not (installed / "scripts").exists()
-
-
-def test_skill_install_can_choose_chinese_bilibili_cover_skill(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    code, stdout, _stderr = _run_cli(
-        [
-            "--json",
-            "skill",
-            "install",
-            "--target",
-            str(tmp_path),
-            "--name",
-            "bilibili-cover-safe-area",
-            "--language",
-            "zh-CN",
-        ],
-        monkeypatch,
-        capsys,
-    )
-
-    data = _single_json(stdout)
-    name = skilllib.SkillName.BILIBILI_COVER_SAFE_AREA
-    installed = tmp_path / name.value
-    assert code == 0
-    assert data["path"] == str(installed)
-    assert data["language"] == "zh-CN"
-    assert (installed / "SKILL.md").read_text(encoding="utf-8") == (
-        skilllib.packaged_skill_content(skilllib.SkillLanguage.ZH_CN, name=name)
-    )
-    assert (installed / "SKILL.zh-CN.md").is_file()
 
 
 def test_skill_install_refuses_existing_install_without_force(

@@ -1,6 +1,6 @@
 ---
 name: bilibili-cover-safe-area
-description: 仅使用 FFmpeg 将 YouTube 或其他 16:9 视频封面处理成适合 Bilibili 上传的 1280x960 4:3 封面，并在正中保留完整 1280x720 16:9 安全区，上下用原图模糊延展补边。适用于 Bilibili 封面、4:3 画布加 16:9 安全区、模糊补边、YouTube thumbnail 转换、批量处理 fetch 后的视频封面。
+description: 从已 fetch 的 YouTube 或视频缩略图制作 Bilibili/B站视频封面，尤其适用于用户用中文说“制作B站封面”、“制作bilibili封面”、“做一下B站封面”、“投稿封面”、“视频封面”、“帮我制作一下bilibili的封面吧”，或要求准备 Bilibili 上传封面。仅使用 FFmpeg 将 16:9 缩略图转换成 Bilibili 安全的 1280x960 4:3 图片，在正中保留原始 1280x720 缩略图，并用模糊延展填充上下边。
 ---
 
 # Bilibili Cover Safe Area
@@ -8,6 +8,8 @@ description: 仅使用 FFmpeg 将 YouTube 或其他 16:9 视频封面处理成�
 ## 概览
 
 用 FFmpeg 把 fetch 下来的 YouTube 封面转换成 Bilibili 兼容封面，确保 4:3 展示和 16:9 中心裁切都可用。
+
+只要用户是在已有 fetch 缩略图或视频封面的前提下要求制作 Bilibili/B站 封面，就使用这个 skill；即使用户没有提到安全区、4:3、模糊补边或缩略图转换，也应当命中。若当前没有现成缩略图或源图片，先要求提供或先 fetch 视频缩略图；本 skill 负责封面格式转换，不负责从零自由设计封面。
 
 默认输出约定：
 

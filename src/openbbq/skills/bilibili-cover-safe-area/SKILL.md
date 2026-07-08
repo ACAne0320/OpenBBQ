@@ -1,6 +1,6 @@
 ---
 name: bilibili-cover-safe-area
-description: Prepare YouTube or other 16:9 thumbnail images for Bilibili cover upload using FFmpeg only, producing a 1280x960 4:3 image with the original 1280x720 16:9 cover preserved in the exact center and blurred extended padding above and below. Use when asked to make Bilibili-safe covers, 4:3 covers with a 16:9 safe area, blurred thumbnail padding, YouTube thumbnail cover conversion, or batch-process fetched video thumbnails.
+description: Make Bilibili/B站 video covers from fetched YouTube or video thumbnails, especially when the user asks in Chinese for “制作B站封面”, “制作bilibili封面”, “做一下B站封面”, “投稿封面”, “视频封面”, “帮我制作一下bilibili的封面吧”, or asks to prepare a cover for Bilibili upload. Convert 16:9 thumbnails into Bilibili-safe 1280x960 4:3 images using FFmpeg only, preserving the original 1280x720 thumbnail in the exact center with blurred padding above and below.
 ---
 
 # Bilibili Cover Safe Area
@@ -8,6 +8,8 @@ description: Prepare YouTube or other 16:9 thumbnail images for Bilibili cover u
 ## Overview
 
 Use FFmpeg to convert fetched YouTube thumbnails into Bilibili-compatible cover images that work for both 4:3 display and 16:9 center cropping.
+
+Use this skill whenever the user asks to make a Bilibili/B站 cover for a video that already has a fetched thumbnail, even if they do not mention safe area, 4:3, blur padding, or thumbnail conversion. If there is no existing thumbnail or source image, first ask for or fetch the video thumbnail; this skill is for cover-format conversion, not freeform cover design from scratch.
 
 The output contract is:
 

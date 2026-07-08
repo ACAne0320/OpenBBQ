@@ -146,8 +146,7 @@ skills 目录，Claude Code 使用 `openbbq skill install --agent claude`，Code
 使用 `openbbq skill install --agent codex`。一次安装所有支持目标使用
 `openbbq skill install --agent all`。
 
-默认安装英文 skill。需要中文版时使用 `openbbq skill install --language zh-CN`。
-安装会复制完整 skill 目录，包括 `references/`。
+安装固定写入英文 skill 及其英文 `references/`。
 
 需要直接从 stdout 读取 skill 内容的 agent 可以使用 `openbbq skill show`。
 

@@ -196,7 +196,7 @@ def _agent_skill_at(target: Path, *, fix: str = "openbbq skill install") -> Chec
             f"{fix} --force",
             required=False,
         )
-    if installed not in skilllib.packaged_skill_contents().values():
+    if installed != skilllib.packaged_skill_content():
         return Check(
             "agent skill",
             False,
@@ -215,7 +215,7 @@ def _agent_skill(target: Path | None = None) -> Check:
     outdated: list[str] = []
     unreadable: list[str] = []
     missing: list[str] = []
-    packaged = set(skilllib.packaged_skill_contents().values())
+    packaged = skilllib.packaged_skill_content()
     for agent in skilllib.SUPPORTED_AGENTS:
         path = skilllib.installed_skill_path(skilllib.target_for_agent(agent))
         label = f"{agent.value}: {path}"
@@ -226,7 +226,7 @@ def _agent_skill(target: Path | None = None) -> Check:
         except OSError:
             unreadable.append(label)
         else:
-            if installed in packaged:
+            if installed == packaged:
                 current.append(label)
             else:
                 outdated.append(label)

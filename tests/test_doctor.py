@@ -107,16 +107,6 @@ def test_agent_skill_check_reports_ok(tmp_path) -> None:
     assert check.fix is None
 
 
-def test_agent_skill_check_accepts_chinese_install(tmp_path) -> None:
-    install = skilllib.install(tmp_path, language=skilllib.SkillLanguage.ZH_CN)
-
-    check = doctor._agent_skill(tmp_path)
-
-    assert check.ok is True
-    assert check.detail == str(install.path / "SKILL.md")
-    assert check.fix is None
-
-
 def test_agent_skill_check_reports_any_supported_agent_install_ok(
     tmp_path: Path, monkeypatch
 ) -> None:
