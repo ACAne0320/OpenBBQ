@@ -1,0 +1,141 @@
+---
+title: 快速开始
+description: 按显式阶段从本地视频制作双语字幕。
+---
+
+本指南以英文的本地视频为例，输出“中文在上、英文在下”的 ASS 双语字幕。请根据素材替换路径和语言代码。
+
+## 1. 检查环境
+
+```bash
+openbbq doctor
+openbbq models list
+```
+
+如果还没有缓存模型：
+
+```bash
+openbbq models pull large-v3-turbo
+```
+
+## 2. 创建 workspace
+
+```bash
+openbbq init --workspace workspaces/demo /path/to/video.mp4
+```
+
+`init` 只记录来源并创建 `workspaces/demo/manifest.json`，不会复制或处理视频。
+
+进入 workspace 后，后续命令可以自动向上查找它：
+
+```bash
+cd workspaces/demo
+openbbq status
+```
+
+也可以留在其他目录，并在每个命令中传 `--workspace workspaces/demo`。
+
+## 3. 标准化音频
+
+```bash
+openbbq extract-audio
+```
+
+命令会生成 `media/audio.16k.wav`，即适合 ASR 的 16 kHz 单声道 WAV。
+
+## 4. 转录
+
+```bash
+openbbq transcribe --model large-v3-turbo --language en --gpu
+```
+
+结果写入 `transcript.json`。`--gpu` 是默认选项；如果原生后端无法使用当前加速器，或在受限环境中失败，请改用 `--cpu`。
+
+模型不在缓存中时，可以先 pull，也可以明确允许自动下载：
+
+```bash
+openbbq transcribe --model large-v3-turbo --language en --auto-download
+```
+
+## 5. 生成字幕 cue
+
+```bash
+openbbq segment
+```
+
+该命令根据对应语言的时长、每行字符数和 CPS 配置，将 transcript 确定性地转换为 `cues.json`。输出会报告需要复查的 over-CPS 和 over-width cue。
+
+## 6. 创建翻译工作表
+
+```bash
+openbbq translate init zh
+```
+
+打开 `translation.zh.json`。每个项目都有稳定的 cue `id`、原文、时间信息、翻译长度预算，以及待填写的 `target`。
+
+小项目可以直接编辑 `target`；需要可重复的分批处理时，创建一个 JSON 对象：
+
+```json
+{
+  "1": "第一句译文",
+  "2": "第二句译文"
+}
+```
+
+保存为 `targets.json`，然后合并并检查：
+
+```bash
+openbbq translate apply zh targets.json
+openbbq translate check zh
+```
+
+`apply` 可以重复执行；`check` 会报告缺失 cue、超预算译文和术语警告。
+
+## 7. 导出双语 ASS
+
+```bash
+openbbq export --to zh --mode bilingual --format ass --ass-preset fansub
+```
+
+默认输出为 `out/zh.ass`。双语模式会把译文放在原文上方。
+
+烧录前，请先用支持 ASS 的播放器预览字幕文件。
+
+## 8. 烧录字幕（可选）
+
+```bash
+openbbq burn
+```
+
+`burn` 会使用最近一次导出的 ASS 产物，创建 `out/zh-burned.mp4`。该步骤要求来源是视频，并且 FFmpeg 支持 libass filter。
+
+## 随时检查进度
+
+```bash
+openbbq status
+```
+
+脚本或 Agent 使用：
+
+```bash
+openbbq --json status
+```
+
+长任务会持续更新 `manifest.json`，其他进程可以轮询 `status`，不需要解析进度条。
+
+## 最终 workspace
+
+```text
+workspaces/demo/
+├── manifest.json
+├── media/
+│   └── audio.16k.wav
+├── transcript.json
+├── cues.json
+├── translation.zh.json
+└── out/
+    ├── zh.ass
+    └── zh-burned.mp4
+```
+
+URL 来源请继续阅读[本地文件与在线视频](/zh/docs/guides/sources)；SRT、ASS 模式和预设见[导出与烧录](/zh/docs/guides/export-and-burn)。

@@ -1,0 +1,107 @@
+---
+title: Export and Burn
+description: Render source, target, or bilingual SRT/ASS subtitles and optionally burn ASS into video.
+---
+
+## Export modes
+
+`openbbq export` reads `cues.json` and, when needed, one translation worksheet.
+
+| Mode | Command | Output lines |
+| --- | --- | --- |
+| Source | `openbbq export` | Source text only |
+| Target | `openbbq export --to zh` | Target text only |
+| Bilingual | `openbbq export --to zh --mode bilingual` | Target above source |
+
+Without `--to`, the default mode is `source`. With `--to`, the default mode becomes `target`.
+
+## SRT
+
+SRT is the default format:
+
+```bash
+openbbq export --workspace workspaces/demo
+openbbq export --workspace workspaces/demo --to zh --mode bilingual
+```
+
+The default filename is `out/<language>.srt`.
+
+## ASS
+
+Use ASS when you need styled bilingual subtitles or hard burning:
+
+```bash
+openbbq export \
+  --workspace workspaces/demo \
+  --to zh \
+  --mode bilingual \
+  --format ass \
+  --ass-preset fansub
+```
+
+ASS presets:
+
+| Preset | Intended use |
+| --- | --- |
+| `default` | Standard 16:9 horizontal video |
+| `fansub` | More prominent translated line |
+| `mobile` | 9:16 vertical canvas and larger bottom safe area |
+
+`--ass-preset` is valid only with `--format ass`. The mobile preset changes rendering geometry; it does not shorten long subtitles.
+
+## Incomplete translations
+
+Target and bilingual export normally fail when any target is blank. Review first:
+
+```bash
+openbbq translate check zh --workspace workspaces/demo
+```
+
+For an intentional draft, allow untranslated cues to fall back to source text:
+
+```bash
+openbbq export --to zh --mode bilingual --allow-missing --workspace workspaces/demo
+```
+
+## Custom output path
+
+Relative paths are resolved inside the workspace; absolute paths are allowed:
+
+```bash
+openbbq export --to zh --format ass --output out/review.ass --workspace workspaces/demo
+```
+
+## Hard-subtitle burning
+
+Burn the most recent ASS export:
+
+```bash
+openbbq burn --workspace workspaces/demo
+```
+
+Or specify files explicitly:
+
+```bash
+openbbq burn \
+  --workspace workspaces/demo \
+  --subtitle out/review.ass \
+  --output out/final.mp4
+```
+
+Requirements:
+
+- The source must be video, not audio.
+- The subtitle file must be ASS.
+- FFmpeg must provide the `ass` and `subtitles` filters.
+
+If FFmpeg with libass is not the first executable on PATH, pass it directly:
+
+```bash
+openbbq burn --workspace workspaces/demo --ffmpeg /path/to/ffmpeg
+```
+
+Burning may take minutes. Progress is written to the manifest and can be polled separately:
+
+```bash
+openbbq --json status --workspace workspaces/demo
+```

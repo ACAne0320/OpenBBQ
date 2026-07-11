@@ -1,0 +1,107 @@
+---
+title: 导出与烧录
+description: 渲染原文、译文或双语 SRT/ASS，并按需烧录 ASS 到视频。
+---
+
+## 导出模式
+
+`openbbq export` 读取 `cues.json`，需要译文时再读取一个翻译工作表。
+
+| 模式 | 命令 | 输出行 |
+| --- | --- | --- |
+| 原文 | `openbbq export` | 仅原文 |
+| 译文 | `openbbq export --to zh` | 仅译文 |
+| 双语 | `openbbq export --to zh --mode bilingual` | 译文在上、原文在下 |
+
+不传 `--to` 时默认是 `source`；传入 `--to` 后默认变为 `target`。
+
+## SRT
+
+SRT 是默认格式：
+
+```bash
+openbbq export --workspace workspaces/demo
+openbbq export --workspace workspaces/demo --to zh --mode bilingual
+```
+
+默认文件名是 `out/<language>.srt`。
+
+## ASS
+
+需要样式化双语字幕或硬字幕烧录时使用 ASS：
+
+```bash
+openbbq export \
+  --workspace workspaces/demo \
+  --to zh \
+  --mode bilingual \
+  --format ass \
+  --ass-preset fansub
+```
+
+ASS 预设：
+
+| 预设 | 用途 |
+| --- | --- |
+| `default` | 常规 16:9 横屏视频 |
+| `fansub` | 更醒目的译文行 |
+| `mobile` | 9:16 竖屏画布和更大的底部安全区 |
+
+`--ass-preset` 只能与 `--format ass` 一起使用。Mobile 预设只改变渲染几何，不会自动缩短长字幕。
+
+## 未完成译文
+
+Target 和 bilingual 导出默认会在 target 留空时失败。请先检查：
+
+```bash
+openbbq translate check zh --workspace workspaces/demo
+```
+
+如果明确要生成草稿，可以让未翻译 cue 回退为原文：
+
+```bash
+openbbq export --to zh --mode bilingual --allow-missing --workspace workspaces/demo
+```
+
+## 自定义输出路径
+
+相对路径在 workspace 内解析，也可以使用绝对路径：
+
+```bash
+openbbq export --to zh --format ass --output out/review.ass --workspace workspaces/demo
+```
+
+## 硬字幕烧录
+
+烧录最近一次 ASS 导出：
+
+```bash
+openbbq burn --workspace workspaces/demo
+```
+
+也可以显式指定文件：
+
+```bash
+openbbq burn \
+  --workspace workspaces/demo \
+  --subtitle out/review.ass \
+  --output out/final.mp4
+```
+
+要求：
+
+- 来源必须是视频，不能是音频。
+- 字幕文件必须是 ASS。
+- FFmpeg 必须提供 `ass` 和 `subtitles` filter。
+
+支持 libass 的 FFmpeg 不在 PATH 首位时，可以直接指定：
+
+```bash
+openbbq burn --workspace workspaces/demo --ffmpeg /path/to/ffmpeg
+```
+
+烧录可能持续数分钟。进度会写入 manifest，可以单独轮询：
+
+```bash
+openbbq --json status --workspace workspaces/demo
+```

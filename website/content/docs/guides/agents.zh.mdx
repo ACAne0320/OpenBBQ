@@ -1,0 +1,78 @@
+---
+title: Agent 与 JSON
+description: 从 Coding Agent、自动化和非交互进程中安全使用 OpenBBQ。
+---
+
+## 机器可读输出
+
+把根级 `--json` 放在命令前：
+
+```bash
+openbbq --json doctor
+openbbq --json status --workspace workspaces/demo
+openbbq --json export --workspace workspaces/demo --to zh --mode bilingual
+```
+
+Stdout 不是交互式 TTY 时，OpenBBQ 会自动选择紧凑 JSON；但 Agent 应显式传入 `--json`，以声明输出契约。
+
+每个命令最终只在 stdout 输出一个 JSON 对象。人类进度和长任务提示会写入 stderr 或 workspace manifest，stdout 始终可解析。
+
+## 退出与错误行为
+
+- 成功时输出结果对象并正常退出。
+- 领域错误输出结构化 `error` code、上下文，通常还带 `fix`。
+- CLI 用法错误使用 `usage` code。
+- 未预期错误使用 `internal` code。
+
+Agent 应优先执行返回的 `fix`，不要解析人类文案或凭空猜恢复命令。
+
+## 轮询长任务
+
+`fetch`、`transcribe` 和 `burn` 会更新 `manifest.json` 中的阶段与进度。可以从另一进程轮询：
+
+```bash
+openbbq --json status --workspace workspaces/demo
+```
+
+Running 阶段超过 60 秒没有心跳时，`status` 会标记 stale。
+
+## 安装随包 Skill
+
+默认目标是共享 agents 目录：
+
+```bash
+openbbq skill install
+```
+
+安装到指定产品：
+
+```bash
+openbbq skill install --agent codex
+openbbq skill install --agent claude
+openbbq skill install --agent all
+```
+
+使用 `--force` 替换已有副本；通过 `--target` 可以指定自定义父目录。
+
+当前包含两个 Skill：
+
+```bash
+openbbq skill install --name openbbq-subtitles
+openbbq skill install --name bilibili-cover-safe-area
+```
+
+不安装，直接输出随包 Markdown：
+
+```bash
+openbbq skill show
+openbbq skill show --language zh-CN
+openbbq skill show --name bilibili-cover-safe-area --language zh-CN
+```
+
+## Agent 操作原则
+
+- 安装系统依赖、下载大型模型或写入浏览器登录态前先询问用户。
+- 确保 `OPENBBQ_HOME` 和 workspace 路径可写。
+- 优先使用小型翻译批次，并在批次间运行 `translate check`。
+- 除非明确要丢弃已有翻译，否则不要使用 `translate init --force`。
+- 发布或烧录前预览导出的字幕。

@@ -1,0 +1,129 @@
+---
+title: Troubleshooting
+description: Recover from common installation, media, ASR, translation, export, and burn failures.
+---
+
+## Start with structured diagnostics
+
+```bash
+openbbq doctor
+openbbq --json status --workspace workspaces/demo
+```
+
+OpenBBQ domain errors usually include a stable error code and a `fix`. Prefer that command-specific fix over generic recovery steps.
+
+## `openbbq` command not found
+
+Confirm the uv tool installation and PATH:
+
+```bash
+uv tool list
+uv tool update-shell
+```
+
+Open a new shell, then retry `openbbq --help`.
+
+## Missing whisper.cpp backend
+
+Install or repair the optional backend:
+
+```bash
+uv tool install --force 'openbbq[whispercpp]'
+openbbq doctor
+```
+
+## Model missing
+
+```bash
+openbbq models list
+openbbq models pull large-v3-turbo
+```
+
+Or opt into download from `transcribe`:
+
+```bash
+openbbq transcribe --model large-v3-turbo --auto-download
+```
+
+Interrupted model downloads retain a temporary file and resume when the server supports HTTP ranges. A size mismatch removes the invalid download and asks you to retry.
+
+## GPU or native backend failure
+
+The default is `--gpu`. Retry on CPU:
+
+```bash
+openbbq transcribe --model large-v3-turbo --cpu --workspace workspaces/demo
+```
+
+Native GPU backends may fail inside restricted sandboxes even when they work in a normal terminal. Run transcription in a regular user environment before concluding that the backend is broken.
+
+## FFmpeg missing or subtitle filters unavailable
+
+```bash
+openbbq doctor
+ffmpeg -hide_banner -filters
+```
+
+Hard burning requires both `ass` and `subtitles`. Install an FFmpeg build with libass or pass a known executable:
+
+```bash
+openbbq burn --ffmpeg /path/to/ffmpeg --workspace workspaces/demo
+```
+
+## No workspace found
+
+Run the command inside a workspace directory, or pass it explicitly:
+
+```bash
+openbbq status --workspace /path/to/workspace
+```
+
+A valid workspace must contain an OpenBBQ `manifest.json`, not just any file with that name.
+
+## Fetch requires login or verification
+
+```bash
+openbbq auth browser-login youtube
+openbbq auth status youtube
+openbbq fetch --workspace workspaces/demo
+```
+
+For public content that fails only when authenticated:
+
+```bash
+openbbq fetch --workspace workspaces/demo --no-auth
+```
+
+If saved state is invalid:
+
+```bash
+openbbq auth clear youtube
+openbbq auth browser-login youtube
+```
+
+## Incomplete translation
+
+```bash
+openbbq translate check zh --workspace workspaces/demo
+```
+
+Fill the reported ids and recheck. Use `--allow-missing` only for an intentional draft that should fall back to source text.
+
+## Worksheet no longer matches cues
+
+This usually follows a rerun of `segment`. Preserve the existing worksheet before regenerating it, then reconcile translations by cue id/source text. `translate init --force` discards the old file immediately.
+
+## Burn rejects the input
+
+- An audio-only workspace cannot be burned into video.
+- The subtitle must be `.ass`; export with `--format ass` first.
+- Without `--subtitle`, burn uses the most recent export artifact, which may be SRT. Export ASS again or pass the ASS file explicitly.
+
+```bash
+openbbq export --to zh --mode bilingual --format ass --workspace workspaces/demo
+openbbq burn --workspace workspaces/demo
+```
+
+## Stale running stage
+
+`status` marks running work stale after 60 seconds without a heartbeat. Confirm that no process is still active, inspect its stderr/logs, then rerun the affected command. Rerunning updates that stage and invalidates dependent downstream state.

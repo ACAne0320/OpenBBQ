@@ -1,0 +1,78 @@
+---
+title: Agents and JSON
+description: Use OpenBBQ safely from coding agents, automation, and non-interactive processes.
+---
+
+## Machine-readable output
+
+Place the root `--json` flag before the command:
+
+```bash
+openbbq --json doctor
+openbbq --json status --workspace workspaces/demo
+openbbq --json export --workspace workspaces/demo --to zh --mode bilingual
+```
+
+OpenBBQ automatically selects compact JSON when stdout is not an interactive TTY, but agents should pass `--json` explicitly to declare the contract.
+
+Each command emits one final JSON object on stdout. Human progress and long-task hints go to stderr or the workspace manifest, so stdout remains parseable.
+
+## Exit and error behavior
+
+- Success emits a result object and exits successfully.
+- Domain failures emit a structured error with an `error` code, context, and often a `fix`.
+- CLI usage errors use the `usage` error code.
+- Unexpected failures use the `internal` error code.
+
+Agents should follow the provided `fix` instead of parsing human prose or inventing recovery commands.
+
+## Poll long-running work
+
+`fetch`, `transcribe`, and `burn` update stage status and progress in `manifest.json`. Poll from another process:
+
+```bash
+openbbq --json status --workspace workspaces/demo
+```
+
+A running stage with no heartbeat for more than 60 seconds is marked stale by `status`.
+
+## Install the packaged skill
+
+The default target is the shared agents directory:
+
+```bash
+openbbq skill install
+```
+
+Target a specific product:
+
+```bash
+openbbq skill install --agent codex
+openbbq skill install --agent claude
+openbbq skill install --agent all
+```
+
+Use `--force` to replace an existing installed copy. A custom parent directory can be passed with `--target`.
+
+Two packaged skills are available:
+
+```bash
+openbbq skill install --name openbbq-subtitles
+openbbq skill install --name bilibili-cover-safe-area
+```
+
+Print packaged Markdown without installing it:
+
+```bash
+openbbq skill show
+openbbq skill show --language zh-CN
+openbbq skill show --name bilibili-cover-safe-area --language zh-CN
+```
+
+## Operational rules for agents
+
+- Ask before installing system dependencies, downloading large models, or writing browser login state.
+- Keep `OPENBBQ_HOME` and workspace paths writable.
+- Prefer small translation batches and run `translate check` between batches.
+- Do not use `translate init --force` unless discarding existing translation work is intentional.
+- Preview exported subtitles before publishing or burning.

@@ -1,0 +1,85 @@
+---
+title: Local Files and Online Video
+description: Initialize local media or URL sources, fetch online video, and manage YouTube authentication.
+---
+
+## Local video
+
+Initialize a workspace with an existing video file:
+
+```bash
+openbbq init --workspace workspaces/demo /path/to/video.mp4
+openbbq extract-audio --workspace workspaces/demo
+```
+
+Local files must already exist and use a recognized video or audio extension. OpenBBQ records the absolute source path and uses it in place. Moving or deleting the source later will break media-dependent stages.
+
+## Local audio
+
+Audio follows the same transcription path:
+
+```bash
+openbbq init --workspace workspaces/demo /path/to/audio.m4a
+openbbq extract-audio --workspace workspaces/demo
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo
+openbbq segment --workspace workspaces/demo
+```
+
+You can export subtitle files from an audio workspace, but `burn` requires a video source.
+
+## Online video
+
+Quote URLs in zsh and other shells where `?` or `&` have special meaning:
+
+```bash
+openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
+openbbq fetch --workspace workspaces/demo
+```
+
+`fetch` uses yt-dlp, downloads media under the workspace, and records available title, author, and thumbnail metadata. It is only valid for URL sources.
+
+After fetch, continue normally:
+
+```bash
+openbbq extract-audio --workspace workspaces/demo
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en
+```
+
+## YouTube authentication
+
+For supported YouTube URLs, `fetch` automatically uses a saved YouTube session when one is configured. Create the session in a normal desktop environment:
+
+```bash
+openbbq auth browser-login youtube
+```
+
+A browser window opens. Complete login and any human verification there. OpenBBQ stores filtered cookies under `~/.openbbq/auth/youtube/` with restrictive file permissions.
+
+Check or remove the session:
+
+```bash
+openbbq auth status youtube
+openbbq auth clear youtube
+```
+
+Explicitly select a session:
+
+```bash
+openbbq fetch --workspace workspaces/demo --auth youtube
+```
+
+Force anonymous download when saved authentication causes a public video to return 403:
+
+```bash
+openbbq fetch --workspace workspaces/demo --no-auth
+```
+
+`--auth` and `--no-auth` are mutually exclusive in intent; use only one.
+
+<Callout type="warn" title="Restricted environments">
+  Browser login needs a desktop session, and authentication storage needs a writable `OPENBBQ_HOME`. Run login and authenticated fetch outside a restricted sandbox, or point `OPENBBQ_HOME` at a writable directory.
+</Callout>
+
+## Rerunning fetch
+
+Fetch progress and failures are recorded in the workspace manifest. Rerunning the command replaces the fetch stage state and invalidates downstream stages. Inspect the downloaded media before regenerating downstream artifacts.

@@ -1,0 +1,94 @@
+---
+title: Workspace 与文件
+description: 磁盘产物、manifest 状态、共享存储和环境变量。
+---
+
+## Workspace 结构
+
+完整处理后的 workspace 通常包含：
+
+```text
+workspace/
+├── manifest.json
+├── media/
+│   ├── <下载媒体>
+│   ├── <封面>
+│   └── audio.16k.wav
+├── transcript.json
+├── cues.json
+├── translation.zh.json
+└── out/
+    ├── en.srt
+    ├── zh.ass
+    └── zh-burned.mp4
+```
+
+只有命令实际生成的产物才会出现。本地来源保留在原绝对路径；URL 媒体保存在 `media/`。
+
+## `manifest.json`
+
+当前 manifest schema 是 `openbbq/manifest@1`，记录：
+
+- 创建时间。
+- 来源类型和引用。
+- 能获取到的标题、作者和封面。
+- 绑定的术语表名称。
+- 阶段状态、产物路径、进度心跳、更新时间和错误。
+
+不要把 manifest 当成管线配置文件；它是由 OpenBBQ 命令维护并校验的工作日志。
+
+## `transcript.json`
+
+ASR 输出，包括检测或指定的语言、媒体时长、后端/模型信息、segment，以及后端能提供的词级时间和概率。
+
+通过 `transcribe` 重新生成；格式错误或不兼容文件会返回 `invalid_transcript`。
+
+## `cues.json`
+
+根据 transcript 确定性生成的原文字幕时间轴，包含：
+
+- 原语言。
+- 本次使用的切分参数。
+- 稳定 cue id、开始/结束时间和原文。
+
+翻译工作表和导出依赖 cue identity。重跑 segment 后，可能需要重新生成或协调已有工作表。
+
+## `translation.<lang>.json`
+
+每个目标语言一个可编辑工作表。未填写 target 会显式保留为 `null`，便于人和 Agent 发现剩余工作。使用 `translate apply` 控制分批更新，使用 `translate check` 检查完整性。
+
+## `out/`
+
+生成的字幕和硬字幕视频。默认名称由原/目标语言与格式决定，也可以用 `--output` 写到其他位置。
+
+## OpenBBQ 共享目录
+
+`OPENBBQ_HOME` 默认为 `~/.openbbq`，保存可复用或敏感状态：
+
+```text
+~/.openbbq/
+├── auth/<site>/
+├── glossaries/<name>.json
+└── models/<provider>/
+```
+
+不要提交这个目录。Auth cookie 属于账号数据，请保持私密；不再需要时用 `openbbq auth clear <site>` 删除。
+
+## 环境变量
+
+| 变量 | 用途 |
+| --- | --- |
+| `OPENBBQ_HOME` | 覆盖全局鉴权、术语表和模型存储位置。 |
+| `HF_ENDPOINT` | 覆盖 whisper.cpp 模型下载使用的 Hugging Face endpoint。 |
+
+使用隔离的可写 home：
+
+```bash
+OPENBBQ_HOME=/tmp/openbbq-home openbbq models list
+```
+
+只有明确选择时才使用镜像：
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com openbbq models pull large-v3-turbo
+```

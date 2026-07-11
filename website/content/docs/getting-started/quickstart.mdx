@@ -1,0 +1,141 @@
+---
+title: Quickstart
+description: Create bilingual subtitles from a local video, one explicit stage at a time.
+---
+
+This guide uses an English local video and produces Chinese-over-English ASS subtitles. Replace paths and language codes to match your material.
+
+## 1. Check the environment
+
+```bash
+openbbq doctor
+openbbq models list
+```
+
+If you do not have a cached model yet:
+
+```bash
+openbbq models pull large-v3-turbo
+```
+
+## 2. Create a workspace
+
+```bash
+openbbq init --workspace workspaces/demo /path/to/video.mp4
+```
+
+`init` records the source and creates `workspaces/demo/manifest.json`. It does not copy or process the video.
+
+Move into the workspace so later commands can discover it automatically:
+
+```bash
+cd workspaces/demo
+openbbq status
+```
+
+You can stay elsewhere and pass `--workspace workspaces/demo` to every command instead.
+
+## 3. Normalize the audio
+
+```bash
+openbbq extract-audio
+```
+
+This writes `media/audio.16k.wav`, a 16 kHz mono WAV suitable for ASR.
+
+## 4. Transcribe
+
+```bash
+openbbq transcribe --model large-v3-turbo --language en --gpu
+```
+
+The result is `transcript.json`. `--gpu` is the default; use `--cpu` if the native backend cannot use the available accelerator or fails in a restricted environment.
+
+If the model name is missing from the cache, either pull it first or opt into automatic download:
+
+```bash
+openbbq transcribe --model large-v3-turbo --language en --auto-download
+```
+
+## 5. Build subtitle cues
+
+```bash
+openbbq segment
+```
+
+This deterministically converts the transcript into `cues.json`, using a language profile for timing, characters per line, and characters per second. The result reports any over-CPS or over-width cues for review.
+
+## 6. Create a translation worksheet
+
+```bash
+openbbq translate init zh
+```
+
+Open `translation.zh.json`. Every item has a stable cue `id`, source text, timing information, translation budget, and a `target` field to fill.
+
+For a small project, edit the `target` fields directly. For repeatable batches, create a JSON object:
+
+```json
+{
+  "1": "第一句译文",
+  "2": "第二句译文"
+}
+```
+
+Save it as `targets.json`, then merge it:
+
+```bash
+openbbq translate apply zh targets.json
+openbbq translate check zh
+```
+
+`apply` is repeatable. `check` reports missing cues, translations over budget, and glossary term warnings.
+
+## 7. Export bilingual ASS
+
+```bash
+openbbq export --to zh --mode bilingual --format ass --ass-preset fansub
+```
+
+The default output is `out/zh.ass`. Bilingual mode renders the target language above the source language.
+
+Preview the ASS file in a compatible player before burning it into a video.
+
+## 8. Burn subtitles (optional)
+
+```bash
+openbbq burn
+```
+
+`burn` uses the last exported ASS artifact and creates `out/zh-burned.mp4`. It requires a video source and FFmpeg with libass filters.
+
+## Inspect progress at any time
+
+```bash
+openbbq status
+```
+
+For scripts or agents:
+
+```bash
+openbbq --json status
+```
+
+Long-running commands update `manifest.json`; another process can poll `status` without parsing progress bars.
+
+## Final workspace
+
+```text
+workspaces/demo/
+├── manifest.json
+├── media/
+│   └── audio.16k.wav
+├── transcript.json
+├── cues.json
+├── translation.zh.json
+└── out/
+    ├── zh.ass
+    └── zh-burned.mp4
+```
+
+Next, see [Local files and online video](/en/docs/guides/sources) for URL sources or [Export and burn](/en/docs/guides/export-and-burn) for SRT, ASS modes, and presets.

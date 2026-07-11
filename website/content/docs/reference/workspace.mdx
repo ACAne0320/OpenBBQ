@@ -1,0 +1,94 @@
+---
+title: Workspace and Files
+description: On-disk artifacts, manifest state, shared storage, and environment variables.
+---
+
+## Workspace layout
+
+A fully processed workspace commonly contains:
+
+```text
+workspace/
+├── manifest.json
+├── media/
+│   ├── <downloaded-media>
+│   ├── <thumbnail>
+│   └── audio.16k.wav
+├── transcript.json
+├── cues.json
+├── translation.zh.json
+└── out/
+    ├── en.srt
+    ├── zh.ass
+    └── zh-burned.mp4
+```
+
+Only artifacts produced by commands are created. A local source remains at its original absolute path; URL media is stored under `media/`.
+
+## `manifest.json`
+
+The manifest schema is currently `openbbq/manifest@1`. It records:
+
+- Creation time.
+- Source type and reference.
+- Fetched title, author, and thumbnail when available.
+- Bound glossary name.
+- Stage status, artifact path, progress heartbeat, update time, and error.
+
+Do not treat the manifest as a pipeline configuration file. It is a validated work log maintained by OpenBBQ commands.
+
+## `transcript.json`
+
+ASR output with detected or forced language, media duration, backend/model metadata, segments, and word-level timing/probability when supplied by the backend.
+
+Regenerate it with `transcribe`; malformed or incompatible files are rejected with an `invalid_transcript` error.
+
+## `cues.json`
+
+Source subtitle timeline derived deterministically from the transcript. It includes:
+
+- Source language.
+- The segmentation parameters used.
+- Stable cue ids, start/end times, and source text.
+
+Translation worksheets and exports depend on cue identity. Rerunning segmentation can require regenerating or reconciling worksheets.
+
+## `translation.<lang>.json`
+
+One editable worksheet per target language. The file intentionally keeps unfilled targets as `null` so humans and agents can discover remaining work. Use `translate apply` for controlled batch updates and `translate check` for integrity.
+
+## `out/`
+
+Generated subtitles and hard-subtitled videos. Default names are derived from source/target language and format, but `--output` can write elsewhere.
+
+## Shared OpenBBQ home
+
+`OPENBBQ_HOME` defaults to `~/.openbbq` and stores reusable or sensitive state:
+
+```text
+~/.openbbq/
+├── auth/<site>/
+├── glossaries/<name>.json
+└── models/<provider>/
+```
+
+Do not commit this directory. Auth cookies are account data; keep them private and remove them with `openbbq auth clear <site>` when no longer needed.
+
+## Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENBBQ_HOME` | Override global auth, glossary, and model storage. |
+| `HF_ENDPOINT` | Override the Hugging Face endpoint used for whisper.cpp model downloads. |
+
+Example for a writable isolated home:
+
+```bash
+OPENBBQ_HOME=/tmp/openbbq-home openbbq models list
+```
+
+Example mirror, only when intentionally selected:
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com openbbq models pull large-v3-turbo
+```

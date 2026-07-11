@@ -1,0 +1,223 @@
+---
+title: CLI 参考
+description: 当前 OpenBBQ CLI 实际实现的命令和选项。
+---
+
+## 全局语法
+
+```text
+openbbq [--json] COMMAND [ARGS]...
+```
+
+| 选项 | 说明 |
+| --- | --- |
+| `--json` | 输出一个机器可读 JSON 对象，必须放在命令之前。 |
+| `--help` | 显示当前命令或命令组帮助。 |
+| `--install-completion` | 安装 shell 补全。 |
+| `--show-completion` | 输出 shell 补全代码。 |
+
+大多数 workspace 命令接受 `--workspace PATH` 或 `-w PATH`；省略时从当前目录向上查找。
+
+## `doctor`
+
+```bash
+openbbq doctor
+```
+
+只读、幂等地检查 Python、FFmpeg、字幕 filter、yt-dlp、ASR 后端、缓存模型和 Agent Skill。
+
+## `init`
+
+```text
+openbbq init [--workspace PATH] [--glossary NAME] SOURCE
+```
+
+| 输入 | 说明 |
+| --- | --- |
+| `SOURCE` | 必填 URL 或本地视频/音频路径。 |
+| `--workspace`、`-w` | 输出 workspace；省略时在当前目录创建 slug 子目录，`.` 表示当前目录。 |
+| `--glossary` | 初始化时绑定已有全局术语表。 |
+
+只创建 workspace 和 manifest，不下载或处理媒体。
+
+## `status`
+
+```bash
+openbbq status [--workspace PATH]
+```
+
+报告来源元数据、术语表绑定、工作表、已记录阶段、进度、产物、失败和 stale running 阶段。
+
+## `fetch`
+
+```text
+openbbq fetch [--workspace PATH] [--auth SITE | --no-auth]
+```
+
+| 选项 | 说明 |
+| --- | --- |
+| `--auth SITE` | 使用保存的网站会话，目前为 `youtube`。 |
+| `--no-auth` | 强制匿名 yt-dlp 下载。 |
+
+只适用于 URL 来源。支持的 YouTube URL 会自动使用已配置会话，除非传入 `--no-auth`。
+
+## `extract-audio`
+
+```bash
+openbbq extract-audio [--workspace PATH]
+```
+
+把可用来源媒体标准化为 16 kHz 单声道 `media/audio.16k.wav`。
+
+## `transcribe`
+
+```text
+openbbq transcribe [OPTIONS]
+```
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--model NAME_OR_PATH` | 缓存中质量最佳的模型 | 模型名或直接 ggml `.bin` 路径。 |
+| `--backend NAME` | `auto` | ASR 后端，目前为 `auto` 或 `whisper.cpp`。 |
+| `--language CODE` | 自动检测 | 强制原语言，例如 `en`。 |
+| `--prompt TEXT` | 无 | ASR initial prompt。 |
+| `--glossary NAME` | manifest 绑定 | 覆盖已绑定术语表。 |
+| `--gpu` / `--cpu` | `--gpu` | 启用或禁用后端 GPU 加速。 |
+| `--auto-download` | 关闭 | 转录前下载缺失的命名模型。 |
+
+依赖 `extract-audio`，输出 `transcript.json`，包含 segment、可用的词级时间、后端、模型、语言和时长。
+
+## `segment`
+
+```text
+openbbq segment [OPTIONS]
+```
+
+| 选项 | 说明 |
+| --- | --- |
+| `--lang CODE` | 覆盖 transcript 原语言。 |
+| `--glossary NAME` | 覆盖用于别名纠错的 manifest 术语表。 |
+| `--max-cps FLOAT` | 最大每秒字符数。 |
+| `--max-chars-per-line INT` | 每行字符预算。 |
+| `--max-lines INT` | 每个 cue 最大行数。 |
+| `--min-dur FLOAT` | 最短 cue 时长（秒）。 |
+| `--max-dur FLOAT` | 最长 cue 时长（秒）。 |
+| `--min-gap FLOAT` | cue 间最小间隔（秒）。 |
+| `--pause-threshold FLOAT` | 自然停顿切分阈值（秒）。 |
+
+内置 profile 根据 transcript 基础语言选择 `en`、`zh`、`ja` 或 `ko`；其他语言回退到通用拉丁 profile。输出 `cues.json`。
+
+## `translate init`
+
+```text
+openbbq translate init [--workspace PATH] [--glossary NAME] [--force] LANG
+```
+
+根据 `cues.json` 创建 `translation.<lang>.json`。`--force` 会丢弃已有工作表和所有已填 target。
+
+## `translate apply`
+
+```text
+openbbq translate apply [--workspace PATH] LANG TARGETS.json
+```
+
+合并 cue id 到译文的 JSON 对象，可用于多个批次。
+
+## `translate check`
+
+```text
+openbbq translate check [--workspace PATH] [LANG]
+```
+
+报告完整度、缺失 id、目标长度预算、术语警告和 cue 完整性。只有一个工作表时自动推断语言。
+
+## `export`
+
+```text
+openbbq export [OPTIONS]
+```
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--to CODE` | 无 | 目标工作表语言。 |
+| `--mode source\|target\|bilingual` | 无 `--to` 时 source，否则 target | 渲染模式。 |
+| `--format srt\|ass` | `srt` | 字幕格式。 |
+| `--output PATH` | `out/<lang>.<format>` | 输出路径。 |
+| `--ass-preset default\|fansub\|mobile` | `default` | ASS 样式预设，只对 ASS 有效。 |
+| `--allow-missing` | 关闭 | 缺少译文的 cue 回退到原文。 |
+
+## `burn`
+
+```text
+openbbq burn [--workspace PATH] [--subtitle FILE.ass] [--output FILE.mp4] [--ffmpeg PATH]
+```
+
+省略 `--subtitle` 时使用最近的 export 产物。默认输出根据字幕文件命名，例如 `out/zh-burned.mp4`。要求视频来源和 ASS 输入。
+
+## `models`
+
+```bash
+openbbq models list
+openbbq models pull NAME
+```
+
+`list` 报告 provider、近似大小和缓存状态；`pull` 校验模型名，并通过可恢复传输下载到全局缓存。
+
+常用选择：
+
+| 模型 | 近似大小 | 用途 |
+| --- | ---: | --- |
+| `base` | 148 MB | 快速预览 |
+| `small` | 488 MB | 适中成本下提高质量 |
+| `large-v3-turbo-q5_0` | 574 MB | 量化正式字幕选项 |
+| `large-v3-turbo` | 1.6 GB | 推荐的正式字幕起点 |
+| `large-v3` | 3.1 GB | 当前目录中质量最高的大模型 |
+
+完整目录（包括英文专用和量化变体）以 `models list` 为准。
+
+## `glossary`
+
+```text
+openbbq glossary list
+openbbq glossary show NAME
+openbbq glossary new [--context TEXT] NAME
+openbbq glossary use [--workspace PATH] NAME
+openbbq glossary suggest [OPTIONS]
+```
+
+`suggest` 选项：
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--glossary NAME` | 无 | 排除该术语表已经包含的词。 |
+| `--max-prob FLOAT` | `0.6` | 只返回低于此平均 ASR 概率的词。 |
+| `--min-count INT` | `1` | 最小出现次数。 |
+| `--max INT` | `30` | 最大候选数。 |
+
+## `auth`
+
+```bash
+openbbq auth browser-login youtube
+openbbq auth status youtube
+openbbq auth clear youtube
+```
+
+目前只实现了 `youtube` site key。
+
+## `skill`
+
+```text
+openbbq skill install [OPTIONS]
+openbbq skill show [OPTIONS]
+```
+
+Install 选项：
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--agent claude\|codex\|agents\|all` | `agents` | 安装目标。 |
+| `--target PATH` | 目标默认目录 | 包含已安装 Skill 文件夹的自定义目录。 |
+| `--name openbbq-subtitles\|bilibili-cover-safe-area` | `openbbq-subtitles` | 随包 Skill。 |
+| `--force` | 关闭 | 覆盖已经安装的 Skill。 |
+
+`skill show` 接受相同的 `--name`，以及 `--language en\|zh-CN`（默认 `en`）。

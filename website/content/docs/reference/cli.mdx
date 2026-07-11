@@ -1,0 +1,223 @@
+---
+title: CLI Reference
+description: Commands and options implemented by the current OpenBBQ CLI.
+---
+
+## Global syntax
+
+```text
+openbbq [--json] COMMAND [ARGS]...
+```
+
+| Option | Description |
+| --- | --- |
+| `--json` | Emit one machine-readable JSON object. Must appear before the command. |
+| `--help` | Show help for the current command or group. |
+| `--install-completion` | Install shell completion. |
+| `--show-completion` | Print shell completion code. |
+
+Most workspace commands accept `--workspace PATH` or `-w PATH`. When omitted, OpenBBQ searches from the current directory upward.
+
+## `doctor`
+
+```bash
+openbbq doctor
+```
+
+Runs read-only, idempotent environment checks for Python, FFmpeg, subtitle filters, yt-dlp, ASR backends, cached models, and Agent skill installation.
+
+## `init`
+
+```text
+openbbq init [--workspace PATH] [--glossary NAME] SOURCE
+```
+
+| Input | Description |
+| --- | --- |
+| `SOURCE` | Required URL or local video/audio path. |
+| `--workspace`, `-w` | Output workspace. Without it, a slug directory is created under the current directory. Use `.` for the current directory. |
+| `--glossary` | Bind an existing global glossary at initialization. |
+
+Creates only the workspace and manifest; it does not fetch or process media.
+
+## `status`
+
+```bash
+openbbq status [--workspace PATH]
+```
+
+Reports source metadata, glossary binding, worksheets, recorded stages, progress, artifacts, failures, and stale running stages.
+
+## `fetch`
+
+```text
+openbbq fetch [--workspace PATH] [--auth SITE | --no-auth]
+```
+
+| Option | Description |
+| --- | --- |
+| `--auth SITE` | Use a saved site app session, currently `youtube`. |
+| `--no-auth` | Force anonymous yt-dlp download. |
+
+Valid only for URL sources. Supported YouTube URLs automatically use a configured YouTube session unless `--no-auth` is passed.
+
+## `extract-audio`
+
+```bash
+openbbq extract-audio [--workspace PATH]
+```
+
+Normalizes the available source media to `media/audio.16k.wav` as 16 kHz mono WAV.
+
+## `transcribe`
+
+```text
+openbbq transcribe [OPTIONS]
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--model NAME_OR_PATH` | Best cached model | Cached model name or direct ggml `.bin` path. |
+| `--backend NAME` | `auto` | ASR backend; currently `auto` or `whisper.cpp`. |
+| `--language CODE` | auto-detect | Force source language, for example `en`. |
+| `--prompt TEXT` | none | Initial ASR prompt. |
+| `--glossary NAME` | manifest binding | Override the bound glossary. |
+| `--gpu` / `--cpu` | `--gpu` | Enable or disable backend GPU acceleration. |
+| `--auto-download` | off | Download a missing named model before transcription. |
+
+Requires `extract-audio`. Writes `transcript.json` with segments, word timing when available, backend, model, language, and duration.
+
+## `segment`
+
+```text
+openbbq segment [OPTIONS]
+```
+
+| Option | Description |
+| --- | --- |
+| `--lang CODE` | Override transcript source language. |
+| `--glossary NAME` | Override manifest glossary for alias correction. |
+| `--max-cps FLOAT` | Maximum characters per second. |
+| `--max-chars-per-line INT` | Per-line character budget. |
+| `--max-lines INT` | Maximum lines per cue. |
+| `--min-dur FLOAT` | Minimum cue duration in seconds. |
+| `--max-dur FLOAT` | Maximum cue duration in seconds. |
+| `--min-gap FLOAT` | Minimum gap between cues in seconds. |
+| `--pause-threshold FLOAT` | Natural-pause split threshold in seconds. |
+
+Built-in profiles use the transcript base language (`en`, `zh`, `ja`, or `ko`); other languages fall back to the generic Latin profile. Writes `cues.json`.
+
+## `translate init`
+
+```text
+openbbq translate init [--workspace PATH] [--glossary NAME] [--force] LANG
+```
+
+Creates `translation.<lang>.json` from `cues.json`. `--force` discards an existing worksheet and all filled targets.
+
+## `translate apply`
+
+```text
+openbbq translate apply [--workspace PATH] LANG TARGETS.json
+```
+
+Merges a JSON object mapping cue ids to translated text. Repeat for multiple batches.
+
+## `translate check`
+
+```text
+openbbq translate check [--workspace PATH] [LANG]
+```
+
+Reports completeness, missing ids, target budget violations, glossary warnings, and cue integrity. The language is inferred when only one worksheet exists.
+
+## `export`
+
+```text
+openbbq export [OPTIONS]
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--to CODE` | none | Target worksheet language. |
+| `--mode source\|target\|bilingual` | source, or target with `--to` | Render mode. |
+| `--format srt\|ass` | `srt` | Subtitle format. |
+| `--output PATH` | `out/<lang>.<format>` | Destination path. |
+| `--ass-preset default\|fansub\|mobile` | `default` | ASS style preset; valid only with ASS. |
+| `--allow-missing` | off | Fall back to source text for missing target cues. |
+
+## `burn`
+
+```text
+openbbq burn [--workspace PATH] [--subtitle FILE.ass] [--output FILE.mp4] [--ffmpeg PATH]
+```
+
+Uses the last export artifact when `--subtitle` is omitted. The default output is based on the subtitle filename, for example `out/zh-burned.mp4`. Requires a video source and ASS input.
+
+## `models`
+
+```bash
+openbbq models list
+openbbq models pull NAME
+```
+
+`list` reports provider, approximate size, and cache state. `pull` validates the model name and downloads it to the global cache with resumable transfer.
+
+Common choices:
+
+| Model | Approximate size | Use |
+| --- | ---: | --- |
+| `base` | 148 MB | Quick preview |
+| `small` | 488 MB | Better quality at moderate cost |
+| `large-v3-turbo-q5_0` | 574 MB | Quantized production option |
+| `large-v3-turbo` | 1.6 GB | Recommended production starting point |
+| `large-v3` | 3.1 GB | Highest-quality large model in the catalog |
+
+Run `models list` for the full current catalog, including English-only and quantized variants.
+
+## `glossary`
+
+```text
+openbbq glossary list
+openbbq glossary show NAME
+openbbq glossary new [--context TEXT] NAME
+openbbq glossary use [--workspace PATH] NAME
+openbbq glossary suggest [OPTIONS]
+```
+
+`suggest` options:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--glossary NAME` | none | Exclude terms already known to this glossary. |
+| `--max-prob FLOAT` | `0.6` | Surface words below this average ASR probability. |
+| `--min-count INT` | `1` | Minimum occurrences. |
+| `--max INT` | `30` | Maximum candidates returned. |
+
+## `auth`
+
+```bash
+openbbq auth browser-login youtube
+openbbq auth status youtube
+openbbq auth clear youtube
+```
+
+Currently only the `youtube` site key is implemented.
+
+## `skill`
+
+```text
+openbbq skill install [OPTIONS]
+openbbq skill show [OPTIONS]
+```
+
+Install options:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--agent claude\|codex\|agents\|all` | `agents` | Installation target. |
+| `--target PATH` | target-specific | Custom directory containing the installed skill folder. |
+| `--name openbbq-subtitles\|bilibili-cover-safe-area` | `openbbq-subtitles` | Packaged skill. |
+| `--force` | off | Overwrite an installed skill. |
+
+`skill show` accepts the same `--name` choices and `--language en\|zh-CN` (default `en`).

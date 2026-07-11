@@ -1,0 +1,87 @@
+---
+title: 工作流模型
+description: 理解 workspace、阶段状态、依赖关系和安全重跑。
+---
+
+OpenBBQ 将处理过程拆成独立命令，而不是隐藏在一条固定管线中。人或 Agent 可以检查每个产物、进行语义编辑，再决定下一步操作。
+
+## Workspace
+
+Workspace 是包含 OpenBBQ `manifest.json` 的目录。`openbbq init` 会创建它并记录来源：
+
+```bash
+openbbq init --workspace workspaces/demo /path/to/video.mp4
+```
+
+大多数命令按以下顺序解析 workspace：
+
+1. `--workspace` 或 `-w` 显式指定的目录。
+2. 当前目录，然后逐级向上查找。
+3. 找不到 OpenBBQ manifest 时返回结构化 `no_workspace` 错误。
+
+因此可以在 workspace 目录树内的任何位置执行命令。
+
+## 来源类型
+
+`init` 识别三种来源：
+
+| 来源 | 示例 | 获取步骤 |
+| --- | --- | --- |
+| URL | `https://www.youtube.com/watch?v=...` | 必须先运行 `fetch` |
+| 本地视频 | `.mp4`、`.mkv`、`.mov`、`.webm` 等 | 跳过 `fetch` |
+| 本地音频 | `.wav`、`.mp3`、`.m4a`、`.flac` 等 | 跳过 `fetch`；不能 `burn` |
+
+本地路径会解析为绝对路径。OpenBBQ 会直接使用源文件，不会把它复制进 workspace。
+
+## 阶段与产物
+
+Manifest 是工作日志，而不是预先填好的检查表。只有执行过命令，阶段才会出现。
+
+| 阶段 | 命令 | 主要产物 |
+| --- | --- | --- |
+| fetch | `openbbq fetch` | `media/` 下的下载媒体 |
+| extract_audio | `openbbq extract-audio` | `media/audio.16k.wav` |
+| transcribe | `openbbq transcribe` | `transcript.json` |
+| segment | `openbbq segment` | `cues.json` |
+| translate | `openbbq translate ...` | `translation.<lang>.json` |
+| export | `openbbq export` | `out/` 下的字幕 |
+| burn | `openbbq burn` | `out/` 下的硬字幕 MP4 |
+
+阶段状态包括 `running`、`done`、`failed` 和 `pending`。长任务会写入进度心跳；running 阶段超过 60 秒没有更新时，`status` 会将它标记为 stale。
+
+## 重跑上游阶段
+
+上游阶段开始或完成时，已经记录的后续阶段会变成 `pending`。例如重跑 `transcribe` 会使 segment、translate、export 和 burn 状态失效，因为它们可能已经与新 transcript 不一致。
+
+OpenBBQ 不会自动删除人工编辑过的文件，请显式检查或重新生成下游产物。
+
+<Callout type="warn" title="翻译工作表">
+  `openbbq translate init <lang> --force` 会覆盖工作表并丢弃已经填写的 target。不传 `--force` 时，OpenBBQ 会拒绝替换现有工作表。
+</Callout>
+
+## 人类与机器输出
+
+交互式终端会显示 Rich 表格和进度条；`--json`、CI 和其他非 TTY 环境会在 stdout 输出一个紧凑 JSON 对象：
+
+```bash
+openbbq --json status --workspace workspaces/demo
+```
+
+根级 `--json` 必须放在命令名称之前。成功和失败使用不同退出码，适合 Agent 和脚本处理。
+
+## OpenBBQ 全局数据
+
+Workspace 产物属于单个媒体项目；共享数据保存在 `OPENBBQ_HOME` 下，默认是 `~/.openbbq`：
+
+```text
+~/.openbbq/
+├── auth/          # 保存的网站会话
+├── glossaries/    # 命名术语表 JSON
+└── models/        # ASR 模型缓存
+```
+
+受限环境中可以指定其他可写位置：
+
+```bash
+OPENBBQ_HOME=/path/to/openbbq-home openbbq doctor
+```

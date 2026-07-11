@@ -1,0 +1,97 @@
+---
+title: 术语表
+description: 在多个 workspace 中复用标准名称、别名、译名和上下文。
+---
+
+术语表是保存在 `$OPENBBQ_HOME/glossaries/` 下的全局命名 JSON 文档，会影响三个环节：
+
+1. 标准原文术语可为支持的 ASR 后端提供提示。
+2. 已知别名在 segment 时纠正为标准原文拼写。
+3. 标准译名和保留规则会加入翻译工作表与检查。
+
+## 创建术语表
+
+```bash
+openbbq glossary new project-name --context "关于 AI 开发工具的技术访谈"
+```
+
+默认生成 `~/.openbbq/glossaries/project-name.json`：
+
+```json
+{
+  "schema": "openbbq/glossary@1",
+  "name": "project-name",
+  "context": "关于 AI 开发工具的技术访谈",
+  "terms": []
+}
+```
+
+## 添加术语
+
+编辑 JSON 并添加条目：
+
+```json
+{
+  "source": "OpenBBQ",
+  "target": null,
+  "aliases": ["Open BBQ", "Open BQ"],
+  "note": "项目和 CLI 名称",
+  "keep": true
+}
+```
+
+字段含义：
+
+| 字段 | 含义 |
+| --- | --- |
+| `source` | 标准原文拼写，也用于 ASR 提示 |
+| `target` | 需要翻译时采用的标准译名 |
+| `aliases` | 会被纠正为 `source` 的 ASR 错词或其他原文形式 |
+| `note` | 给译者或 Agent 的消歧上下文 |
+| `keep` | 在译文中保留原文拼写 |
+
+有固定译名时设置 `target`；品牌或专有名词不翻译时使用 `keep: true`。两者都不设置表示翻译决策尚未确定。
+
+## 查看术语表库
+
+```bash
+openbbq glossary list
+openbbq glossary show project-name
+```
+
+## 绑定到 workspace
+
+初始化时绑定：
+
+```bash
+openbbq init /path/to/video.mp4 --workspace workspaces/demo --glossary project-name
+```
+
+也可以之后绑定：
+
+```bash
+openbbq glossary use project-name --workspace workspaces/demo
+```
+
+名称写入 `manifest.glossary`。`transcribe`、`segment` 和 `translate init` 默认使用它，各命令的 `--glossary` 可以临时覆盖。
+
+## 挖掘候选术语
+
+转录后，让 OpenBBQ 找出重复出现、形似专有名词或低置信度的词：
+
+```bash
+openbbq glossary suggest --workspace workspaces/demo
+```
+
+常用筛选：
+
+```bash
+openbbq glossary suggest \
+  --workspace workspaces/demo \
+  --glossary project-name \
+  --max-prob 0.6 \
+  --min-count 2 \
+  --max 30
+```
+
+Suggest 返回的是确定性候选，不会自动进行语义编辑。请人工检查后再加入合适术语。

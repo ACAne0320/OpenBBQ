@@ -4,6 +4,7 @@ import { createDocsLayoutPage } from "fumapress/layouts/docs";
 import { createHomeLayout, createHomeLayoutPage } from "fumapress/layouts/home";
 import { createLayoutSwitch } from "fumapress/layouts/switch";
 import { flexsearchPlugin } from "fumapress/plugins/flexsearch";
+import { linkValidationPlugin } from "fumapress/plugins/link-validation";
 import { llmsPlugin } from "fumapress/plugins/llms.txt";
 import { takumiPlugin } from "fumapress/plugins/takumi";
 import { defineI18n } from "fumadocs-core/i18n";
@@ -81,5 +82,10 @@ export default config
       },
     ),
   })
-  .plugins(flexsearchPlugin(), llmsPlugin(), takumiPlugin())
+  .plugins(
+    flexsearchPlugin(),
+    linkValidationPlugin(),
+    llmsPlugin(),
+    takumiPlugin(),
+  )
   .adapters(fumadocsMdx());

@@ -1,0 +1,87 @@
+---
+title: Workflow Model
+description: Understand workspaces, stage state, dependencies, and safe reruns.
+---
+
+OpenBBQ exposes separate commands instead of hiding the process behind one fixed pipeline. A human or Agent can inspect each artifact, make semantic edits, and choose the next operation.
+
+## Workspaces
+
+A workspace is a directory containing an OpenBBQ `manifest.json`. `openbbq init` creates it and records the source:
+
+```bash
+openbbq init --workspace workspaces/demo /path/to/video.mp4
+```
+
+Most commands resolve the workspace in this order:
+
+1. The directory passed with `--workspace` or `-w`.
+2. The current directory, then each parent directory.
+3. A structured `no_workspace` error when no OpenBBQ manifest is found.
+
+This allows commands to run from anywhere inside a workspace tree.
+
+## Sources
+
+`init` recognizes three source types:
+
+| Source | Examples | Required acquisition step |
+| --- | --- | --- |
+| URL | `https://www.youtube.com/watch?v=...` | Run `fetch` first |
+| Local video | `.mp4`, `.mkv`, `.mov`, `.webm`, and others | Skip `fetch` |
+| Local audio | `.wav`, `.mp3`, `.m4a`, `.flac`, and others | Skip `fetch`; `burn` is unavailable |
+
+Local paths are resolved to absolute paths. The source file is used in place rather than copied into the workspace.
+
+## Stages and artifacts
+
+The manifest is a work log, not a prefilled checklist. A stage appears only after its command runs.
+
+| Stage | Command | Main artifact |
+| --- | --- | --- |
+| fetch | `openbbq fetch` | downloaded media under `media/` |
+| extract_audio | `openbbq extract-audio` | `media/audio.16k.wav` |
+| transcribe | `openbbq transcribe` | `transcript.json` |
+| segment | `openbbq segment` | `cues.json` |
+| translate | `openbbq translate ...` | `translation.<lang>.json` |
+| export | `openbbq export` | subtitle under `out/` |
+| burn | `openbbq burn` | hard-subtitled MP4 under `out/` |
+
+Stages can be `running`, `done`, `failed`, or `pending`. Long tasks include a progress heartbeat. `status` marks a running stage as stale when it has not updated for more than 60 seconds.
+
+## Rerunning upstream stages
+
+When an upstream stage starts or completes, later recorded stages are changed to `pending`. For example, rerunning `transcribe` invalidates segment, translate, export, and burn state because their artifacts may no longer match the new transcript.
+
+OpenBBQ does not automatically delete edited files. Review or regenerate downstream artifacts explicitly.
+
+<Callout type="warn" title="Translation worksheets">
+  `openbbq translate init <lang> --force` overwrites the worksheet and discards filled targets. Without `--force`, OpenBBQ refuses to replace an existing worksheet.
+</Callout>
+
+## Human and machine output
+
+Interactive terminals receive Rich tables and progress bars. `--json`, CI, and other non-TTY environments receive one compact JSON object on stdout:
+
+```bash
+openbbq --json status --workspace workspaces/demo
+```
+
+The root `--json` flag must appear before the command name. Successful and failed commands use different exit codes, making the output suitable for agents and scripts.
+
+## Global OpenBBQ data
+
+Workspace artifacts belong to one media project. Shared data is stored under `OPENBBQ_HOME`, defaulting to `~/.openbbq`:
+
+```text
+~/.openbbq/
+├── auth/          # saved site sessions
+├── glossaries/    # named glossary JSON files
+└── models/        # ASR model cache
+```
+
+Set a different writable location when running in a restricted environment:
+
+```bash
+OPENBBQ_HOME=/path/to/openbbq-home openbbq doctor
+```

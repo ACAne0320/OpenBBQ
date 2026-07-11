@@ -1,0 +1,129 @@
+---
+title: 故障排查
+description: 恢复常见的安装、媒体、ASR、翻译、导出和烧录失败。
+---
+
+## 从结构化诊断开始
+
+```bash
+openbbq doctor
+openbbq --json status --workspace workspaces/demo
+```
+
+OpenBBQ 领域错误通常包含稳定 error code 和 `fix`。优先使用命令返回的具体 fix，而不是通用恢复步骤。
+
+## 找不到 `openbbq`
+
+确认 uv tool 安装和 PATH：
+
+```bash
+uv tool list
+uv tool update-shell
+```
+
+打开新的 shell，再运行 `openbbq --help`。
+
+## 缺少 whisper.cpp 后端
+
+安装或修复 optional backend：
+
+```bash
+uv tool install --force 'openbbq[whispercpp]'
+openbbq doctor
+```
+
+## 缺少模型
+
+```bash
+openbbq models list
+openbbq models pull large-v3-turbo
+```
+
+也可以在 `transcribe` 中明确允许下载：
+
+```bash
+openbbq transcribe --model large-v3-turbo --auto-download
+```
+
+模型下载中断后会保留临时文件，服务器支持 HTTP range 时可以续传。大小校验失败会删除无效下载并要求重试。
+
+## GPU 或原生后端失败
+
+默认使用 `--gpu`。可以改用 CPU：
+
+```bash
+openbbq transcribe --model large-v3-turbo --cpu --workspace workspaces/demo
+```
+
+原生 GPU 后端可能只在受限 sandbox 中失败。请先在普通用户终端运行转录，再判断后端本身是否损坏。
+
+## 缺少 FFmpeg 或字幕 filter
+
+```bash
+openbbq doctor
+ffmpeg -hide_banner -filters
+```
+
+硬字幕烧录同时需要 `ass` 和 `subtitles`。安装带 libass 的 FFmpeg，或传入已知可用的可执行文件：
+
+```bash
+openbbq burn --ffmpeg /path/to/ffmpeg --workspace workspaces/demo
+```
+
+## 找不到 workspace
+
+在 workspace 内执行命令，或显式传入：
+
+```bash
+openbbq status --workspace /path/to/workspace
+```
+
+有效 workspace 必须包含 OpenBBQ `manifest.json`，而不是任意同名文件。
+
+## Fetch 要求登录或验证
+
+```bash
+openbbq auth browser-login youtube
+openbbq auth status youtube
+openbbq fetch --workspace workspaces/demo
+```
+
+只有带登录态时公开视频失败，可以匿名重试：
+
+```bash
+openbbq fetch --workspace workspaces/demo --no-auth
+```
+
+保存状态失效时：
+
+```bash
+openbbq auth clear youtube
+openbbq auth browser-login youtube
+```
+
+## 翻译未完成
+
+```bash
+openbbq translate check zh --workspace workspaces/demo
+```
+
+填写报告中的 id 后重新检查。只有明确需要未翻译 cue 回退到原文的草稿时，才使用 `--allow-missing`。
+
+## 工作表不再匹配 cues
+
+这通常发生在重跑 `segment` 后。重新生成前先备份工作表，再根据 cue id 和原文协调译文。`translate init --force` 会立即丢弃旧文件。
+
+## Burn 拒绝输入
+
+- 纯音频 workspace 不能烧录成视频。
+- 字幕必须是 `.ass`，请先使用 `--format ass` 导出。
+- 未传 `--subtitle` 时，burn 使用最近的 export 产物，它可能是 SRT。重新导出 ASS，或显式传入 ASS 文件。
+
+```bash
+openbbq export --to zh --mode bilingual --format ass --workspace workspaces/demo
+openbbq burn --workspace workspaces/demo
+```
+
+## Stale running 阶段
+
+Running 工作超过 60 秒没有心跳时，`status` 会标记 stale。确认没有进程仍在运行，检查 stderr/日志，然后重跑对应命令。重跑会更新该阶段，并使依赖的下游状态失效。

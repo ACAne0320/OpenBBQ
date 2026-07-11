@@ -1,0 +1,107 @@
+---
+title: Installation
+description: Install OpenBBQ and the dependencies required by your workflow.
+---
+
+## Requirements
+
+- Python 3.12 or newer.
+- [uv](https://docs.astral.sh/uv/) for installing the `openbbq` command.
+- FFmpeg for audio extraction and video processing. Hard-subtitle burning requires the `ass` and `subtitles` filters from libass.
+- An ASR backend. OpenBBQ currently supports whisper.cpp through `pywhispercpp`.
+- An explicitly downloaded ASR model.
+- A local desktop browser when an online platform requires login or human verification.
+
+<Callout type="warn" title="Platform support">
+  OpenBBQ is pre-alpha. The current workflow is developed primarily on macOS; Windows and Linux support is still on the roadmap.
+</Callout>
+
+## Install the CLI
+
+Install the published package with the whisper.cpp backend:
+
+```bash
+uv tool install 'openbbq[whispercpp]'
+```
+
+If the `openbbq` command is not found after installation, follow the PATH instruction printed by uv, then open a new shell.
+
+## Install FFmpeg
+
+On macOS, the regular Homebrew package is sufficient for transcription and most media tasks:
+
+```bash
+brew install ffmpeg
+```
+
+For hard-subtitle burning, install a build that includes libass. `openbbq doctor` checks both required filters and, on Homebrew systems, can also discover `ffmpeg-full`:
+
+```bash
+brew install ffmpeg-full
+```
+
+## Check the environment
+
+`doctor` is read-only and safe to run repeatedly:
+
+```bash
+openbbq doctor
+```
+
+It checks Python, FFmpeg, subtitle filters, yt-dlp, the ASR backend, cached models, and the packaged Agent skill. Follow the `fix` shown for any missing required item.
+
+For machine-readable output:
+
+```bash
+openbbq --json doctor
+```
+
+## Download a model
+
+Models are not bundled with the package. List the catalog and current cache state:
+
+```bash
+openbbq models list
+```
+
+For a quick preview, download `base` (about 148 MB). For production subtitles, start with `large-v3-turbo` (about 1.6 GB):
+
+```bash
+openbbq models pull base
+openbbq models pull large-v3-turbo
+```
+
+Downloads are resumable and stored under `~/.openbbq/models/whisper.cpp/` by default. Set `OPENBBQ_HOME` to change the OpenBBQ data directory.
+
+## Verify the installation
+
+```bash
+openbbq doctor
+openbbq --help
+```
+
+For hard-subtitle workflows, confirm that `ffmpeg subtitle filters` reports both `ass` and `subtitles`.
+
+## Upgrade or reinstall
+
+```bash
+uv tool upgrade openbbq
+```
+
+To change extras or repair the installation:
+
+```bash
+uv tool install --force 'openbbq[whispercpp]'
+```
+
+## Install from this repository
+
+Use a repository install only for development:
+
+```bash
+git clone https://github.com/ACAne0320/OpenBBQ.git
+cd OpenBBQ
+uv sync --extra whispercpp --dev
+uv run openbbq --help
+uv run pytest
+```

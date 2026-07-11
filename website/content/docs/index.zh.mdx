@@ -1,24 +1,51 @@
 ---
 title: 文档
-description: 从安装到导出，了解 OpenBBQ 的完整工作流。
+description: 安装 OpenBBQ，并搭建完整的视频翻译工作流。
 ---
 
-## OpenBBQ 是什么？
+OpenBBQ 是一个面向 Agent 的视频翻译和字幕制作 CLI，提供媒体获取、转录、字幕切分、翻译审校、导出和硬字幕烧录等可组合命令。
 
-OpenBBQ 是一套本地优先的命令行工作流，用于转录、翻译、审校和发布双语视频字幕。
+<Callout title="当前状态">
+  OpenBBQ 仍处于 pre-alpha 阶段。当前实现主要基于 Python 3.12、FFmpeg、yt-dlp 和 whisper.cpp ASR 后端，发布前请人工检查重要输出。
+</Callout>
+
+## 从这里开始
 
 <Cards>
-  <Card title="快速开始" href="/zh/docs/quickstart">
-    安装 OpenBBQ，并创建第一个工作区。
+  <Card title="安装" href="/zh/docs/getting-started/installation">
+    安装 CLI、FFmpeg、ASR 后端和模型。
   </Card>
-  <Card title="Cloudflare 部署" href="/zh/docs/cloudflare">
-    了解这个文档站如何构建和部署。
+  <Card title="快速开始" href="/zh/docs/getting-started/quickstart">
+    从本地视频制作一份双语字幕。
+  </Card>
+  <Card title="工作流模型" href="/zh/docs/getting-started/workflow">
+    理解 workspace、阶段和可恢复命令。
+  </Card>
+  <Card title="CLI 参考" href="/zh/docs/reference/cli">
+    查询所有命令、参数、选项和默认值。
   </Card>
 </Cards>
 
-## 工作流程
+## 处理管线
 
-1. 创建或检查工作区。
-2. 转录源视频或音频。
-3. 翻译并审校字幕片段。
-4. 导出字幕，或将字幕烧录进最终视频。
+```text
+source
+  -> init
+  -> fetch（仅 URL 来源）
+  -> extract-audio
+  -> transcribe
+  -> segment
+  -> translate init/apply/check
+  -> export
+  -> burn（可选）
+```
+
+每个命令都会写入经过校验的产物，并在 `manifest.json` 中记录状态。你可以通过 `openbbq status` 查看进度，重新运行上游阶段，再从更新后的 workspace 继续。
+
+## 按任务选择指南
+
+- [本地文件与在线视频](/zh/docs/guides/sources)：两种输入路径和 YouTube 登录。
+- [翻译工作流](/zh/docs/guides/translation)：翻译工作表与分批写入。
+- [术语表](/zh/docs/guides/glossaries)：ASR 提示、纠错和译名约束。
+- [导出与烧录](/zh/docs/guides/export-and-burn)：SRT、ASS 预设、双语字幕和硬字幕。
+- [Agent 与 JSON](/zh/docs/guides/agents)：机器可读输出和随包 Skill。

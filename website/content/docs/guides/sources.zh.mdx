@@ -1,0 +1,85 @@
+---
+title: 本地文件与在线视频
+description: 初始化本地媒体或 URL 来源，下载在线视频，并管理 YouTube 登录态。
+---
+
+## 本地视频
+
+使用已有视频初始化 workspace：
+
+```bash
+openbbq init --workspace workspaces/demo /path/to/video.mp4
+openbbq extract-audio --workspace workspaces/demo
+```
+
+本地文件必须已经存在，并使用 OpenBBQ 可识别的视频或音频扩展名。OpenBBQ 会记录绝对路径并直接使用源文件；之后移动或删除源文件会导致依赖媒体的阶段失败。
+
+## 本地音频
+
+音频使用相同的转录路径：
+
+```bash
+openbbq init --workspace workspaces/demo /path/to/audio.m4a
+openbbq extract-audio --workspace workspaces/demo
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo
+openbbq segment --workspace workspaces/demo
+```
+
+音频 workspace 可以导出字幕文件，但 `burn` 必须使用视频来源。
+
+## 在线视频
+
+在 zsh 等会特殊处理 `?` 或 `&` 的 shell 中，请给 URL 加引号：
+
+```bash
+openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
+openbbq fetch --workspace workspaces/demo
+```
+
+`fetch` 使用 yt-dlp，把媒体下载到 workspace，并记录能获取到的标题、作者和封面信息。该命令只适用于 URL 来源。
+
+下载后继续常规流程：
+
+```bash
+openbbq extract-audio --workspace workspaces/demo
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en
+```
+
+## YouTube 登录
+
+对于支持的 YouTube URL，如果已经保存会话，`fetch` 会自动使用。请在普通桌面环境中创建会话：
+
+```bash
+openbbq auth browser-login youtube
+```
+
+浏览器窗口打开后，在其中完成登录和人机验证。OpenBBQ 会筛选 cookie，并以受限文件权限保存在 `~/.openbbq/auth/youtube/`。
+
+检查或删除会话：
+
+```bash
+openbbq auth status youtube
+openbbq auth clear youtube
+```
+
+显式选择会话：
+
+```bash
+openbbq fetch --workspace workspaces/demo --auth youtube
+```
+
+保存的登录态导致公开视频返回 403 时，强制匿名下载：
+
+```bash
+openbbq fetch --workspace workspaces/demo --no-auth
+```
+
+`--auth` 与 `--no-auth` 意图互斥，请只使用一个。
+
+<Callout type="warn" title="受限环境">
+  浏览器登录需要桌面会话，鉴权存储需要可写的 `OPENBBQ_HOME`。请在受限 sandbox 外执行登录和带鉴权的 fetch，或把 `OPENBBQ_HOME` 指向可写目录。
+</Callout>
+
+## 重跑 fetch
+
+Fetch 的进度和失败会记录在 manifest 中。重跑会替换 fetch 阶段状态，并使下游阶段失效。重新生成下游产物前，请先检查下载的媒体。
