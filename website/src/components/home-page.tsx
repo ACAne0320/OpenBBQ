@@ -77,7 +77,7 @@ export function HomePage({ locale }: { locale: Locale }) {
         </div>
       </section>
 
-      <section className="bbq-section" style={{ background: "#f0f0f0" }}>
+      <section className="bbq-section bbq-section-muted">
         <div className="bbq-shell">
           <p className="bbq-kicker">OpenBBQ pipeline</p>
           <h2>{text.workflow}</h2>
