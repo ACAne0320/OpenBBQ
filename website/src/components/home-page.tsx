@@ -1,99 +1,150 @@
-import { ArrowRight, Captions, Languages, TerminalSquare } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 type Locale = "en" | "zh";
 
 const copy = {
   en: {
-    kicker: "Agent-native video translation",
-    title: "Translate video without leaving your terminal.",
+    eyebrow: "Open-source video translation",
+    title: "Turn video into bilingual subtitles.",
     lede:
-      "OpenBBQ turns video into polished bilingual subtitles through one inspectable command-line workflow.",
-    docs: "Read the docs",
-    showcase: "View showcase",
-    workflow: "A workflow you can inspect",
-    features: [
-      ["Transcribe", "Create timestamped source subtitles from local audio or video."],
-      ["Translate", "Preserve meaning and terminology with an editable glossary."],
-      ["Publish", "Export bilingual subtitle files or burn styled ASS subtitles into video."],
+      "A resumable command-line workflow for transcription, translation, subtitle export, and hard-subtitle burning.",
+    start: "Getting started",
+    github: "View on GitHub",
+    install: "Install with uv",
+    workflow: "Workflow",
+    workspace: "Workspace output",
+    inspectEyebrow: "Inspectable by default",
+    inspectTitle: "Each stage leaves an artifact you can review.",
+    reference: "CLI reference",
+    stages: [
+      ["Source", "Fetch a URL or use a local video.", "media/audio.16k.wav"],
+      ["Transcribe", "Create a timed source transcript.", "transcript.json"],
+      ["Translate", "Review an editable target worksheet.", "translation.zh.json"],
+      ["Export", "Write subtitles or a burned video.", "out/zh.ass"],
     ],
-    source: "AI agents can now operate the same workflow through a reusable skill.",
+    agentsEyebrow: "Built for agents and people",
+    agentsTitle: "Automate the routine. Keep every artifact editable.",
+    agentsBody:
+      "Commands are composable, progress is recorded in the workspace, and interrupted stages can be resumed without hiding the intermediate files.",
+    agentsLink: "See the workflow model",
   },
   zh: {
-    kicker: "面向 Agent 的视频翻译工具",
-    title: "在终端里完成视频翻译。",
-    lede: "OpenBBQ 用一条可检查、可恢复的命令行工作流，把视频制作成精校双语字幕。",
-    docs: "阅读文档",
-    showcase: "查看效果",
-    workflow: "每一步都可以检查",
-    features: [
-      ["转录", "从本地音频或视频生成带时间轴的原文字幕。"],
-      ["翻译", "通过可编辑术语表保持语义、专有名词和表达一致。"],
-      ["发布", "导出双语字幕文件，或将排版后的 ASS 字幕烧录进视频。"],
+    eyebrow: "开源视频翻译工具",
+    title: "把视频制作成双语字幕。",
+    lede: "一套可恢复的命令行工作流，覆盖转录、翻译、字幕导出与硬字幕烧录。",
+    start: "开始使用",
+    github: "在 GitHub 查看",
+    install: "使用 uv 安装",
+    workflow: "工作流",
+    workspace: "Workspace 产物",
+    inspectEyebrow: "默认可检查",
+    inspectTitle: "每个阶段都会留下可供检查的产物。",
+    reference: "CLI 参考",
+    stages: [
+      ["输入", "下载在线视频或使用本地视频。", "media/audio.16k.wav"],
+      ["转录", "生成带时间轴的原文转录。", "transcript.json"],
+      ["翻译", "检查并编辑目标语言工作表。", "translation.zh.json"],
+      ["导出", "输出字幕文件或烧录后的视频。", "out/zh.ass"],
     ],
-    source: "AI Agent 也可以通过可复用 Skill 操作同一套工作流。",
+    agentsEyebrow: "为 Agent 和人而设计",
+    agentsTitle: "让自动化处理重复工作，让产物始终可编辑。",
+    agentsBody:
+      "命令可以自由组合，进度会记录在 workspace 中；中断后可以继续执行，同时保留所有中间文件。",
+    agentsLink: "了解工作流模型",
   },
-} satisfies Record<Locale, Record<string, unknown>>;
+} as const;
 
-const icons = [Captions, Languages, TerminalSquare];
+const commands = [
+  "openbbq init --workspace workspaces/demo ./video.mp4",
+  "openbbq transcribe --workspace workspaces/demo",
+  "openbbq segment --workspace workspaces/demo",
+  "openbbq translate init --workspace workspaces/demo --target-language zh",
+  "openbbq export --workspace workspaces/demo --target-language zh --format ass",
+];
+
+const artifacts = [
+  "manifest.json",
+  "media/audio.16k.wav",
+  "transcript.json",
+  "cues.json",
+  "translation.zh.json",
+  "out/zh.ass",
+];
 
 export function HomePage({ locale }: { locale: Locale }) {
   const text = copy[locale];
   const prefix = `/${locale}`;
 
   return (
-    <main>
-      <section className="bbq-shell bbq-hero">
-        <div>
-          <p className="bbq-kicker">{text.kicker}</p>
-          <h1 className="bbq-title">{text.title}</h1>
+    <main className="bbq-home">
+      <section className="bbq-hero bbq-shell">
+        <div className="bbq-hero-copy">
+          <p className="bbq-eyebrow">{text.eyebrow}</p>
+          <h1>{text.title}</h1>
           <p className="bbq-lede">{text.lede}</p>
           <div className="bbq-actions">
-            <a className="bbq-button bbq-button-primary" href={`${prefix}/docs`}>
-              {text.docs} <ArrowRight aria-hidden="true" size={18} />
+            <a className="bbq-button bbq-button-primary" href={`${prefix}/docs/getting-started`}>
+              {text.start} <ArrowRight aria-hidden="true" size={18} />
             </a>
-            <a className="bbq-button" href={`${prefix}/showcase`}>
-              {text.showcase}
+            <a className="bbq-text-link" href="https://github.com/ACAne0320/OpenBBQ">
+              {text.github} <ArrowRight aria-hidden="true" size={17} />
             </a>
           </div>
         </div>
 
-        <div className="bbq-terminal" aria-label={text.workflow as string}>
-          <div className="bbq-terminal-bar">
-            <span>openbbq / workflow</span>
-            <span>01:42</span>
-          </div>
-          <div className="bbq-terminal-body">
-            <p><span className="bbq-prompt">$</span> openbbq run interview.mp4 --target zh</p>
-            <p className="bbq-success">✓ transcript aligned</p>
-            <p className="bbq-success">✓ translation reviewed</p>
-            <p className="bbq-success">✓ bilingual.ass exported</p>
-            <div className="bbq-subtitle-frame">
-              <div className="bbq-subtitle-copy">
-                <strong>工具应该让过程透明，而不是隐藏过程。</strong>
-                <span>Tools should expose the process, not hide it.</span>
-              </div>
+        <div className="bbq-workbench">
+          <section aria-labelledby="install-heading">
+            <div className="bbq-workbench-heading" id="install-heading">{text.install}</div>
+            <code>uv tool install 'openbbq[whispercpp]'</code>
+          </section>
+          <section aria-labelledby="workflow-heading">
+            <div className="bbq-workbench-heading" id="workflow-heading">{text.workflow}</div>
+            <ol className="bbq-command-list">
+              {commands.map((command) => <li key={command}><code>{command}</code></li>)}
+            </ol>
+          </section>
+          <section aria-labelledby="workspace-heading">
+            <div className="bbq-workbench-heading" id="workspace-heading">{text.workspace}</div>
+            <ul className="bbq-file-tree">
+              {artifacts.map((artifact) => <li key={artifact}><code>{artifact}</code></li>)}
+            </ul>
+          </section>
+        </div>
+      </section>
+
+      <section className="bbq-band">
+        <div className="bbq-shell">
+          <div className="bbq-section-heading">
+            <div>
+              <p className="bbq-eyebrow">{text.inspectEyebrow}</p>
+              <h2>{text.inspectTitle}</h2>
             </div>
+            <a className="bbq-text-link" href={`${prefix}/docs/reference/cli`}>
+              {text.reference} <ArrowRight aria-hidden="true" size={17} />
+            </a>
+          </div>
+          <div className="bbq-stage-grid">
+            {text.stages.map(([title, description, artifact]) => (
+              <article key={title}>
+                <h3>{title}</h3>
+                <p>{description}</p>
+                <code>{artifact}</code>
+              </article>
+            ))}
           </div>
         </div>
       </section>
 
-      <section className="bbq-section bbq-section-muted">
-        <div className="bbq-shell">
-          <p className="bbq-kicker">OpenBBQ pipeline</p>
-          <h2>{text.workflow}</h2>
-          <div className="bbq-grid">
-            {(text.features as string[][]).map(([title, description], index) => {
-              const Icon = icons[index]!;
-              return (
-                <article className="bbq-feature" key={title}>
-                  <Icon aria-hidden="true" size={25} strokeWidth={1.8} />
-                  <h3>{title}</h3>
-                  <p>{description}</p>
-                </article>
-              );
-            })}
-          </div>
-          <p className="bbq-lede">{text.source}</p>
+      <section className="bbq-shell bbq-agents">
+        <div>
+          <p className="bbq-eyebrow">{text.agentsEyebrow}</p>
+          <h2>{text.agentsTitle}</h2>
+        </div>
+        <div>
+          <p>{text.agentsBody}</p>
+          <a className="bbq-text-link" href={`${prefix}/docs/getting-started/workflow`}>
+            {text.agentsLink} <ArrowRight aria-hidden="true" size={17} />
+          </a>
         </div>
       </section>
     </main>

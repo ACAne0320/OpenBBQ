@@ -10,6 +10,7 @@ import { takumiPlugin } from "fumapress/plugins/takumi";
 import { defineI18n } from "fumadocs-core/i18n";
 import { zhCN } from "@fumapress/language/zh-cn";
 import { docs } from "./.source/server";
+import type { Node, Root } from "fumadocs-core/page-tree";
 
 const i18n = defineI18n({
   languages: ["en", "zh"],
@@ -56,28 +57,48 @@ export type PressContext = typeof config.$context;
 
 export const HomeLayout = createHomeLayout<PressContext>();
 
+const docsLayout = createDocsLayoutPage<PressContext>({
+  async render(page) {
+    const lang = page.url.startsWith("/zh/") ? "zh" : "en";
+    const tree = (await this.getLoader()).getPageTree(lang);
+    const docsUrl = `/${lang}/docs`;
+    const belongsToDocs = (node: Node): boolean => {
+      if (node.type === "page") return node.url === docsUrl || node.url.startsWith(`${docsUrl}/`);
+      if (node.type === "separator") return false;
+      return Boolean(
+        (node.index && belongsToDocs(node.index)) || node.children.some(belongsToDocs),
+      );
+    };
+
+    return {
+      layoutProps: {
+        tree: {
+          ...tree,
+          name: lang === "zh" ? "文档" : "Documentation",
+          children: tree.children.filter(belongsToDocs),
+        } as Root,
+      },
+    };
+  },
+});
+
 export default config
   .layouts({
     defaultProps({ lang }) {
       const prefix = `/${lang ?? "en"}`;
 
       return {
-        nav: { title: "OpenBBQ" },
+        nav: { title: "OpenBBQ", url: prefix },
         links: [
-          { text: lang === "zh" ? "文档" : "Docs", url: `${prefix}/docs` },
-          { text: "Showcase", url: `${prefix}/showcase` },
-          {
-            text: "GitHub",
-            url: "https://github.com/ACAne0320/OpenBBQ",
-            external: true,
-          },
+          { text: lang === "zh" ? "文档" : "Documentation", url: `${prefix}/docs`, on: "nav" },
+          { text: "Showcase", url: `${prefix}/showcase`, on: "nav" },
         ],
       };
     },
     page: createLayoutSwitch(
       (page) => (page.path.startsWith("docs/") || page.path === "docs" ? "docs" : "home"),
       {
-        docs: createDocsLayoutPage(),
+        docs: docsLayout,
         home: createHomeLayoutPage(),
       },
     ),

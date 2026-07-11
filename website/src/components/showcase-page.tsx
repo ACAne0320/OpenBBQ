@@ -1,50 +1,87 @@
+import { ArrowRight } from "lucide-react";
+
 type Locale = "en" | "zh";
 
-const items = [
-  {
-    title: { en: "Technical interview", zh: "技术访谈" },
-    description: { en: "Terminology-aware bilingual subtitles", zh: "保留专业术语的双语字幕" },
-    zh: "上下文窗口不是长期记忆。",
-    en: "A context window is not long-term memory.",
+const collectionUrl = "https://space.bilibili.com/7964710/lists/8516477?type=season";
+const videoUrl = "https://www.bilibili.com/video/BV1ueMJ6cECV";
+
+const copy = {
+  en: {
+    eyebrow: "OpenBBQ showcase",
+    title: "Work made with OpenBBQ.",
+    intro:
+      "Published videos, subtitle systems, and production workflows built with the OpenBBQ command-line pipeline.",
+    collectionLabel: "Published collection · Bilibili",
+    collectionTitle: "Pey talks anime",
+    collectionDescription:
+      "English-language video essays translated and published with readable Simplified Chinese and English subtitles.",
+    collectionMeta: "Bilibili collection",
+    collectionAction: "View the collection",
+    featured: "Featured video",
+    videoTitle: "When small mistakes feel big",
+    videoTitleZh: "小错误为何会显得很严重",
+    watch: "Watch on Bilibili",
   },
-  {
-    title: { en: "Product walkthrough", zh: "产品演示" },
-    description: { en: "Readable line breaks and pacing", zh: "便于阅读的断句和节奏" },
-    zh: "先验证工作流，再扩大自动化范围。",
-    en: "Validate the workflow before expanding automation.",
+  zh: {
+    eyebrow: "OpenBBQ Showcase",
+    title: "使用 OpenBBQ 制作的作品。",
+    intro: "通过 OpenBBQ 命令行工作流制作并发布的视频、字幕系统和生产流程。",
+    collectionLabel: "已发布合集 · Bilibili",
+    collectionTitle: "Pey talks anime",
+    collectionDescription: "将英语视频随笔翻译并制作成便于阅读的简体中文、英文双语字幕版本。",
+    collectionMeta: "Bilibili 合集",
+    collectionAction: "查看完整合集",
+    featured: "精选视频",
+    videoTitle: "小错误为何会显得很严重",
+    videoTitleZh: "When small mistakes feel big",
+    watch: "在 Bilibili 观看",
   },
-];
+} as const;
 
 export function ShowcasePage({ locale }: { locale: Locale }) {
+  const text = copy[locale];
+
   return (
-    <main className="bbq-shell">
-      <header className="bbq-showcase-header">
-        <p className="bbq-kicker">OpenBBQ output</p>
-        <h1 className="bbq-title">{locale === "zh" ? "翻译效果" : "Translation showcase"}</h1>
-        <p className="bbq-lede">
-          {locale === "zh"
-            ? "用于验证字幕断句、层级、可读性和中英文排版的示例。"
-            : "Examples for checking subtitle timing, hierarchy, readability, and bilingual typography."}
-        </p>
+    <main className="bbq-showcase">
+      <header className="bbq-shell bbq-showcase-header">
+        <p className="bbq-eyebrow">{text.eyebrow}</p>
+        <h1>{text.title}</h1>
+        <p>{text.intro}</p>
       </header>
-      <section className="bbq-showcase-grid">
-        {items.map((item, index) => (
-          <article className="bbq-showcase-item" key={item.title.en}>
-            <div
-              className="bbq-subtitle-frame"
-              style={{ background: index === 0 ? "#292524" : "#1f2937" }}
-            >
-              <div className="bbq-subtitle-copy">
-                <strong>{item.zh}</strong>
-                <span>{item.en}</span>
+
+      <section className="bbq-showcase-feature">
+        <div className="bbq-shell bbq-showcase-feature-grid">
+          <a className="bbq-video-cover" href={videoUrl} aria-label={`${text.watch}: ${text.videoTitle}`}>
+            <img
+              src="/showcase/when-small-mistakes-feel-big.webp"
+              alt={`${text.videoTitleZh} | ${text.videoTitle}`}
+              width="1280"
+              height="720"
+            />
+            <span>09:07</span>
+          </a>
+
+          <div className="bbq-collection-copy">
+            <p className="bbq-eyebrow">{text.collectionLabel}</p>
+            <h2>{text.collectionTitle}</h2>
+            <p>{text.collectionDescription}</p>
+            <dl>
+              <div>
+                <dt>{text.featured}</dt>
+                <dd>{text.videoTitleZh}<br />{text.videoTitle}</dd>
               </div>
+              <div>
+                <dt>{text.collectionMeta}</dt>
+                <dd>BrokenIris · Bilibili</dd>
+              </div>
+            </dl>
+            <div className="bbq-showcase-actions">
+              <a className="bbq-button bbq-button-primary" href={collectionUrl}>
+                {text.collectionAction} <ArrowRight aria-hidden="true" size={18} />
+              </a>
             </div>
-            <div className="bbq-showcase-meta">
-              <h2>{item.title[locale]}</h2>
-              <p>{item.description[locale]}</p>
-            </div>
-          </article>
-        ))}
+          </div>
+        </div>
       </section>
     </main>
   );
