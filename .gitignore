@@ -19,6 +19,7 @@ wheels/
 # Virtual environments / local dependency caches
 .venv/
 .uv-cache/
+.pnpm-store/
 
 # Local env / secrets
 .env

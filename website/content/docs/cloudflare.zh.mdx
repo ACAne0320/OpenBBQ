@@ -1,0 +1,26 @@
+---
+title: Cloudflare 部署
+description: 使用 Cloudflare Workers Assets 部署 Fumapress 静态站点。
+---
+
+这个验证站使用 Fumapress 静态模式。Cloudflare 直接从 `dist/public` 提供生成文件，请求不会调用 Worker。
+
+## 构建
+
+```bash
+pnpm build
+```
+
+## 使用 Cloudflare 运行时预览
+
+```bash
+pnpm preview:cloudflare
+```
+
+## 部署
+
+```bash
+pnpm deploy
+```
+
+构建时将 `PUBLIC_SITE_URL` 设置为正式域名，确保 canonical URL 和自动生成的社交分享信息使用正确地址。
