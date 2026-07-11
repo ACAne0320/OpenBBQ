@@ -1,4 +1,5 @@
 {
   "title": "指南",
-  "pages": ["index", "sources", "translation", "glossaries", "export-and-burn", "agents"]
+  "pagesIndex": "index",
+  "pages": ["sources", "translation", "glossaries", "export-and-burn", "agents"]
 }

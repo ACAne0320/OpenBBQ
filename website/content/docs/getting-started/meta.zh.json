@@ -1,4 +1,5 @@
 {
   "title": "入门",
-  "pages": ["index", "installation", "quickstart", "workflow"]
+  "pagesIndex": "index",
+  "pages": ["installation", "quickstart", "workflow"]
 }

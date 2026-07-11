@@ -1,4 +1,5 @@
 {
   "title": "Reference",
-  "pages": ["index", "cli", "workspace", "troubleshooting"]
+  "pagesIndex": "index",
+  "pages": ["cli", "workspace", "troubleshooting"]
 }

@@ -1,4 +1,5 @@
 {
   "title": "Documentation",
-  "pages": ["index", "getting-started", "guides", "reference", "project"]
+  "pagesIndex": "index",
+  "pages": ["getting-started", "guides", "reference"]
 }
