@@ -91,7 +91,7 @@ export default config
         nav: { title: "OpenBBQ", url: prefix },
         links: [
           { text: lang === "zh" ? "文档" : "Documentation", url: `${prefix}/docs`, on: "nav" },
-          { text: "Showcase", url: `${prefix}/showcase`, on: "nav" },
+          { text: lang === "zh" ? "作品展示" : "Showcase", url: `${prefix}/showcase`, on: "nav" },
         ],
       };
     },
