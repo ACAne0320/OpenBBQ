@@ -44,6 +44,7 @@ The manifest is a work log, not a prefilled checklist. A stage appears only afte
 | transcribe | `openbbq transcribe` | `transcript.json` |
 | segment | `openbbq segment` | `cues.json` |
 | translate | `openbbq translate ...` | `translation.<lang>.json` |
+| review | `openbbq review` | `review.<lang>.json` (or `review.source.json`), synchronized cue and worksheet edits |
 | export | `openbbq export` | subtitle under `out/` |
 | burn | `openbbq burn` | hard-subtitled MP4 under `out/` |
 
@@ -51,7 +52,9 @@ Stages can be `running`, `done`, `failed`, or `pending`. Long tasks include a pr
 
 ## Rerunning upstream stages
 
-When an upstream stage starts or completes, later recorded stages are changed to `pending`. For example, rerunning `transcribe` invalidates segment, translate, export, and burn state because their artifacts may no longer match the new transcript.
+When an upstream stage starts or completes, later recorded stages are changed to `pending`. For example, rerunning `transcribe` invalidates segment, translate, review, export, and burn state because their artifacts may no longer match the new transcript.
+
+After segmentation and optional translation, run `openbbq review --workspace PATH`. The local browser editor writes source text, translations, and cue timing back to their canonical workspace files. Export is blocked until the selected review scope is complete; `--allow-unreviewed` is an explicit escape hatch for draft output.
 
 OpenBBQ does not automatically delete edited files. Review or regenerate downstream artifacts explicitly.
 

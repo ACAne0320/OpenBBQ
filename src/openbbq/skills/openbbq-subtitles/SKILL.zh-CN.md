@@ -54,11 +54,16 @@
    `openbbq translate apply <lang> --workspace <ws> <batch.json>` 合并。
 9. 机械检查：跑 `openbbq translate check <lang> --workspace <ws>`，清掉 `missing`、
    `over_budget`、`term_issues`。
-10. 翻译质量自审：导出前抽查或通读 worksheet，主动修正误译、不自然、语气不符、
+10. 人工可视化审核：用户要求最终人工校对、调整 cue 时间或修复断句时，使用
+    `openbbq review --workspace <ws> --to <lang>`。审核页会受控同步 cues 与所有
+    worksheet；不要同时让其他 Agent 直接编辑这些文件。
+11. 翻译质量自审：导出前抽查或通读 worksheet，主动修正误译、不自然、语气不符、
     上下文断裂、术语漂移和双语 source/target 不匹配的问题。修订后重新
     `translate apply` 和 `translate check`。
-11. 导出和烧录：默认导出双语 ASS，再 burn。导出时可按场景选择 `--ass-preset`。
-12. 完成 QA：按 `references/workflows.zh-CN.md` 检查 status、translate check、
+12. 导出和烧录：默认导出双语 ASS，再 burn。存在 review 文件时，未完成审核会
+    阻止导出；只有明确需要草稿时才用 `--allow-unreviewed`。导出时可按场景选择
+    `--ass-preset`。
+13. 完成 QA：按 `references/workflows.zh-CN.md` 检查 status、translate check、
     输出 MP4 时长/大小，并截帧确认字幕渲染。
 
 ## Glossary 原则

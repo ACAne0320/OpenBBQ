@@ -18,11 +18,13 @@ description: 安装 OpenBBQ，以及当前工作流需要的依赖。
 
 ## 安装 CLI
 
-安装发布包和 whisper.cpp 后端：
+安装发布包、whisper.cpp 后端和本地审核界面：
 
 ```bash
-uv tool install 'openbbq[whispercpp]'
+uv tool install 'openbbq[whispercpp,review]'
 ```
+
+如果不需要浏览器字幕审核，可以省略 `review` extra。
 
 如果安装后找不到 `openbbq`，按 uv 输出的提示配置 PATH，然后打开新的 shell。
 
@@ -91,7 +93,7 @@ uv tool upgrade openbbq
 修改 extra 或修复安装：
 
 ```bash
-uv tool install --force 'openbbq[whispercpp]'
+uv tool install --force 'openbbq[whispercpp,review]'
 ```
 
 ## 从仓库安装
@@ -101,7 +103,7 @@ uv tool install --force 'openbbq[whispercpp]'
 ```bash
 git clone https://github.com/ACAne0320/OpenBBQ.git
 cd OpenBBQ
-uv sync --extra whispercpp --dev
+uv sync --extra whispercpp --extra review --dev
 uv run openbbq --help
 uv run pytest
 ```

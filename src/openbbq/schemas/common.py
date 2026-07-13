@@ -40,5 +40,6 @@ class Stage(StrEnum):
     TRANSCRIBE = "transcribe"
     SEGMENT = "segment"
     TRANSLATE = "translate"
+    REVIEW = "review"
     EXPORT = "export"
     BURN = "burn"

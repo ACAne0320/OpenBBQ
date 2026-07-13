@@ -10,6 +10,7 @@ import typer
 from openbbq.cli.commands.export import export
 from openbbq.cli.output import Output
 from openbbq.core import export as exp
+from openbbq.core import review as reviewlib
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
@@ -534,3 +535,29 @@ def test_export_output_override(tmp_path) -> None:
 
     assert (path / "subs" / "custom.srt").exists()
     assert ws.read_manifest(path).stages[Stage.EXPORT].artifact == "subs/custom.srt"
+
+
+def test_export_blocks_incomplete_review_when_review_exists(tmp_path) -> None:
+    path, manifest = _workspace(tmp_path)
+    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=1.6, source="Hello.")))
+    _with_worksheet(path, _translation(_item(1, "Hello.", "你好。")))
+    reviewlib.ReviewSession.open(path, "zh")
+
+    try:
+        export(_ctx(), workspace=str(path), to="zh")
+    except OpenBBQError as err:
+        assert err.code == "review_incomplete"
+        assert err.context["unreviewed"] == [1]
+    else:
+        raise AssertionError("expected OpenBBQError")
+
+
+def test_export_allow_unreviewed_explicitly_bypasses_review_gate(tmp_path) -> None:
+    path, manifest = _workspace(tmp_path)
+    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=1.6, source="Hello.")))
+    _with_worksheet(path, _translation(_item(1, "Hello.", "你好。")))
+    reviewlib.ReviewSession.open(path, "zh")
+
+    export(_ctx(), workspace=str(path), to="zh", allow_unreviewed=True)
+
+    assert (path / "out" / "zh.srt").exists()

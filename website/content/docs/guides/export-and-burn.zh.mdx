@@ -49,6 +49,16 @@ ASS 预设：
 
 `--ass-preset` 只能与 `--format ass` 一起使用。Mobile 预设只改变渲染几何，不会自动缩短长字幕。
 
+## 审核门禁
+
+存在匹配的 `review.<lang>.json` 或 `review.source.json` 时，export 要求该审核范围内的每条 cue 都是最新内容且已标为已审核。重新打开编辑器可完成审核或刷新已过期的 cue：
+
+```bash
+openbbq review --to zh --workspace workspaces/demo
+```
+
+只有明确需要草稿时才使用 `--allow-unreviewed` 绕过门禁；该选项不会把任何 cue 标为已审核。
+
 ## 未完成译文
 
 Target 和 bilingual 导出默认会在 target 留空时失败。请先检查：

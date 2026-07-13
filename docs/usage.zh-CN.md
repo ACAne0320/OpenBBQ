@@ -85,6 +85,23 @@ openbbq translate apply zh --workspace workspaces/demo targets.json
 openbbq translate check zh --workspace workspaces/demo
 ```
 
+## 可视化审核与字幕编辑
+
+安装可选的本地审核 UI，然后打开一个目标语言：
+
+```bash
+uv tool install 'openbbq[review]' --force
+openbbq review --workspace workspaces/demo --to zh
+```
+
+浏览器把视频或音频、waveform、cue 时间轴、原文、译文、时间和审核状态放在同一
+工作区中。文字修改会自动保存到 `cues.json` 和 `translation.<lang>.json`；支持
+拆分、合并、新增、删除、撤销/重做，以及逐 cue 的已审核/待处理状态。SRT/ASS
+仍是派生产物，需要显式执行 `export` 重新生成。
+
+一旦存在 `review.<lang>.json`，对应的目标语/双语导出默认要求全部 cue 已审核。
+只有明确需要草稿导出时才使用 `--allow-unreviewed`。
+
 ## 导出和烧录
 
 导出双语 ASS：
@@ -158,6 +175,8 @@ skills 目录，Claude Code 使用 `openbbq skill install --agent claude`，Code
 - `transcript.json`：ASR 转录结果。
 - `cues.json`：原文字幕 cue。
 - `translation.<lang>.json`：可编辑翻译工作表。
+- `review.<lang>.json`：逐 cue 的人工审核状态与已审核内容 hash。
+- `.openbbq/review/`：本地 lock、checkpoint、waveform cache 和预览 proxy。
 - `out/<lang>.srt`：导出的 SRT 字幕。
 - `out/<lang>.ass`：导出的 ASS 字幕。
 - `out/<lang>-burned.mp4`：烧录硬字幕后的视频。
@@ -174,6 +193,7 @@ openbbq extract-audio
 openbbq transcribe
 openbbq segment
 openbbq translate init/apply/check
+openbbq review
 openbbq glossary list/show/new/use/suggest
 openbbq export
 openbbq burn

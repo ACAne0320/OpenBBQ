@@ -13,6 +13,7 @@ from .commands.fetch import fetch
 from .commands.glossary import app as glossary_app
 from .commands.init import init
 from .commands.models import app as models_app
+from .commands.review import review
 from .commands.segment import segment
 from .commands.skill import app as skill_app
 from .commands.status import status
@@ -43,6 +44,7 @@ app.command(name="extract-audio")(extract_audio)
 app.command()(transcribe)
 app.command()(segment)
 app.add_typer(translate_app, name="translate")
+app.command()(review)
 app.command()(export)
 app.command()(burn)
 app.add_typer(models_app, name="models")

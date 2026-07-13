@@ -131,6 +131,14 @@ openbbq translate check [--workspace PATH] [LANG]
 
 报告完整度、缺失 id、目标长度预算、术语警告和 cue 完整性。只有一个工作表时自动推断语言。
 
+## `review`
+
+```text
+openbbq review [--workspace PATH] [--to CODE] [--port PORT] [--no-open]
+```
+
+启动仅监听本机回环地址的浏览器编辑器，用于视频预览、波形与 cue 时间线调整、原文/译文编辑、审核备注和审核状态管理。`--to` 选择初始翻译工作表；省略时从仅原文模式开始，也可在编辑器内选择字幕语言。修改会原子写入 `cues.json`、所有受影响的 `translation.<lang>.json`，以及 `review.<lang>.json`（或 `review.source.json`）。同一工作区同时只允许一个审核会话持有锁。
+
 ## `export`
 
 ```text
@@ -145,6 +153,7 @@ openbbq export [OPTIONS]
 | `--output PATH` | `out/<lang>.<format>` | 输出路径。 |
 | `--ass-preset default\|fansub\|mobile` | `default` | ASS 样式预设，只对 ASS 有效。 |
 | `--allow-missing` | 关闭 | 缺少译文的 cue 回退到原文。 |
+| `--allow-unreviewed` | 关闭 | 显式绕过审核完成门禁，用于草稿导出。 |
 
 ## `burn`
 

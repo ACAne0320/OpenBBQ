@@ -38,6 +38,10 @@ Documentation = "https://github.com/ACAne0320/OpenBBQ/tree/main/docs"
 whispercpp = [
     "pywhispercpp>=1.5.0",
 ]
+review = [
+    "fastapi>=0.128.0",
+    "uvicorn>=0.40.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.11.17,<0.12.0"]
@@ -45,9 +49,12 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "fastapi>=0.128.0",
+    "httpx>=0.28.0",
     "pytest>=9.1.1",
     "ruff>=0.15.19",
     "ty>=0.0.53",
+    "uvicorn>=0.40.0",
 ]
 
 [tool.ty.src]
@@ -61,4 +68,5 @@ source-include = [
     "docs/release.md",
     "docs/usage.md",
     "docs/usage.zh-CN.md",
+    "src/openbbq/review_ui/dist/**",
 ]

@@ -77,13 +77,18 @@ Prefer OpenBBQ's atomic CLI commands over ad hoc scripts.
    --workspace <ws> <batch.json>`.
 9. Mechanical check: run `openbbq translate check <lang> --workspace <ws>` and
    clear `missing`, `over_budget`, and `term_issues`.
-10. Translation quality self-review: before export, spot-check or read through
+10. Human visual review: when the user asks for final manual review, cue timing
+    changes, or sentence-boundary fixes, run `openbbq review --workspace <ws>
+    --to <lang>`. The review service safely synchronizes cues and every
+    worksheet; do not edit those files concurrently from another Agent.
+11. Translation quality self-review: before export, spot-check or read through
     the worksheet and proactively fix mistranslations, unnatural phrasing, tone
     mismatches, broken context, term drift, and bilingual source/target
     mismatches. After revisions, rerun `translate apply` and `translate check`.
-11. Export and burn: default to bilingual ASS, then burn. Pick `--ass-preset`
-    by target surface.
-12. Completion QA: follow `references/workflows.md` to check status,
+12. Export and burn: default to bilingual ASS, then burn. When a review file
+    exists, incomplete review blocks export; use `--allow-unreviewed` only for
+    an intentional draft. Pick `--ass-preset` by target surface.
+13. Completion QA: follow `references/workflows.md` to check status,
     `translate check`, output MP4 duration/size, and a rendered subtitle frame.
 
 ## Glossary Principles

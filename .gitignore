@@ -13,6 +13,8 @@ __pycache__/
 htmlcov/
 build/
 dist/
+!src/openbbq/review_ui/dist/
+!src/openbbq/review_ui/dist/**
 wheels/
 *.egg-info/
 
@@ -20,6 +22,7 @@ wheels/
 .venv/
 .uv-cache/
 .pnpm-store/
+node_modules/
 
 # Local env / secrets
 .env

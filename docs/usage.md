@@ -88,6 +88,25 @@ Validate it:
 openbbq translate check zh --workspace workspaces/demo
 ```
 
+## Visual Review And Subtitle Editing
+
+Install the optional local review UI, then open one target language:
+
+```bash
+uv tool install 'openbbq[review]' --force
+openbbq review --workspace workspaces/demo --to zh
+```
+
+The browser keeps the video or audio, waveform, cue timeline, source text,
+translation, timing, and review status in one workspace. Text edits autosave to
+`cues.json` and `translation.<lang>.json`; split, merge, insert, delete,
+undo/redo, and cue-level reviewed/flagged states are supported. SRT/ASS files
+remain derived artifacts and are regenerated explicitly with `export`.
+
+Once a `review.<lang>.json` exists, the matching target/bilingual export is
+blocked until every cue is reviewed. Use `--allow-unreviewed` only when you
+intentionally need a draft export.
+
 ## Export And Burn
 
 Export bilingual ASS:
@@ -167,6 +186,8 @@ Common workspace outputs:
 - `transcript.json`: ASR output.
 - `cues.json`: source subtitle cues.
 - `translation.<lang>.json`: editable translation worksheet.
+- `review.<lang>.json`: cue-level human review state and reviewed-content hashes.
+- `.openbbq/review/`: local locks, checkpoints, waveform cache, and preview proxy.
 - `out/<lang>.srt`: exported SRT subtitles.
 - `out/<lang>.ass`: exported ASS subtitles.
 - `out/<lang>-burned.mp4`: hard-subtitled video.
@@ -183,6 +204,7 @@ openbbq extract-audio
 openbbq transcribe
 openbbq segment
 openbbq translate init/apply/check
+openbbq review
 openbbq glossary list/show/new/use/suggest
 openbbq export
 openbbq burn

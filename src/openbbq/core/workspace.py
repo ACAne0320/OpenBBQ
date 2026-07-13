@@ -19,6 +19,7 @@ from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
     Cues,
     Manifest,
+    Review,
     Source,
     SourceType,
     Stage,
@@ -99,7 +100,18 @@ def write_text_atomic(path: Path, content: str) -> None:
         ) as tmp:
             tmp_path = Path(tmp.name)
             tmp.write(content)
+            tmp.flush()
+            os.fsync(tmp.fileno())
         os.replace(tmp_path, path)
+        try:
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+        except OSError:
+            directory_fd = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     finally:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
@@ -191,6 +203,18 @@ def read_translation(path: Path) -> Translation:
             "invalid_translation",
             path=str(path),
             fix="translation worksheet is malformed or from an incompatible schema",
+        ) from e
+
+
+def read_review(path: Path) -> Review:
+    """Load + validate a review state document."""
+    try:
+        return Review.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as e:
+        raise OpenBBQError(
+            "invalid_review",
+            path=str(path),
+            fix="restore a review checkpoint or remove the malformed review file",
         ) from e
 
 

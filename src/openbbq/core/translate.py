@@ -63,6 +63,11 @@ def _budget(start: float, end: float, params: SegmentParams) -> Budget:
     return Budget(max_chars=max(max_chars, 0), seconds=dur)
 
 
+def budget_for_cue(start: float, end: float, params: SegmentParams) -> Budget:
+    """Public review/export seam for recomputing a worksheet-owned budget."""
+    return _budget(start, end, params)
+
+
 def _glossary_refs(g: Glossary | None) -> list[GlossaryRef]:
     """Terms that carry translation guidance (a target or keep) → the worksheet map."""
     if g is None:

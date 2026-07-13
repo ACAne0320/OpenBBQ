@@ -17,6 +17,11 @@ workspace/
 ├── transcript.json
 ├── cues.json
 ├── translation.zh.json
+├── review.zh.json
+├── .openbbq/review/
+│   ├── journal.json
+│   ├── checkpoints/
+│   └── cache/
 └── out/
     ├── en.srt
     ├── zh.ass
@@ -56,6 +61,12 @@ Translation worksheets and exports depend on cue identity. Rerunning segmentatio
 ## `translation.<lang>.json`
 
 One editable worksheet per target language. The file intentionally keeps unfilled targets as `null` so humans and agents can discover remaining work. Use `translate apply` for controlled batch updates and `translate check` for integrity.
+
+## Review state
+
+`review.<lang>.json` (or `review.source.json` for source-only review) uses the `openbbq/review@1` schema and stores per-cue status, notes, content fingerprints, the selected target language, and revision metadata. It does not duplicate subtitle text. Review edits keep `cues.json` and all translation worksheets aligned. Mutations use recoverable checkpoints and a cross-file journal; undo and redo are also available during the active review session.
+
+`.openbbq/review/` contains recoverable transaction checkpoints, the current journal, the single-editor lock, and derived waveform/proxy caches. These files are implementation state rather than authored subtitle content.
 
 ## `out/`
 

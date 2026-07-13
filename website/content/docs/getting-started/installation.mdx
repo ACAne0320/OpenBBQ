@@ -18,11 +18,13 @@ description: Install OpenBBQ and the dependencies required by your workflow.
 
 ## Install the CLI
 
-Install the published package with the whisper.cpp backend:
+Install the published package with the whisper.cpp backend and the local review UI:
 
 ```bash
-uv tool install 'openbbq[whispercpp]'
+uv tool install 'openbbq[whispercpp,review]'
 ```
+
+If you do not need browser-based subtitle review, the `review` extra may be omitted.
 
 If the `openbbq` command is not found after installation, follow the PATH instruction printed by uv, then open a new shell.
 
@@ -91,7 +93,7 @@ uv tool upgrade openbbq
 To change extras or repair the installation:
 
 ```bash
-uv tool install --force 'openbbq[whispercpp]'
+uv tool install --force 'openbbq[whispercpp,review]'
 ```
 
 ## Install from this repository
@@ -101,7 +103,7 @@ Use a repository install only for development:
 ```bash
 git clone https://github.com/ACAne0320/OpenBBQ.git
 cd OpenBBQ
-uv sync --extra whispercpp --dev
+uv sync --extra whispercpp --extra review --dev
 uv run openbbq --help
 uv run pytest
 ```

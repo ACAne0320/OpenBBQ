@@ -131,6 +131,14 @@ openbbq translate check [--workspace PATH] [LANG]
 
 Reports completeness, missing ids, target budget violations, glossary warnings, and cue integrity. The language is inferred when only one worksheet exists.
 
+## `review`
+
+```text
+openbbq review [--workspace PATH] [--to CODE] [--port PORT] [--no-open]
+```
+
+Starts a loopback-only browser editor for video preview, waveform and cue timeline adjustment, source/target editing, review notes, and review status. `--to` selects the initial translation worksheet; without it, review starts in source-only mode and a subtitle language can be selected in the editor. The command writes edits atomically to `cues.json`, every affected `translation.<lang>.json`, and `review.<lang>.json` (or `review.source.json`). Only one review session may hold a workspace lock at a time.
+
 ## `export`
 
 ```text
@@ -145,6 +153,7 @@ openbbq export [OPTIONS]
 | `--output PATH` | `out/<lang>.<format>` | Destination path. |
 | `--ass-preset default\|fansub\|mobile` | `default` | ASS style preset; valid only with ASS. |
 | `--allow-missing` | off | Fall back to source text for missing target cues. |
+| `--allow-unreviewed` | off | Bypass the review-completion gate for an explicit draft export. |
 
 ## `burn`
 

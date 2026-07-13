@@ -49,6 +49,16 @@ ASS presets:
 
 `--ass-preset` is valid only with `--format ass`. The mobile preset changes rendering geometry; it does not shorten long subtitles.
 
+## Review gate
+
+When a matching `review.<lang>.json` or `review.source.json` exists, export requires every cue in that review scope to be current and marked reviewed. Reopen the editor to finish or refresh stale cues:
+
+```bash
+openbbq review --to zh --workspace workspaces/demo
+```
+
+For an intentional draft only, bypass the gate explicitly with `--allow-unreviewed`. This does not mark any cue reviewed.
+
 ## Incomplete translations
 
 Target and bilingual export normally fail when any target is blank. Review first:

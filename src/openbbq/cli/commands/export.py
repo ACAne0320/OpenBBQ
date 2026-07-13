@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from ...core import export as exp
+from ...core import review as reviewlib
 from ...core import workspace as ws
 from ...errors import OpenBBQError
 from ...schemas import Stage, StageState, StageStatus
@@ -71,6 +72,13 @@ def export(
             "--allow-missing", help="fall back to source for untranslated cues"
         ),
     ] = False,
+    allow_unreviewed: Annotated[
+        bool,
+        typer.Option(
+            "--allow-unreviewed",
+            help="export even when an existing review file is incomplete",
+        ),
+    ] = False,
 ) -> None:
     """Render cues into a subtitle file."""
     output_obj: Output = ctx.obj
@@ -105,6 +113,10 @@ def export(
                 "translation_not_found", lang=to, fix=f"openbbq translate init {to}"
             )
         translation = ws.read_translation(wpath)
+
+    if not allow_unreviewed:
+        review_lang = translation_lang if resolved is not exp.ExportMode.SOURCE else None
+        reviewlib.require_complete_review(path, doc, translation, review_lang)
 
     if fmt == "ass":
         content = exp.render_ass(
