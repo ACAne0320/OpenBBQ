@@ -288,32 +288,28 @@ def test_server_rejects_host_origin_and_unauthenticated_media(tmp_path: Path) ->
     assert media.status_code == 401
 
 
-def test_incompatible_video_builds_and_serves_review_proxy(tmp_path: Path) -> None:
+def test_incompatible_video_builds_and_serves_review_proxy(
+    tmp_path: Path, monkeypatch
+) -> None:
     path = _workspace(tmp_path / "ws")
     video = path / "source.mkv"
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=black:s=320x180:r=24",
-            "-t",
-            "0.5",
-            "-c:v",
-            "ffv1",
-            str(video),
-        ],
-        check=True,
-    )
+    video.write_bytes(b"incompatible-video")
     manifest = ws.read_manifest(path)
     manifest.source.type = "local_video"
     manifest.source.ref = str(video)
     ws.write_manifest(path, manifest)
+
+    def transcode(
+        command: list[str], *, check: bool, capture_output: bool, text: bool
+    ) -> subprocess.CompletedProcess[str]:
+        assert command[0] == "ffmpeg"
+        assert "libx264" in command
+        assert "aac" in command
+        assert check and capture_output and text
+        Path(command[-1]).write_bytes(b"proxy-video" * 16)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", transcode)
 
     with _client(path) as client:
         before = client.get("/api/session").json()
