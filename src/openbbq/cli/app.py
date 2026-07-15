@@ -4,6 +4,7 @@ from typing import Annotated
 
 import typer
 
+from .. import __version__
 from .commands.auth import app as auth_app
 from .commands.burn import burn
 from .commands.doctor import doctor
@@ -20,8 +21,24 @@ from .commands.status import status
 from .commands.transcribe import transcribe
 from .commands.translate import app as translate_app
 from .output import Output
+from .results import Result
 
 app = typer.Typer(no_args_is_help=True)
+
+
+class VersionResult(Result):
+    version: str
+
+    def render(self) -> str:
+        return f"openbbq {self.version}"
+
+
+def _version_callback(ctx: typer.Context, value: bool) -> None:
+    if not value:
+        return
+    output = ctx.obj if isinstance(ctx.obj, Output) else Output.detect(False)
+    output.emit(VersionResult(version=__version__))
+    raise typer.Exit()
 
 
 @app.callback()
@@ -29,6 +46,15 @@ def _root(
     ctx: typer.Context,
     json: Annotated[
         bool, typer.Option("--json", help="Emit machine-readable JSON")
+    ] = False,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show the OpenBBQ version and exit",
+        ),
     ] = False,
 ) -> None:
     if isinstance(ctx.obj, Output) and ctx.obj.json_mode:
