@@ -58,6 +58,7 @@ For agent setup and the packaged OpenBBQ skill, see the
 - [ ] More ASR backends
 - [ ] More video-platform authentication support
 - [ ] Agent-led discovery of videos worth translating
+- [ ] Custom translation prompts
 - [x] Visual translation review for manual translators
 - [ ] More subtitle editing and publishing workflows
 
