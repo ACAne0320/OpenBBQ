@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from openbbq import __version__
 import openbbq.cli.commands.doctor as doctor_command
 from openbbq.cli import main
 
@@ -57,6 +58,17 @@ def test_json_doctor_flag_position_is_independent(
     assert data["ok"] is True
     assert data["healthy"] is True
     assert data["checks"] == []
+
+
+@pytest.mark.parametrize("args", [["--version"], ["--json", "--version"]])
+def test_version_emits_machine_readable_package_version(
+    args: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, stdout, stderr = _run_cli(args, monkeypatch, capsys)
+
+    assert code == 0
+    assert stderr == ""
+    assert _single_json(stdout) == {"ok": True, "version": __version__}
 
 
 def test_domain_error_emits_single_json_object(
