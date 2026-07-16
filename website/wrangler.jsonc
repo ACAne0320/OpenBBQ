@@ -5,5 +5,11 @@
   "assets": {
     "directory": "./dist/public",
     "html_handling": "drop-trailing-slash"
-  }
+  },
+  "routes": [
+    {
+      "pattern": "openbbq.acane.dev",
+      "custom_domain": true
+    }
+  ]
 }

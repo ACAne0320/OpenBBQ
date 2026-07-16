@@ -29,7 +29,7 @@ const config = defineConfig({
   mode: "static",
   site: {
     name: "OpenBBQ",
-    baseUrl: process.env.PUBLIC_SITE_URL ?? "http://localhost:3000",
+    baseUrl: process.env.PUBLIC_SITE_URL ?? "https://openbbq.acane.dev",
     git: {
       user: "ACAne0320",
       repo: "OpenBBQ",
