@@ -23,6 +23,7 @@ wheels/
 .uv-cache/
 .pnpm-store/
 node_modules/
+.superpowers/
 
 # Local env / secrets
 .env
