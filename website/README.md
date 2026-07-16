@@ -24,7 +24,7 @@ pnpm exec wrangler deploy --dry-run
 Set the canonical production origin before building:
 
 ```sh
-PUBLIC_SITE_URL=https://docs.example.com pnpm build
+PUBLIC_SITE_URL=https://openbbq.acane.dev pnpm build
 ```
 
 Preview the generated `dist/public` assets with the Cloudflare runtime:
