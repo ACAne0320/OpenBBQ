@@ -21,6 +21,7 @@ class FetchResult:
     author: str | None = None
     thumbnail: str | None = None
     auth: str | None = None
+    max_height: int | None = None
 
 
 @dataclass(frozen=True)
@@ -187,7 +188,9 @@ def _extract_output_path(stdout: str, ws: Path) -> Path | None:
     return None
 
 
-def _find_thumbnail(media_dir: Path, output_path: Path, video_id: str | None) -> Path | None:
+def _find_thumbnail(
+    media_dir: Path, output_path: Path, video_id: str | None
+) -> Path | None:
     stems = [stem for stem in (video_id, output_path.stem) if stem]
     for stem in dict.fromkeys(stems):
         candidates = [
@@ -212,6 +215,7 @@ def fetch_media(
     manifest: Manifest,
     *,
     auth_site: str | None = None,
+    max_height: int | None = None,
     on_progress: ProgressCallback | None = None,
     on_metadata: MetadataCallback | None = None,
 ) -> FetchResult:
@@ -222,6 +226,20 @@ def fetch_media(
     media_dir.mkdir(parents=True, exist_ok=True)
     output_template = media_dir / "%(title)s.%(ext)s"
     base_cmd = _yt_dlp_command()
+    if max_height is not None and max_height < 144:
+        raise OpenBBQError(
+            "invalid_video_height",
+            max_height=max_height,
+            fix="use --max-height 144 or greater, or omit it for yt-dlp best quality",
+        )
+    format_args = (
+        []
+        if max_height is None
+        else [
+            "--format",
+            f"bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]",
+        ]
+    )
     cmd = [
         *base_cmd,
         "--no-playlist",
@@ -230,6 +248,7 @@ def fetch_media(
         "--quiet",
         "--no-warnings",
         "--write-thumbnail",
+        *format_args,
         "--newline",
         "--progress",
         "--progress-template",
@@ -324,4 +343,5 @@ def fetch_media(
         author=author,
         thumbnail=thumbnail,
         auth=auth_site,
+        max_height=max_height,
     )

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import math
+import re
+import unicodedata
 from dataclasses import dataclass
 
 from openbbq.core import glossary as gl
@@ -87,7 +89,10 @@ def build_worksheet(
     params = _snapshot(profile)
     items = [
         TranslationItem(
-            id=c.id, source=c.source, budget=_budget(c.start, c.end, params), target=None
+            id=c.id,
+            source=c.source,
+            budget=_budget(c.start, c.end, params),
+            target=None,
         )
         for c in cues.cues
     ]
@@ -103,7 +108,9 @@ def build_worksheet(
 
 # --- apply (translate apply) ---------------------------------------------------
 
-_TARGETS_FIX = 'write a JSON object mapping cue id to translated text: {"1": "译文", "2": "..."}'
+_TARGETS_FIX = (
+    'write a JSON object mapping cue id to translated text: {"1": "译文", "2": "..."}'
+)
 
 
 @dataclass(frozen=True)
@@ -129,10 +136,14 @@ def parse_targets(text: str) -> dict[int, str]:
         ) from e
     if not isinstance(raw, dict):
         raise OpenBBQError(
-            "targets_invalid", detail="top level must be a JSON object", fix=_TARGETS_FIX
+            "targets_invalid",
+            detail="top level must be a JSON object",
+            fix=_TARGETS_FIX,
         )
     if not raw:
-        raise OpenBBQError("targets_invalid", detail="object is empty", fix=_TARGETS_FIX)
+        raise OpenBBQError(
+            "targets_invalid", detail="object is empty", fix=_TARGETS_FIX
+        )
     targets: dict[int, str] = {}
     bad: list[str] = []
     for key, value in raw.items():
@@ -177,7 +188,10 @@ def apply_targets(worksheet: Translation, targets: dict[int, str]) -> ApplyRepor
             applied += 1
     filled = sum(1 for it in worksheet.items if is_filled(it.target))
     return ApplyReport(
-        applied=applied, overwritten=overwritten, filled=filled, total=len(worksheet.items)
+        applied=applied,
+        overwritten=overwritten,
+        filled=filled,
+        total=len(worksheet.items),
     )
 
 
@@ -192,13 +206,34 @@ class TermIssue:
 
 
 @dataclass(frozen=True)
+class QualityIssue:
+    id: int
+    code: str
+    detail: str
+
+
+@dataclass(frozen=True)
 class CheckReport:
     total: int
     filled: int
     missing: list[int]  # ids still untranslated (None or blank)
     over_budget: list[int]  # filled ids whose target exceeds budget.max_chars
+    zero_budget: list[int]  # ids whose timing leaves no target-language capacity
     term_warnings: int
     term_issues: list[TermIssue]
+    quality_warnings: int
+    quality_issues: list[QualityIssue]
+
+    @property
+    def ready(self) -> bool:
+        """True only when deterministic translation gates are all clear."""
+        return not (
+            self.missing
+            or self.over_budget
+            or self.zero_budget
+            or self.term_issues
+            or self.quality_issues
+        )
 
 
 def verify_integrity(cues: Cues, worksheet: Translation, lang: str) -> None:
@@ -220,7 +255,9 @@ def verify_integrity(cues: Cues, worksheet: Translation, lang: str) -> None:
     ids = [it.id for it in worksheet.items]
     if len(ids) != len(set(ids)):
         raise OpenBBQError(
-            "id_mismatch", detail="duplicate item ids", fix="re-init the worksheet (--force)"
+            "id_mismatch",
+            detail="duplicate item ids",
+            fix="re-init the worksheet (--force)",
         )
     if set(ids) != {c.id for c in cues.cues}:
         raise OpenBBQError(
@@ -243,14 +280,19 @@ def check(cues: Cues, worksheet: Translation, lang: str) -> CheckReport:
     # --- soft status ---
     missing = [it.id for it in worksheet.items if not is_filled(it.target)]
     over_budget = _over_budget(worksheet)
+    zero_budget = [it.id for it in worksheet.items if it.budget.max_chars <= 0]
     term_issues = _term_issues(worksheet)
+    quality_issues = _quality_issues(worksheet)
     return CheckReport(
         total=len(worksheet.items),
         filled=len(worksheet.items) - len(missing),
         missing=missing,
         over_budget=over_budget,
+        zero_budget=zero_budget,
         term_warnings=len(term_issues),
         term_issues=term_issues,
+        quality_warnings=len(quality_issues),
+        quality_issues=quality_issues,
     )
 
 
@@ -299,3 +341,166 @@ def _term_issues(worksheet: Translation) -> list[TermIssue]:
             if expect and expect.casefold() not in target_fold:
                 issues.append(TermIssue(id=it.id, term=ref.source, expected=expect))
     return issues
+
+
+_ASCII_WORD_RE = re.compile(r"[A-Za-z]+(?:['’-][A-Za-z]+)*")
+_ZH_JA_SCRIPT_RE = re.compile(r"[\u3400-\u9fff\u3040-\u30ff]")
+_KO_SCRIPT_RE = re.compile(r"[\uac00-\ud7af]")
+
+
+def _quality_key(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return "".join(ch for ch in normalized if ch.isalnum())
+
+
+def _kept_source_only(worksheet: Translation, source: str) -> bool:
+    source_key = _quality_key(source)
+    return any(
+        ref.keep and _quality_key(ref.source) == source_key
+        for ref in worksheet.glossary
+    )
+
+
+def _expected_script_present(lang: str, text: str) -> bool | None:
+    base = lang.split("-", 1)[0].casefold()
+    if base in {"zh", "ja"}:
+        return bool(_ZH_JA_SCRIPT_RE.search(text))
+    if base == "ko":
+        return bool(_KO_SCRIPT_RE.search(text))
+    return None
+
+
+def _quality_issues(worksheet: Translation) -> list[QualityIssue]:
+    """Conservative deterministic lint for failure patterns seen in agent runs.
+
+    This deliberately does not claim semantic correctness. It catches copied
+    source text, clearly wrong target script, and long duplicate runs so those
+    artifacts cannot be mistaken for a completed translation.
+    """
+    issues: list[QualityIssue] = []
+    filled = [item for item in worksheet.items if is_filled(item.target)]
+
+    if worksheet.source_lang.casefold() != worksheet.target_lang.casefold():
+        for item in filled:
+            target = item.target or ""
+            if _quality_key(item.source) == _quality_key(
+                target
+            ) and not _kept_source_only(worksheet, item.source):
+                issues.append(
+                    QualityIssue(
+                        id=item.id,
+                        code="source_copy",
+                        detail="target matches source",
+                    )
+                )
+                continue
+
+            expected = _expected_script_present(worksheet.target_lang, target)
+            if expected is False:
+                source_words = _ASCII_WORD_RE.findall(item.source)
+                target_words = _ASCII_WORD_RE.findall(target)
+                if len(source_words) >= 2 and len(target_words) >= 2:
+                    issues.append(
+                        QualityIssue(
+                            id=item.id,
+                            code="target_script",
+                            detail=f"target does not contain {worksheet.target_lang} script",
+                        )
+                    )
+
+    by_target: dict[str, list[TranslationItem]] = {}
+    for item in filled:
+        key = _quality_key(item.target or "")
+        if len(key) >= 6:
+            by_target.setdefault(key, []).append(item)
+    for group in by_target.values():
+        if len(group) < 3 or len({_quality_key(item.source) for item in group}) < 3:
+            continue
+        count = len(group)
+        for item in group:
+            issues.append(
+                QualityIssue(
+                    id=item.id,
+                    code="repeated_target",
+                    detail=f"same target is used for {count} distinct cues",
+                )
+            )
+
+    return sorted(issues, key=lambda issue: (issue.id, issue.code))
+
+
+# --- bounded Agent read (translate batch) ------------------------------------
+
+
+@dataclass(frozen=True)
+class BatchItem:
+    id: int
+    source: str
+    target: str | None
+    budget: Budget
+    selected: bool
+
+
+@dataclass(frozen=True)
+class BatchReport:
+    selected_ids: list[int]
+    items: list[BatchItem]
+    glossary: list[GlossaryRef]
+    next_from: int | None
+    remaining: int
+
+
+def select_batch(
+    worksheet: Translation,
+    *,
+    start: int = 1,
+    limit: int = 20,
+    only_missing: bool = False,
+    context: int = 1,
+) -> BatchReport:
+    """Return a bounded worksheet slice plus nearby context for an Agent."""
+    if start < 1 or not 1 <= limit <= 200 or not 0 <= context <= 5:
+        raise OpenBBQError(
+            "invalid_batch_range",
+            start=start,
+            limit=limit,
+            context=context,
+            fix="use --from >= 1, --limit 1..200, and --context 0..5",
+        )
+
+    candidates = [
+        (index, item)
+        for index, item in enumerate(worksheet.items)
+        if item.id >= start and (not only_missing or not is_filled(item.target))
+    ]
+    selected = candidates[:limit]
+    selected_indexes = {index for index, _item in selected}
+    included_indexes: set[int] = set()
+    for index in selected_indexes:
+        low = max(0, index - context)
+        high = min(len(worksheet.items), index + context + 1)
+        included_indexes.update(range(low, high))
+
+    items = [
+        BatchItem(
+            id=worksheet.items[index].id,
+            source=worksheet.items[index].source,
+            target=worksheet.items[index].target,
+            budget=worksheet.items[index].budget,
+            selected=index in selected_indexes,
+        )
+        for index in sorted(included_indexes)
+    ]
+    selected_sources = [item.source for _index, item in selected]
+    relevant_glossary = [
+        ref
+        for ref in worksheet.glossary
+        if any(gl.contains_term(source, ref.source) for source in selected_sources)
+    ]
+    return BatchReport(
+        selected_ids=[item.id for _index, item in selected],
+        items=items,
+        glossary=relevant_glossary,
+        next_from=candidates[limit][1].id if len(candidates) > limit else None,
+        remaining=max(len(candidates) - limit, 0),
+    )

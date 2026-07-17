@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import typer
 from rich.console import RenderableType
 from rich.table import Table
 
 from ...core import doctor as core
+from ... import __version__
 from ...schemas import OpenBBQModel
 from ..output import Output
 from ..results import Result
@@ -23,12 +27,16 @@ class CheckReport(OpenBBQModel):
 
 
 class DoctorResult(Result):
+    version: str
+    executable: str
     healthy: bool  # all probes green (distinct from `ok` = the command ran)
     checks: list[CheckReport]
 
     @classmethod
     def of(cls, checks: list[core.Check]) -> DoctorResult:
         return cls(
+            version=__version__,
+            executable=str(Path(sys.argv[0]).expanduser().resolve()),
             healthy=all(c.ok or not c.required for c in checks),
             checks=[CheckReport.of(c) for c in checks],
         )
@@ -41,7 +49,9 @@ class DoctorResult(Result):
         for c in self.checks:
             mark = "[green]✓[/]" if c.ok else "[red]✗[/]"
             detail = (
-                c.detail if c.ok or c.fix is None else f"{c.detail}\n[dim]fix:[/] {c.fix}"
+                c.detail
+                if c.ok or c.fix is None
+                else f"{c.detail}\n[dim]fix:[/] {c.fix}"
             )
             table.add_row(c.name, mark, detail)
         return table

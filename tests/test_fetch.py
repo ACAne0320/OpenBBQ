@@ -64,6 +64,30 @@ def test_fetch_defaults_to_anonymous_ytdlp(tmp_path, monkeypatch) -> None:
     assert calls[0][calls[0].index("-o") + 1].endswith("%(title)s.%(ext)s")
 
 
+def test_fetch_max_height_adds_bounded_format_selector(tmp_path, monkeypatch) -> None:
+    wsdir = tmp_path / "ws"
+    wsdir.mkdir()
+    manifest = _manifest()
+    calls: list[list[str]] = []
+    monkeypatch.setattr(fetchlib, "_yt_dlp_command", lambda: ["yt-dlp"])
+
+    def fake_run(
+        args: list[str], *, on_progress=None, on_metadata=None
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        output = wsdir / "media" / "video.webm"
+        output.write_bytes(b"media")
+        return subprocess.CompletedProcess(args, 0, stdout=_output_line(output))
+
+    monkeypatch.setattr(fetchlib, "_run_yt_dlp", fake_run)
+
+    result = fetchlib.fetch_media(wsdir, manifest, max_height=720)
+
+    assert result.max_height == 720
+    selector = calls[0][calls[0].index("--format") + 1]
+    assert selector == "bestvideo[height<=720]+bestaudio/best[height<=720]"
+
+
 def test_fetch_auth_exports_temp_cookies_and_cleans_up(tmp_path, monkeypatch) -> None:
     wsdir = tmp_path / "ws"
     wsdir.mkdir()
@@ -381,7 +405,13 @@ def test_fetch_command_records_json_progress_for_status(tmp_path, monkeypatch) -
     monkeypatch.setattr(fetchcmd.fetchlib, "auto_auth_site", lambda url: None)
 
     def fake_fetch_media(
-        path, manifest, *, auth_site=None, on_progress=None, on_metadata=None
+        path,
+        manifest,
+        *,
+        auth_site=None,
+        max_height=None,
+        on_progress=None,
+        on_metadata=None,
     ):
         if on_metadata is not None:
             on_metadata(fetchlib.FetchMetadata(title="Demo Title"))
@@ -407,6 +437,7 @@ def test_fetch_command_records_json_progress_for_status(tmp_path, monkeypatch) -
             author="Demo Channel",
             thumbnail="media/video.webp",
             auth=auth_site,
+            max_height=max_height,
         )
 
     monkeypatch.setattr(fetchcmd.fetchlib, "fetch_media", fake_fetch_media)
@@ -420,7 +451,7 @@ def test_fetch_command_records_json_progress_for_status(tmp_path, monkeypatch) -
     monkeypatch.setattr(fetchcmd.ws, "record_stage", capture_record_stage)
 
     ctx = cast(typer.Context, SimpleNamespace(obj=Output(json_mode=True)))
-    fetchcmd.fetch(ctx, workspace=str(wsdir))
+    fetchcmd.fetch(ctx, workspace=str(wsdir), max_height=1080)
 
     assert recorded[0].status is StageStatus.RUNNING
     assert recorded[0].progress is None
@@ -433,8 +464,7 @@ def test_fetch_command_records_json_progress_for_status(tmp_path, monkeypatch) -
         progress.done == 5 and progress.total == 10 for progress in running_progress
     )
     assert any(
-        progress.label == "Downloading video (webm)"
-        for progress in running_progress
+        progress.label == "Downloading video (webm)" for progress in running_progress
     )
     assert any(
         progress.label == "Merging media"

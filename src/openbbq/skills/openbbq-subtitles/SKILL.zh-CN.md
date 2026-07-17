@@ -18,6 +18,10 @@
 - 中断后先跑 `openbbq --json status --workspace <ws>`。manifest 是 stage
   状态的事实来源；`running` 且标 `stale` 通常可以安全重跑。重跑上游 stage
   会把下游 stage 重置为 pending。
+- 不要删除 fetch 的 `.part` 文件；fetch 支持断点续传。不要给 `fetch`、
+  `transcribe`、`burn` 设置短于任务合理时长的 harness timeout。
+- 不要手改 `manifest.json`、`cues.json` 或导出的 ASS。需要改原文、时间轴、
+  译文或断句时使用 `openbbq review`；批量译文只走 `translate apply`。
 - zsh 等 shell 里 URL 参数要加引号。
 - 长任务（`fetch`、`transcribe`、`burn`、`models pull`）可能需要轮询 status。
 - 沙箱环境通常不能用本机 GPU 做 ASR；需要 GPU 时询问用户是否允许在沙箱外运行
@@ -40,7 +44,7 @@
 2. 初始化 workspace。YouTube URL 和本地文件都可用 `openbbq init --workspace <ws>`；
    系列/专名内容先准备或复用 glossary，并在 `init` 时绑定 `--glossary <name>`。
 3. YouTube 输入先检查 auth：`openbbq auth status youtube`。已有 auth 时优先
-   `openbbq fetch --workspace <ws> --auth youtube`；没有 auth 再匿名 fetch。
+   `openbbq fetch --workspace <ws> --auth youtube --max-height 1080`；没有 auth 再匿名 fetch。
    匿名失败且需要 cookies/bot check 时，用 `openbbq auth browser-login youtube`。
 4. 本地文件跳过 fetch；YouTube fetch 后继续 `extract-audio`。
 5. 转写：通常用 `openbbq transcribe --workspace <ws> --model large-v3-turbo
@@ -50,10 +54,12 @@
    更新 glossary 后再 `segment`。如果 `segment` 已跑过，更新 glossary 后重跑
    `segment` 和 `translate init`。
 7. 分段并初始化翻译：`segment` 后跑 `translate init <lang>`。
-8. 填译文：少量 cue 用 Edit 工具；大量 cue 写 `{id: target}` 批次 JSON，再用
-   `openbbq translate apply <lang> --workspace <ws> <batch.json>` 合并。
+8. 填译文：大量 cue 先用 `openbbq --json translate batch <lang> --workspace
+   <ws> --from <id> --limit 20 --only-missing` 读取有界批次，再写 `{id: target}`
+   批次 JSON，并用 `translate apply` 合并。不要把完整 worksheet 塞进上下文。
 9. 机械检查：跑 `openbbq translate check <lang> --workspace <ws>`，清掉 `missing`、
-   `over_budget`、`term_issues`。
+   `over_budget`、`zero_budget`、`term_issues` 和 `quality_issues`；只有输出
+   `ready: true` 才能视为翻译 stage 完成。
 10. 人工可视化审核：用户要求最终人工校对、调整 cue 时间或修复断句时，使用
     `openbbq review --workspace <ws> --to <lang>`。审核页会受控同步 cues 与所有
     worksheet；不要同时让其他 Agent 直接编辑这些文件。
@@ -62,7 +68,8 @@
     `translate apply` 和 `translate check`。
 12. 导出和烧录：默认导出双语 ASS，再 burn。存在 review 文件时，未完成审核会
     阻止导出；只有明确需要草稿时才用 `--allow-unreviewed`。导出时可按场景选择
-    `--ass-preset`。
+    `--ass-preset`。`--allow-quality-warnings` 和 `burn --allow-stale` 只用于用户
+    明确要求的草稿或手工外部产物，不能用于最终交付。
 13. 完成 QA：按 `references/workflows.zh-CN.md` 检查 status、translate check、
     输出 MP4 时长/大小，并截帧确认字幕渲染。
 

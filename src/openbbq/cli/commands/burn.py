@@ -81,6 +81,14 @@ def _resolve_path(value: str, workspace: Path) -> Path:
     return path if path.is_absolute() else workspace / path
 
 
+def _inside_workspace(path: Path, workspace: Path) -> bool:
+    try:
+        path.resolve().relative_to(workspace.resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def _resolve_subtitle(
     workspace: Path, manifest: Manifest, subtitle: str | None
 ) -> Path:
@@ -148,13 +156,21 @@ def burn(
     output: Annotated[
         str | None,
         typer.Option(
-            "--output", help="output mp4 path (default: out/<lang>-burned.mp4)"
+            "--output",
+            help="output mp4 path; relative paths are inside workspace (default: beside ASS)",
         ),
     ] = None,
     ffmpeg: Annotated[
         str | None,
         typer.Option("--ffmpeg", help="ffmpeg executable with libass support"),
     ] = None,
+    allow_stale: Annotated[
+        bool,
+        typer.Option(
+            "--allow-stale",
+            help="burn an intentional untracked or stale workspace subtitle",
+        ),
+    ] = False,
 ) -> None:
     """Hard-burn an exported ASS subtitle file into an MP4 video."""
     output_obj: Output = ctx.obj
@@ -169,6 +185,8 @@ def burn(
             fix="use a video source, or fetch media from the URL first",
         )
     sub = _resolve_subtitle(path, manifest, subtitle)
+    if not allow_stale and (subtitle is None or _inside_workspace(sub, path)):
+        ws.require_fresh_artifact(path, sub, Stage.EXPORT)
     dest = _resolve_path(output, path) if output else _default_output(sub)
 
     last_write = 0.0

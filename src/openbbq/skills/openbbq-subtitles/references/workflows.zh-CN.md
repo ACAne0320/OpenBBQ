@@ -5,7 +5,7 @@
 ```bash
 openbbq init --workspace workspaces/demo --glossary <name> '<youtube-url>'
 openbbq auth status youtube
-openbbq fetch --workspace workspaces/demo --auth youtube
+openbbq fetch --workspace workspaces/demo --auth youtube --max-height 1080
 openbbq extract-audio --workspace workspaces/demo
 openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
 openbbq glossary suggest --workspace workspaces/demo
@@ -38,11 +38,13 @@ openbbq translate init zh --workspace workspaces/demo
 
 ## 填写译文
 
-先读取 `workspaces/demo/translation.zh.json`，看 source、`budget.max_chars` 和
-worksheet 内嵌 glossary 映射。译文要控制在预算内。
+大量 cue 先读取 20 条左右的有界上下文；不要把完整 worksheet 放进模型上下文：
 
-少量 cue（约 30 条以内）可直接用 Edit 工具改 `target` 字段。大量 cue 写批次
-JSON：
+```bash
+openbbq --json translate batch zh --workspace workspaces/demo --from 1 --limit 20 --only-missing
+```
+
+然后写批次 JSON：
 
 ```json
 {"1": "第一句译文", "2": "第二句译文"}
@@ -64,7 +66,8 @@ openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass
 openbbq burn --workspace workspaces/demo --subtitle out/zh.ass --output out/zh-burned.mp4
 ```
 
-`translate check` 的 `missing`、`over_budget`、`term_issues` 必须清零后再导出。
+`translate check` 的 `missing`、`over_budget`、`zero_budget`、`term_issues`、
+`quality_issues` 必须清零且 `ready` 为 `true` 后再导出。
 
 导出前做一次 agent 翻译质量自审，避免烧录后才发现问题。最低要求：
 
@@ -90,6 +93,7 @@ ffmpeg -y -ss 60 -i workspaces/demo/out/zh-burned.mp4 -frames:v 1 workspaces/dem
 确认：
 
 - manifest 相关 stage 全部完成，没有 failed/stale/running。
-- `missing`、`over_budget`、`term_issues` 全清零。
+- `translate check` 返回 `ready: true`；最终流程没有使用
+  `--allow-quality-warnings` 或 `burn --allow-stale`。
 - 输出 MP4 非空，时长与源视频一致。
 - 截帧里字幕已渲染、位置正常；双语输出时两行都可读。

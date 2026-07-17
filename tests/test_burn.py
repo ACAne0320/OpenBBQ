@@ -34,7 +34,13 @@ def _workspace(tmp_path: Path) -> tuple[Path, Manifest]:
     return path, manifest
 
 
-def _with_export(path: Path, manifest: Manifest, artifact: str = "out/zh.ass") -> Path:
+def _with_export(
+    path: Path,
+    manifest: Manifest,
+    artifact: str = "out/zh.ass",
+    *,
+    inputs: list[Path] | None = None,
+) -> Path:
     sub = path / artifact
     sub.parent.mkdir(parents=True, exist_ok=True)
     sub.write_text("[Script Info]\n")
@@ -44,6 +50,12 @@ def _with_export(path: Path, manifest: Manifest, artifact: str = "out/zh.ass") -
         updated_at=datetime.now(timezone.utc),
     )
     ws.write_manifest(path, manifest)
+    ws.record_artifact_provenance(
+        path,
+        sub,
+        Stage.EXPORT,
+        inputs=[] if inputs is None else inputs,
+    )
     return sub
 
 
@@ -121,6 +133,71 @@ def test_burn_rejects_non_ass_export(tmp_path: Path) -> None:
 
     assert exc.value.code == "unsupported_subtitle_format"
     assert exc.value.fix == "openbbq export --format ass"
+
+
+def test_burn_rejects_modified_export_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, manifest = _workspace(tmp_path)
+    sub = _with_export(path, manifest)
+    sub.write_text("[Script Info]\n; manually changed\n")
+    calls: dict[str, object] = {}
+    _patch_burn(monkeypatch, calls)
+
+    with pytest.raises(OpenBBQError) as exc:
+        burn(_ctx(), workspace=str(path))
+
+    assert exc.value.code == "stale_artifact"
+    assert calls == {}
+
+
+def test_burn_rejects_untracked_workspace_subtitle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, _ = _workspace(tmp_path)
+    manual = path / "manual.ass"
+    manual.write_text("[Script Info]\n")
+    calls: dict[str, object] = {}
+    _patch_burn(monkeypatch, calls)
+
+    with pytest.raises(OpenBBQError) as exc:
+        burn(_ctx(), workspace=str(path), subtitle="manual.ass")
+
+    assert exc.value.code == "artifact_unverified"
+    assert calls == {}
+
+
+def test_burn_allows_explicit_stale_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, _ = _workspace(tmp_path)
+    manual = path / "manual.ass"
+    manual.write_text("[Script Info]\n")
+    calls: dict[str, object] = {}
+    _patch_burn(monkeypatch, calls)
+
+    burn(
+        _ctx(),
+        workspace=str(path),
+        subtitle="manual.ass",
+        allow_stale=True,
+    )
+
+    assert calls["subtitle"] == manual
+
+
+def test_burn_allows_explicit_external_subtitle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, _ = _workspace(tmp_path)
+    external = tmp_path / "external.ass"
+    external.write_text("[Script Info]\n")
+    calls: dict[str, object] = {}
+    _patch_burn(monkeypatch, calls)
+
+    burn(_ctx(), workspace=str(path), subtitle=str(external))
+
+    assert calls["subtitle"] == external
 
 
 def test_burn_records_failed_stage(

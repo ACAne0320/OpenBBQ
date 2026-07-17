@@ -35,6 +35,7 @@ class FetchResult(Result):
     author: str | None = None
     thumbnail: str | None = None
     auth: str | None = None
+    max_height: int | None = None
 
     def _artifact_text(self, artifact: str) -> Text:
         uri = (Path(self.workspace) / artifact).resolve().as_uri()
@@ -58,6 +59,8 @@ class FetchResult(Result):
             table.add_row("cover", self._artifact_text(self.thumbnail))
         if self.auth:
             table.add_row("auth", Text(self.auth))
+        if self.max_height is not None:
+            table.add_row("quality", Text(f"≤ {self.max_height}p"))
         return Group(Text.assemble(("✓", "green"), (" media fetched", "bold")), table)
 
 
@@ -81,9 +84,7 @@ def _download_action(progress: fetchlib.FetchProgress) -> str:
     else:
         action = "Downloading media"
     details = " ".join(
-        part
-        for part in (progress.ext, progress.format_note)
-        if part and part != "NA"
+        part for part in (progress.ext, progress.format_note) if part and part != "NA"
     )
     return f"{action} ({details})" if details else action
 
@@ -174,7 +175,11 @@ def _progress_recorder(
         now = time.monotonic()
         first_real_progress = progress.done > 0 and not recorded_nonzero
         label_changed = label != last_label
-        if not label_changed and not first_real_progress and now - last_write < min_interval_s:
+        if (
+            not label_changed
+            and not first_real_progress
+            and now - last_write < min_interval_s
+        ):
             return
         recorded_nonzero = recorded_nonzero or progress.done > 0
         last_label = label
@@ -198,12 +203,22 @@ def fetch(
         bool,
         typer.Option("--no-auth", help="force anonymous yt-dlp download"),
     ] = False,
+    max_height: Annotated[
+        int | None,
+        typer.Option(
+            "--max-height",
+            min=144,
+            help="limit video height (e.g. 1080); default is yt-dlp best quality",
+        ),
+    ] = None,
 ) -> None:
     """Download URL source media with yt-dlp."""
     output: Output = ctx.obj
     path = ws.resolve_workspace(workspace)
     manifest = ws.read_manifest(path)
-    auth_site = None if no_auth else auth or fetchlib.auto_auth_site(manifest.source.ref)
+    auth_site = (
+        None if no_auth else auth or fetchlib.auto_auth_site(manifest.source.ref)
+    )
     should_record = manifest.source.type == "url"
     record_progress = _progress_recorder(path, manifest, auth_site)
     record_metadata = _metadata_recorder(path, manifest)
@@ -215,6 +230,7 @@ def fetch(
                 path,
                 manifest,
                 auth_site=auth_site,
+                max_height=max_height,
                 on_progress=record_progress,
                 on_metadata=record_metadata,
             )
@@ -274,6 +290,7 @@ def fetch(
                     path,
                     manifest,
                     auth_site=auth_site,
+                    max_height=max_height,
                     on_progress=cb,
                     on_metadata=metadata_cb,
                 )
@@ -323,6 +340,7 @@ def fetch(
             author=result.author,
             thumbnail=result.thumbnail,
             auth=result.auth,
+            max_height=result.max_height,
             next="openbbq extract-audio",
         )
     )

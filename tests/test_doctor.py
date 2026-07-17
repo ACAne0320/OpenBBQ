@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from openbbq import __version__
 from openbbq.cli.commands.doctor import DoctorResult
 from openbbq.core import doctor
 from openbbq.core import skill as skilllib
@@ -147,3 +148,10 @@ def test_agent_skill_check_reports_outdated(tmp_path) -> None:
     assert "outdated" in check.detail
     assert check.fix == "openbbq skill install --force"
     assert DoctorResult.of([check]).healthy is True
+
+
+def test_doctor_result_exposes_runtime_version_and_executable() -> None:
+    result = DoctorResult.of([])
+
+    assert result.version == __version__
+    assert result.executable

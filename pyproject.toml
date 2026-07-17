@@ -1,6 +1,6 @@
 [project]
 name = "openbbq"
-version = "0.0.5"
+version = "0.0.6"
 description = "Agent-friendly CLI for video translation and subtitle production."
 readme = "README.md"
 authors = [

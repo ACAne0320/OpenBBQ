@@ -9,6 +9,7 @@ import typer
 
 from ...core import export as exp
 from ...core import review as reviewlib
+from ...core import translate as translatelib
 from ...core import workspace as ws
 from ...errors import OpenBBQError
 from ...schemas import Stage, StageState, StageStatus
@@ -29,10 +30,7 @@ class ExportResult(Result):
         detail = f"{self.cues} cues · {self.format} · {self.mode}"
         if self.ass_preset is not None:
             detail = f"{detail} · {self.ass_preset}"
-        return (
-            f"[green]✓[/] exported: {self.artifact}\n"
-            f"  {detail}"
-        )
+        return f"[green]✓[/] exported: {self.artifact}\n  {detail}"
 
 
 # --- shell layer --------------------------------------------------------------
@@ -49,7 +47,8 @@ def export(
     mode: Annotated[
         exp.ExportMode | None,
         typer.Option(
-            "--mode", help="source | target | bilingual (default: source, or target with --to)"
+            "--mode",
+            help="source | target | bilingual (default: source, or target with --to)",
         ),
     ] = None,
     fmt: Annotated[
@@ -57,7 +56,10 @@ def export(
     ] = "srt",
     output: Annotated[
         str | None,
-        typer.Option("--output", help="output path (default: out/<lang>.<format>)"),
+        typer.Option(
+            "--output",
+            help="output path; relative paths are inside workspace (default: out/<lang>.<format>)",
+        ),
     ] = None,
     ass_preset: Annotated[
         exp.AssPreset,
@@ -79,12 +81,21 @@ def export(
             help="export even when an existing review file is incomplete",
         ),
     ] = False,
+    allow_quality_warnings: Annotated[
+        bool,
+        typer.Option(
+            "--allow-quality-warnings",
+            help="export a deliberate draft despite budget, term, timing, or quality warnings",
+        ),
+    ] = False,
 ) -> None:
     """Render cues into a subtitle file."""
     output_obj: Output = ctx.obj
     started = time.monotonic()
     if fmt not in exp.SUPPORTED_FORMATS:
-        raise OpenBBQError("unsupported_format", format=fmt, fix="use --format srt or ass")
+        raise OpenBBQError(
+            "unsupported_format", format=fmt, fix="use --format srt or ass"
+        )
     if fmt != "ass" and ass_preset != exp.AssPreset.DEFAULT:
         raise OpenBBQError(
             "ass_preset_requires_ass",
@@ -100,6 +111,7 @@ def export(
 
     translation = None
     translation_lang = None
+    wpath: Path | None = None
     resolved = mode or exp.default_mode(to)
     if resolved is not exp.ExportMode.SOURCE:
         if to is None:
@@ -114,8 +126,29 @@ def export(
             )
         translation = ws.read_translation(wpath)
 
+        report = translatelib.check(doc, translation, to)
+        if not allow_quality_warnings and (
+            report.over_budget
+            or report.zero_budget
+            or report.term_issues
+            or report.quality_issues
+        ):
+            raise OpenBBQError(
+                "translation_quality_failed",
+                over_budget=report.over_budget[:15],
+                zero_budget=report.zero_budget[:15],
+                term_ids=sorted({issue.id for issue in report.term_issues})[:15],
+                quality_ids=sorted({issue.id for issue in report.quality_issues})[:15],
+                fix=(
+                    f"run `openbbq translate check {to}` and fix warnings; "
+                    "use --allow-quality-warnings only for an intentional draft"
+                ),
+            )
+
     if not allow_unreviewed:
-        review_lang = translation_lang if resolved is not exp.ExportMode.SOURCE else None
+        review_lang = (
+            translation_lang if resolved is not exp.ExportMode.SOURCE else None
+        )
         reviewlib.require_complete_review(path, doc, translation, review_lang)
 
     if fmt == "ass":
@@ -142,6 +175,20 @@ def export(
         dest = path / dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     ws.write_text_atomic(dest, content)
+
+    provenance_inputs = [cpath]
+    if wpath is not None:
+        provenance_inputs.append(wpath)
+    review_lang = translation_lang if resolved is not exp.ExportMode.SOURCE else None
+    review_path = reviewlib.review_path(path, review_lang)
+    if review_path.is_file():
+        provenance_inputs.append(review_path)
+    ws.record_artifact_provenance(
+        path,
+        dest,
+        Stage.EXPORT,
+        inputs=provenance_inputs,
+    )
 
     # record the artifact relative to the workspace when it lives inside it
     try:
