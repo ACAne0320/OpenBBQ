@@ -28,7 +28,7 @@ zsh 这类 shell 里要给 URL 加引号：
 
 ```bash
 openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
-openbbq fetch --workspace workspaces/demo
+openbbq fetch --workspace workspaces/demo --max-height 1080
 openbbq extract-audio --workspace workspaces/demo
 openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
 openbbq segment --workspace workspaces/demo
@@ -38,7 +38,7 @@ openbbq segment --workspace workspaces/demo
 
 ```bash
 openbbq auth browser-login youtube
-openbbq fetch --workspace workspaces/demo
+openbbq fetch --workspace workspaces/demo --max-height 1080
 ```
 
 浏览器登录态保存在 `OPENBBQ_HOME` 下，默认是 `~/.openbbq`。这个目录需要可写。
@@ -70,9 +70,13 @@ openbbq segment --workspace workspaces/demo
 openbbq translate init zh --workspace workspaces/demo
 ```
 
-填写 `workspaces/demo/translation.zh.json` 中的 `target` 字段——可以直接编辑
-文件，也可以分批合并：写一个 cue id → 译文的 JSON 对象，然后 apply（可重复
-执行，适合长视频分批）：
+长视频先读取有界批次，避免 Agent 把整个 worksheet 塞进上下文：
+
+```bash
+openbbq --json translate batch zh --workspace workspaces/demo --from 1 --limit 20 --only-missing
+```
+
+把选中的 cue id → 译文写成 JSON，再用 apply 合并：
 
 ```bash
 echo '{"1": "第一句译文", "2": "第二句译文"}' > targets.json
@@ -84,6 +88,10 @@ openbbq translate apply zh --workspace workspaces/demo targets.json
 ```bash
 openbbq translate check zh --workspace workspaces/demo
 ```
+
+只有 `ready: true` 才表示翻译完成。必须处理 `missing`、`over_budget`、
+`zero_budget`、`term_issues` 和 `quality_issues`；只有明确导出草稿时才使用
+`--allow-quality-warnings` 绕过。
 
 ## 可视化审核与字幕编辑
 
@@ -122,6 +130,10 @@ openbbq burn --workspace workspaces/demo
 ```bash
 openbbq --json status --workspace workspaces/demo
 ```
+
+导出会记录 cues、译文、review 状态和 ASS 的内容哈希。burn 默认拒绝已改动或未追踪
+的 workspace 内 ASS；`--allow-stale` 只用于明确的手工草稿，显式传入 workspace
+外部 ASS 仍然受支持。
 
 ## ASS 预设
 
@@ -176,6 +188,7 @@ skills 目录，Claude Code 使用 `openbbq skill install --agent claude`，Code
 - `cues.json`：原文字幕 cue。
 - `translation.<lang>.json`：可编辑翻译工作表。
 - `review.<lang>.json`：逐 cue 的人工审核状态与已审核内容 hash。
+- `.openbbq/artifacts.json`：供 burn 校验的导出来源与内容 hash。
 - `.openbbq/review/`：本地 lock、checkpoint、waveform cache 和预览 proxy。
 - `out/<lang>.srt`：导出的 SRT 字幕。
 - `out/<lang>.ass`：导出的 ASS 字幕。
@@ -192,7 +205,7 @@ openbbq fetch
 openbbq extract-audio
 openbbq transcribe
 openbbq segment
-openbbq translate init/apply/check
+openbbq translate init/batch/apply/check
 openbbq review
 openbbq glossary list/show/new/use/suggest
 openbbq export

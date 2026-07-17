@@ -12,6 +12,7 @@ import typer
 from pydantic import ValidationError
 
 from openbbq.cli.commands.translate import apply as apply_cmd
+from openbbq.cli.commands.translate import batch as batch_cmd
 from openbbq.cli.commands.translate import check as check_cmd
 from openbbq.cli.commands.translate import init as init_cmd
 from openbbq.cli.output import Output
@@ -38,7 +39,12 @@ from openbbq.schemas import (
 )
 
 EN_PARAMS = SegmentParams(
-    max_cps=21, max_chars_per_line=50, max_lines=1, min_dur=1.0, max_dur=7.0, min_gap=0.083
+    max_cps=21,
+    max_chars_per_line=50,
+    max_lines=1,
+    min_dur=1.0,
+    max_dur=7.0,
+    min_gap=0.083,
 )
 
 
@@ -71,7 +77,10 @@ def _item(id: int, source: str, target: str | None = None) -> TranslationItem:
 
 def test_translation_roundtrip_with_params() -> None:
     doc = Translation(
-        source_lang="en", target_lang="zh", params=EN_PARAMS, items=[_item(1, "hi", "你好")]
+        source_lang="en",
+        target_lang="zh",
+        params=EN_PARAMS,
+        items=[_item(1, "hi", "你好")],
     )
     dumped = doc.model_dump_json()
     assert '"schema":"openbbq/translation@1"' in dumped.replace(" ", "")
@@ -80,7 +89,9 @@ def test_translation_roundtrip_with_params() -> None:
 
 def test_cues_forbids_dropped_target_field() -> None:
     with pytest.raises(ValidationError):  # target/budget no longer on Cue
-        Cue.model_validate({"id": 1, "start": 0, "end": 1, "source": "hi", "target": "x"})
+        Cue.model_validate(
+            {"id": 1, "start": 0, "end": 1, "source": "hi", "target": "x"}
+        )
 
 
 # --- build_worksheet ----------------------------------------------------------
@@ -99,7 +110,9 @@ def test_build_worksheet_budget_and_snapshot() -> None:
 
 
 def test_build_worksheet_unknown_lang_is_generic() -> None:
-    _, generic = tr.build_worksheet(_cues(Cue(id=1, start=0, end=1, source="x")), None, "xx")
+    _, generic = tr.build_worksheet(
+        _cues(Cue(id=1, start=0, end=1, source="x")), None, "xx"
+    )
     assert generic is True
 
 
@@ -169,19 +182,102 @@ def test_apply_targets_unknown_id_fails_before_mutation() -> None:
 
 def _ws_doc(*items: TranslationItem, source_lang="en", target_lang="zh") -> Translation:
     return Translation(
-        source_lang=source_lang, target_lang=target_lang, params=EN_PARAMS, items=list(items)
+        source_lang=source_lang,
+        target_lang=target_lang,
+        params=EN_PARAMS,
+        items=list(items),
     )
 
 
 def test_check_complete() -> None:
-    cues = _cues(Cue(id=1, start=0, end=1, source="hi"), Cue(id=2, start=1, end=2, source="bye"))
+    cues = _cues(
+        Cue(id=1, start=0, end=1, source="hi"), Cue(id=2, start=1, end=2, source="bye")
+    )
     doc = _ws_doc(_item(1, "hi", "你好"), _item(2, "bye", "再见"))
     report = tr.check(cues, doc, "zh")
     assert report.filled == 2 and report.total == 2 and report.missing == []
+    assert report.ready is True
+
+
+def test_check_source_copy_is_quality_issue() -> None:
+    cues = _cues(Cue(id=1, start=0, end=2, source="Hello there"))
+    doc = _ws_doc(_item(1, "Hello there", "Hello there"))
+
+    report = tr.check(cues, doc, "zh")
+
+    assert report.ready is False
+    assert report.quality_warnings == 1
+    assert report.quality_issues == [
+        tr.QualityIssue(id=1, code="source_copy", detail="target matches source")
+    ]
+
+
+def test_check_kept_glossary_only_source_is_not_source_copy() -> None:
+    cues = _cues(Cue(id=1, start=0, end=2, source="OpenAI"))
+    doc = Translation(
+        source_lang="en",
+        target_lang="zh",
+        params=EN_PARAMS,
+        glossary=[GlossaryRef(source="OpenAI", keep=True)],
+        items=[_item(1, "OpenAI", "OpenAI")],
+    )
+
+    assert tr.check(cues, doc, "zh").quality_issues == []
+
+
+def test_check_target_script_mismatch_is_quality_issue() -> None:
+    cues = _cues(Cue(id=1, start=0, end=2, source="Hello from Vienna"))
+    doc = _ws_doc(_item(1, "Hello from Vienna", "Hello from Austria"))
+
+    report = tr.check(cues, doc, "zh")
+
+    assert [issue.code for issue in report.quality_issues] == ["target_script"]
+
+
+def test_check_repeated_target_for_distinct_sources_is_quality_issue() -> None:
+    cues = _cues(
+        Cue(id=1, start=0, end=1, source="First source"),
+        Cue(id=2, start=1, end=2, source="Second source"),
+        Cue(id=3, start=2, end=3, source="Third source"),
+    )
+    repeated = "我们客户不够。对。"
+    doc = _ws_doc(
+        _item(1, "First source", repeated),
+        _item(2, "Second source", repeated),
+        _item(3, "Third source", repeated),
+    )
+
+    report = tr.check(cues, doc, "zh")
+
+    assert report.ready is False
+    assert [(issue.id, issue.code) for issue in report.quality_issues] == [
+        (1, "repeated_target"),
+        (2, "repeated_target"),
+        (3, "repeated_target"),
+    ]
+
+
+def test_check_zero_budget_is_explicit_blocker() -> None:
+    cues = _cues(Cue(id=1, start=0, end=0.02, source="A full sentence"))
+    doc = _ws_doc(
+        TranslationItem(
+            id=1,
+            source="A full sentence",
+            budget=Budget(max_chars=0, seconds=0.02),
+            target=None,
+        )
+    )
+
+    report = tr.check(cues, doc, "zh")
+
+    assert report.zero_budget == [1]
+    assert report.ready is False
 
 
 def test_check_blank_counts_missing() -> None:
-    cues = _cues(Cue(id=1, start=0, end=1, source="hi"), Cue(id=2, start=1, end=2, source="bye"))
+    cues = _cues(
+        Cue(id=1, start=0, end=1, source="hi"), Cue(id=2, start=1, end=2, source="bye")
+    )
     doc = _ws_doc(_item(1, "hi", "  "), _item(2, "bye", None))
     report = tr.check(cues, doc, "zh")
     assert report.filled == 0 and report.missing == [1, 2]
@@ -229,7 +325,9 @@ def test_check_duplicate_id_is_id_mismatch() -> None:
 
 
 def test_check_id_set_mismatch() -> None:
-    cues = _cues(Cue(id=1, start=0, end=1, source="hi"), Cue(id=2, start=1, end=2, source="bye"))
+    cues = _cues(
+        Cue(id=1, start=0, end=1, source="hi"), Cue(id=2, start=1, end=2, source="bye")
+    )
     doc = _ws_doc(_item(1, "hi", "你好"))  # missing id 2
     with pytest.raises(OpenBBQError) as exc:
         tr.check(cues, doc, "zh")
@@ -269,14 +367,16 @@ def test_check_term_warnings_target_and_keep() -> None:
         Cue(id=2, start=1, end=2, source="Pey explains"),
     )
     doc = Translation(
-        source_lang="en", target_lang="zh", params=EN_PARAMS,
+        source_lang="en",
+        target_lang="zh",
+        params=EN_PARAMS,
         glossary=[
             GlossaryRef(source="Frieren", target="芙莉莲"),
             GlossaryRef(source="Pey", keep=True),
         ],
         items=[
-            _item(1, "Frieren smiled", "微笑了"),   # dropped 芙莉莲 → warn
-            _item(2, "Pey explains", "佩解释道"),    # dropped verbatim Pey → warn
+            _item(1, "Frieren smiled", "微笑了"),  # dropped 芙莉莲 → warn
+            _item(2, "Pey explains", "佩解释道"),  # dropped verbatim Pey → warn
         ],
     )
     report = tr.check(cues, doc, "zh")
@@ -290,7 +390,9 @@ def test_check_term_warnings_target_and_keep() -> None:
 def test_check_term_warning_satisfied() -> None:
     cues = _cues(Cue(id=1, start=0, end=1, source="Frieren smiled"))
     doc = Translation(
-        source_lang="en", target_lang="zh", params=EN_PARAMS,
+        source_lang="en",
+        target_lang="zh",
+        params=EN_PARAMS,
         glossary=[GlossaryRef(source="Frieren", target="芙莉莲")],
         items=[_item(1, "Frieren smiled", "芙莉莲微笑了")],
     )
@@ -300,7 +402,9 @@ def test_check_term_warning_satisfied() -> None:
 def test_check_term_keep_is_case_insensitive_in_target() -> None:
     cues = _cues(Cue(id=1, start=0, end=1, source="OpenAI shipped"))
     doc = Translation(
-        source_lang="en", target_lang="zh", params=EN_PARAMS,
+        source_lang="en",
+        target_lang="zh",
+        params=EN_PARAMS,
         glossary=[GlossaryRef(source="OpenAI", keep=True)],
         items=[_item(1, "OpenAI shipped", "openai 发布了")],
     )
@@ -341,7 +445,9 @@ def _workspace(tmp_path: Path, *cues: Cue, with_segment: bool = True) -> Path:
     if with_segment:
         (path / "cues.json").write_text(_cues(*cues).model_dump_json())
         manifest.stages[Stage.SEGMENT] = StageState(
-            status=StageStatus.DONE, artifact="cues.json", updated_at=datetime.now(timezone.utc)
+            status=StageStatus.DONE,
+            artifact="cues.json",
+            updated_at=datetime.now(timezone.utc),
         )
         ws.write_manifest(path, manifest)
     return path
@@ -353,7 +459,9 @@ def test_init_writes_worksheet_and_records_running_progress(tmp_path) -> None:
     wpath = path / "translation.zh.json"
     assert wpath.is_file()
     doc = ws.read_translation(wpath)
-    assert doc.target_lang == "zh" and len(doc.items) == 1 and doc.items[0].target is None
+    assert (
+        doc.target_lang == "zh" and len(doc.items) == 1 and doc.items[0].target is None
+    )
     stage = ws.read_manifest(path).stages[Stage.TRANSLATE]
     assert stage.status is StageStatus.RUNNING
     assert stage.artifact == "translation.zh.json"
@@ -385,7 +493,9 @@ def test_init_invalid_lang(tmp_path) -> None:
 
 def test_apply_command_merges_batches(tmp_path) -> None:
     path = _workspace(
-        tmp_path, Cue(id=1, start=0, end=1, source="hi"), Cue(id=2, start=1, end=2, source="bye")
+        tmp_path,
+        Cue(id=1, start=0, end=1, source="hi"),
+        Cue(id=2, start=1, end=2, source="bye"),
     )
     init_cmd(_ctx(), lang="zh", workspace=str(path))
     batch1 = tmp_path / "targets.1.json"
@@ -400,9 +510,11 @@ def test_apply_command_merges_batches(tmp_path) -> None:
     batch2.write_text('{"2": "再见"}', encoding="utf-8")
     apply_cmd(_ctx(), lang="zh", targets=str(batch2), workspace=str(path))
     stage = ws.read_manifest(path).stages[Stage.TRANSLATE]
-    assert stage.status is StageStatus.DONE
+    # Applying all targets is not the same as passing the quality gate.
+    assert stage.status is StageStatus.RUNNING
     assert stage.progress == Progress(done=2, total=2)
-    check_cmd(_ctx(), lang="zh", workspace=str(path))  # complete: no raise
+    check_cmd(_ctx(), lang="zh", workspace=str(path))
+    assert ws.read_manifest(path).stages[Stage.TRANSLATE].status is StageStatus.DONE
 
 
 def test_apply_command_requires_worksheet(tmp_path) -> None:
@@ -418,13 +530,17 @@ def test_apply_command_missing_targets_file(tmp_path) -> None:
     path = _workspace(tmp_path, Cue(id=1, start=0, end=1, source="hi"))
     init_cmd(_ctx(), lang="zh", workspace=str(path))
     with pytest.raises(OpenBBQError) as exc:
-        apply_cmd(_ctx(), lang="zh", targets=str(tmp_path / "nope.json"), workspace=str(path))
+        apply_cmd(
+            _ctx(), lang="zh", targets=str(tmp_path / "nope.json"), workspace=str(path)
+        )
     assert exc.value.code == "targets_not_found"
 
 
 def test_check_command_progress(tmp_path) -> None:
     path = _workspace(
-        tmp_path, Cue(id=1, start=0, end=1, source="hi"), Cue(id=2, start=1, end=2, source="bye")
+        tmp_path,
+        Cue(id=1, start=0, end=1, source="hi"),
+        Cue(id=2, start=1, end=2, source="bye"),
     )
     init_cmd(_ctx(), lang="zh", workspace=str(path))
     # fill one target by editing the worksheet
@@ -442,7 +558,9 @@ def test_translate_command_payload_next_hints(
     tmp_path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path = _workspace(
-        tmp_path, Cue(id=1, start=0, end=1, source="hi"), Cue(id=2, start=1, end=2, source="bye")
+        tmp_path,
+        Cue(id=1, start=0, end=1, source="hi"),
+        Cue(id=2, start=1, end=2, source="bye"),
     )
     init_cmd(_ctx(), lang="zh", workspace=str(path))
     assert _payload(capsys)["next"] == "openbbq translate apply zh <targets.json>"
@@ -453,7 +571,7 @@ def test_translate_command_payload_next_hints(
     assert _payload(capsys)["next"] == "openbbq translate apply zh <targets.json>"
 
     check_cmd(_ctx(), lang="zh", workspace=str(path))
-    assert _payload(capsys)["next"] == "openbbq translate apply zh <targets.json>"
+    assert _payload(capsys)["next"] == "openbbq translate batch zh --limit 20"
 
     batch2 = tmp_path / "targets.2.json"
     batch2.write_text('{"2": "再见"}', encoding="utf-8")
@@ -490,6 +608,7 @@ def test_translate_check_payload_warns_over_budget(
     assert payload["over_budget"] == 1
     assert payload["over_budget_ids"] == [1]
     assert payload["missing"] == [2]
+    assert payload["ready"] is False
 
 
 def test_translate_check_payload_term_issues(
@@ -508,14 +627,69 @@ def test_translate_check_payload_term_issues(
 
     payload = _payload(capsys)
     assert payload["term_warnings"] == 1
-    assert payload["term_issues"] == [
-        {"id": 1, "term": "OpenAI", "expected": "OpenAI"}
-    ]
+    assert payload["term_issues"] == [{"id": 1, "term": "OpenAI", "expected": "OpenAI"}]
+    assert payload["ready"] is False
+
+
+def test_translate_check_quality_issue_keeps_stage_running(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _workspace(tmp_path, Cue(id=1, start=0, end=2, source="Hello there"))
+    init_cmd(_ctx(), lang="zh", workspace=str(path))
+    _payload(capsys)
+    wpath = path / "translation.zh.json"
+    doc = ws.read_translation(wpath)
+    doc.items[0].target = "Hello there"
+    ws.write_text_atomic(wpath, doc.model_dump_json())
+
+    check_cmd(_ctx(), lang="zh", workspace=str(path))
+
+    payload = _payload(capsys)
+    assert payload["ready"] is False
+    assert payload["quality_warnings"] == 1
+    quality_issues = cast(list[dict[str, object]], payload["quality_issues"])
+    assert quality_issues[0]["code"] == "source_copy"
+    assert ws.read_manifest(path).stages[Stage.TRANSLATE].status is StageStatus.RUNNING
+
+
+def test_translate_batch_returns_bounded_items_context_and_next_cursor(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _workspace(
+        tmp_path,
+        *(Cue(id=i, start=i - 1, end=i, source=f"source {i}") for i in range(1, 7)),
+    )
+    init_cmd(_ctx(), lang="zh", workspace=str(path))
+    _payload(capsys)
+    wpath = path / "translation.zh.json"
+    doc = ws.read_translation(wpath)
+    doc.items[1].target = "已有译文"
+    ws.write_text_atomic(wpath, doc.model_dump_json())
+
+    batch_cmd(
+        _ctx(),
+        lang="zh",
+        workspace=str(path),
+        start=2,
+        limit=2,
+        only_missing=True,
+        context=1,
+    )
+
+    payload = _payload(capsys)
+    assert payload["selected_ids"] == [3, 4]
+    items = cast(list[dict[str, object]], payload["items"])
+    assert [item["id"] for item in items] == [2, 3, 4, 5]
+    assert [item["selected"] for item in items] == [False, True, True, False]
+    assert payload["next_from"] == 5
+    assert payload["remaining"] == 2
 
 
 def test_check_command_syncs_full_worksheet_to_done(tmp_path) -> None:
     path = _workspace(
-        tmp_path, Cue(id=1, start=0, end=1, source="hi"), Cue(id=2, start=1, end=2, source="bye")
+        tmp_path,
+        Cue(id=1, start=0, end=1, source="hi"),
+        Cue(id=2, start=1, end=2, source="bye"),
     )
     init_cmd(_ctx(), lang="zh", workspace=str(path))
     wpath = path / "translation.zh.json"

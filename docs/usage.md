@@ -29,7 +29,7 @@ Quote URLs in shells such as zsh:
 
 ```bash
 openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
-openbbq fetch --workspace workspaces/demo
+openbbq fetch --workspace workspaces/demo --max-height 1080
 openbbq extract-audio --workspace workspaces/demo
 openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
 openbbq segment --workspace workspaces/demo
@@ -39,7 +39,7 @@ If YouTube asks for login or bot verification:
 
 ```bash
 openbbq auth browser-login youtube
-openbbq fetch --workspace workspaces/demo
+openbbq fetch --workspace workspaces/demo --max-height 1080
 ```
 
 The browser auth profile is stored under `OPENBBQ_HOME`, defaulting to
@@ -73,9 +73,14 @@ Create a Chinese translation worksheet:
 openbbq translate init zh --workspace workspaces/demo
 ```
 
-Fill the `target` fields in `workspaces/demo/translation.zh.json` — either by
-editing the file directly, or in batches: write a JSON object mapping cue id →
-translated text and merge it (repeatable, ideal for long videos):
+Read long worksheets in bounded batches so an Agent does not load the whole
+video into context:
+
+```bash
+openbbq --json translate batch zh --workspace workspaces/demo --from 1 --limit 20 --only-missing
+```
+
+Write a JSON object mapping selected cue ids to translated text and merge it:
 
 ```bash
 echo '{"1": "第一句译文", "2": "第二句译文"}' > targets.json
@@ -87,6 +92,10 @@ Validate it:
 ```bash
 openbbq translate check zh --workspace workspaces/demo
 ```
+
+The translation is complete only when `ready` is `true`. Resolve `missing`,
+`over_budget`, `zero_budget`, `term_issues`, and `quality_issues`; export blocks
+these warnings unless `--allow-quality-warnings` explicitly marks a draft.
 
 ## Visual Review And Subtitle Editing
 
@@ -128,6 +137,11 @@ terminal:
 ```bash
 openbbq --json status --workspace workspaces/demo
 ```
+
+Export records content hashes for cues, translation, review state, and the ASS.
+Burn rejects a changed or untracked workspace ASS. `--allow-stale` is reserved
+for an intentional manual draft; an explicitly supplied ASS outside the
+workspace remains supported.
 
 ## ASS Presets
 
@@ -187,6 +201,7 @@ Common workspace outputs:
 - `cues.json`: source subtitle cues.
 - `translation.<lang>.json`: editable translation worksheet.
 - `review.<lang>.json`: cue-level human review state and reviewed-content hashes.
+- `.openbbq/artifacts.json`: export provenance and content hashes used by burn.
 - `.openbbq/review/`: local locks, checkpoints, waveform cache, and preview proxy.
 - `out/<lang>.srt`: exported SRT subtitles.
 - `out/<lang>.ass`: exported ASS subtitles.
@@ -203,7 +218,7 @@ openbbq fetch
 openbbq extract-audio
 openbbq transcribe
 openbbq segment
-openbbq translate init/apply/check
+openbbq translate init/batch/apply/check
 openbbq review
 openbbq glossary list/show/new/use/suggest
 openbbq export

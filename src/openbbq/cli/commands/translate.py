@@ -11,7 +11,15 @@ from ...core import glossary as glossarylib
 from ...core import translate as translatelib
 from ...core import workspace as ws
 from ...errors import OpenBBQError
-from ...schemas import Manifest, Progress, Stage, StageState, StageStatus, Translation
+from ...schemas import (
+    GlossaryRef,
+    Manifest,
+    Progress,
+    Stage,
+    StageState,
+    StageStatus,
+    Translation,
+)
 from ..output import Output
 from ..results import Result
 
@@ -97,11 +105,16 @@ class TranslateCheckResult(Result):
     missing: list[int]
     over_budget: int
     over_budget_ids: list[int]
+    zero_budget: int
+    zero_budget_ids: list[int]
     term_warnings: int
     term_issues: list[translatelib.TermIssue]
+    quality_warnings: int
+    quality_issues: list[translatelib.QualityIssue]
+    ready: bool
 
     def render(self) -> str:
-        done = self.filled == self.total
+        done = self.ready
         head = "[green]✓[/] complete" if done else "[yellow]·[/] in progress"
         line = f"{head}: {self.filled}/{self.total} cues · {self.lang}"
         if self.missing:
@@ -122,6 +135,14 @@ class TranslateCheckResult(Result):
             line += f"\n  [yellow]over budget: {shown}{more}[/]"
         if self.term_warnings:
             line += f"\n  [yellow]term warnings: {self.term_warnings}[/]"
+        if self.zero_budget:
+            shown = ", ".join(str(i) for i in self.zero_budget_ids)
+            line += f"\n  [red]zero-budget cues: {shown}[/]"
+        if self.quality_warnings:
+            shown = ", ".join(
+                f"{issue.id}:{issue.code}" for issue in self.quality_issues
+            )
+            line += f"\n  [yellow]quality warnings: {shown}[/]"
         return line
 
 
@@ -135,10 +156,15 @@ def init(
     ] = None,
     glossary: Annotated[
         str | None,
-        typer.Option("--glossary", help="glossary name (overrides the manifest binding)"),
+        typer.Option(
+            "--glossary", help="glossary name (overrides the manifest binding)"
+        ),
     ] = None,
     force: Annotated[
-        bool, typer.Option("--force", help="overwrite an existing worksheet (loses filled targets)")
+        bool,
+        typer.Option(
+            "--force", help="overwrite an existing worksheet (loses filled targets)"
+        ),
     ] = False,
 ) -> None:
     """Prepare a translation worksheet for LANG from cues + glossary."""
@@ -223,7 +249,8 @@ def apply(
         artifact=wpath.name,
         filled=report.filled,
         total=report.total,
-        complete=report.filled == report.total,
+        # Only `translate check` can mark the stage done after every gate passes.
+        complete=False,
     )
     output.emit(
         TranslateApplyResult(
@@ -245,21 +272,110 @@ def _resolve_lang(path, manifest, explicit: str | None) -> str:
         return explicit
     present = ws.find_worksheets(path)
     if not present:
-        raise OpenBBQError(
-            "translation_not_found", fix="openbbq translate init <lang>"
-        )
+        raise OpenBBQError("translation_not_found", fix="openbbq translate init <lang>")
     if len(present) > 1:
         raise OpenBBQError(
-            "ambiguous_lang", langs=present, fix="pass the language, e.g. translate check zh"
+            "ambiguous_lang",
+            langs=present,
+            fix="pass the language, e.g. translate check zh",
         )
     return present[0]
+
+
+class TranslateBatchResult(Result):
+    lang: str
+    selected_ids: list[int]
+    items: list[translatelib.BatchItem]
+    glossary: list[GlossaryRef]
+    next_from: int | None
+    remaining: int
+
+    def render(self) -> str:
+        if not self.selected_ids:
+            return f"[green]✓[/] no matching cues · {self.lang}"
+        lines = [
+            f"[green]✓[/] batch {self.selected_ids[0]}–{self.selected_ids[-1]} · {self.lang}"
+        ]
+        for item in self.items:
+            marker = "*" if item.selected else "·"
+            target = "" if item.target is None else f" → {item.target}"
+            lines.append(
+                f"  {marker} {item.id} [{item.budget.max_chars}]: {item.source}{target}"
+            )
+        if self.next_from is not None:
+            lines.append(
+                f"  next: --from {self.next_from} · {self.remaining} remaining"
+            )
+        return "\n".join(lines)
+
+
+@app.command()
+def batch(
+    ctx: typer.Context,
+    lang: Annotated[
+        str | None,
+        typer.Argument(help="target language (inferred if only one worksheet)"),
+    ] = None,
+    workspace: Annotated[
+        str | None,
+        typer.Option("--workspace", "-w", help="workspace dir (default: cwd upward)"),
+    ] = None,
+    start: Annotated[
+        int, typer.Option("--from", min=1, help="first cue id to consider")
+    ] = 1,
+    limit: Annotated[
+        int, typer.Option("--limit", min=1, max=200, help="selected cues to return")
+    ] = 20,
+    only_missing: Annotated[
+        bool, typer.Option("--only-missing", help="skip cues that already have targets")
+    ] = False,
+    context: Annotated[
+        int,
+        typer.Option("--context", min=0, max=5, help="neighbor cues around selections"),
+    ] = 1,
+) -> None:
+    """Read a bounded worksheet slice for context-safe Agent translation."""
+    output: Output = ctx.obj
+    path = ws.resolve_workspace(workspace)
+    manifest = ws.read_manifest(path)
+    resolved = _resolve_lang(path, manifest, lang)
+    wpath = ws.worksheet_path(path, resolved)
+    if not wpath.is_file():
+        raise OpenBBQError(
+            "translation_not_found",
+            lang=resolved,
+            fix=f"openbbq translate init {resolved}",
+        )
+    report = translatelib.select_batch(
+        ws.read_translation(wpath),
+        start=start,
+        limit=limit,
+        only_missing=only_missing,
+        context=context,
+    )
+    output.emit(
+        TranslateBatchResult(
+            lang=resolved,
+            selected_ids=report.selected_ids,
+            items=report.items,
+            glossary=report.glossary,
+            next_from=report.next_from,
+            remaining=report.remaining,
+            next=(
+                f"openbbq translate batch {resolved} --from {report.next_from} --limit {limit}"
+                if report.next_from is not None
+                else f"openbbq translate check {resolved}"
+            ),
+        )
+    )
 
 
 @app.command()
 def check(
     ctx: typer.Context,
     lang: Annotated[
-        str | None, typer.Argument(help="target language (inferred if only one worksheet)")
+        str | None,
+        typer.Argument(help="target language (inferred if only one worksheet)"),
     ] = None,
     workspace: Annotated[
         str | None,
@@ -289,7 +405,7 @@ def check(
         artifact=wpath.name,
         filled=report.filled,
         total=report.total,
-        complete=report.filled == report.total,
+        complete=report.ready,
     )
     output.emit(
         TranslateCheckResult(
@@ -299,10 +415,15 @@ def check(
             missing=report.missing,
             over_budget=len(report.over_budget),
             over_budget_ids=report.over_budget[:_DETAIL_LIMIT],
+            zero_budget=len(report.zero_budget),
+            zero_budget_ids=report.zero_budget[:_DETAIL_LIMIT],
             term_warnings=report.term_warnings,
             term_issues=report.term_issues[:_DETAIL_LIMIT],
+            quality_warnings=report.quality_warnings,
+            quality_issues=report.quality_issues[:_DETAIL_LIMIT],
+            ready=report.ready,
             next=f"openbbq export --to {resolved} --mode bilingual --format ass"
-            if report.filled == report.total
-            else f"openbbq translate apply {resolved} <targets.json>",
+            if report.ready
+            else f"openbbq translate batch {resolved} --limit 20",
         )
     )

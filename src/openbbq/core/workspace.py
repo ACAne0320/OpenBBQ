@@ -6,11 +6,13 @@ imports cli/output — failures surface as OpenBBQError.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import ValidationError
@@ -30,6 +32,7 @@ from openbbq.schemas import (
 )
 
 MANIFEST_NAME = "manifest.json"
+_PROVENANCE_PATH = Path(".openbbq") / "artifacts.json"
 # BCP-47 subset: lang is interpolated into a filename, so guard against `../` etc.
 _LANG_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]+)*$")
 
@@ -218,6 +221,137 @@ def read_review(path: Path) -> Review:
         ) from e
 
 
+# --- artifact provenance -----------------------------------------------------
+
+
+def _workspace_path_key(workspace: Path, path: Path) -> str:
+    resolved = path.expanduser().resolve()
+    try:
+        return str(resolved.relative_to(workspace.resolve()))
+    except ValueError:
+        return str(resolved)
+
+
+def _path_from_key(workspace: Path, key: str) -> Path:
+    path = Path(key)
+    return path if path.is_absolute() else workspace / path
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as e:
+        raise OpenBBQError(
+            "missing_input",
+            artifact=str(path),
+            fix="restore the artifact or rerun the producing stage",
+        ) from e
+    return digest.hexdigest()
+
+
+def _read_provenance(workspace: Path) -> dict[str, Any]:
+    path = workspace / _PROVENANCE_PATH
+    if not path.is_file():
+        return {"schema": "openbbq/artifacts@1", "artifacts": {}}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        raise OpenBBQError(
+            "invalid_provenance",
+            path=str(path),
+            fix="remove .openbbq/artifacts.json and rerun openbbq export",
+        ) from e
+    if (
+        not isinstance(raw, dict)
+        or raw.get("schema") != "openbbq/artifacts@1"
+        or not isinstance(raw.get("artifacts"), dict)
+    ):
+        raise OpenBBQError(
+            "invalid_provenance",
+            path=str(path),
+            fix="remove .openbbq/artifacts.json and rerun openbbq export",
+        )
+    return raw
+
+
+def record_artifact_provenance(
+    workspace: Path,
+    artifact: Path,
+    producer: Stage,
+    *,
+    inputs: list[Path],
+) -> None:
+    """Record exact content dependencies without changing manifest@1."""
+    workspace = workspace.resolve()
+    artifact_key = _workspace_path_key(workspace, artifact)
+    raw = _read_provenance(workspace)
+    records = cast(dict[str, Any], raw["artifacts"])
+    records[artifact_key] = {
+        "producer": producer.value,
+        "sha256": _sha256(artifact),
+        "inputs": {
+            _workspace_path_key(workspace, input_path): _sha256(input_path)
+            for input_path in inputs
+        },
+    }
+    path = workspace / _PROVENANCE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(path, json.dumps(raw, ensure_ascii=False, indent=2) + "\n")
+
+
+def require_fresh_artifact(
+    workspace: Path,
+    artifact: Path,
+    producer: Stage,
+) -> Path:
+    """Require an artifact and all recorded inputs to match their content hashes."""
+    workspace = workspace.resolve()
+    artifact_key = _workspace_path_key(workspace, artifact)
+    raw = _read_provenance(workspace)
+    records = cast(dict[str, Any], raw["artifacts"])
+    record = records.get(artifact_key)
+    if not isinstance(record, dict) or record.get("producer") != producer.value:
+        raise OpenBBQError(
+            "artifact_unverified",
+            artifact=artifact_key,
+            producer=producer.value,
+            fix="rerun openbbq export, or pass --allow-stale for an intentional manual subtitle",
+        )
+    expected = record.get("sha256")
+    if not isinstance(expected, str) or _sha256(artifact) != expected:
+        raise OpenBBQError(
+            "stale_artifact",
+            artifact=artifact_key,
+            fix="rerun openbbq export, or pass --allow-stale for an intentional manual subtitle",
+        )
+    inputs = record.get("inputs")
+    if not isinstance(inputs, dict):
+        raise OpenBBQError(
+            "invalid_provenance",
+            artifact=artifact_key,
+            fix="rerun openbbq export",
+        )
+    for input_key, input_hash in inputs.items():
+        if not isinstance(input_key, str) or not isinstance(input_hash, str):
+            raise OpenBBQError(
+                "invalid_provenance",
+                artifact=artifact_key,
+                fix="rerun openbbq export",
+            )
+        input_path = _path_from_key(workspace, input_key)
+        if not input_path.is_file() or _sha256(input_path) != input_hash:
+            raise OpenBBQError(
+                "stale_artifact",
+                artifact=artifact_key,
+                input=input_key,
+                fix="rerun openbbq export before burning subtitles",
+            )
+    return artifact
+
+
 # --- workspace resolution (two forms, git-style) ------------------------------
 
 
@@ -353,9 +487,7 @@ def record_source_metadata(
     if title is not None and current.source.title != title:
         current.source.title = title
         changed = True
-    if author is not None and (
-        not author_if_missing or current.source.author is None
-    ):
+    if author is not None and (not author_if_missing or current.source.author is None):
         if current.source.author != author:
             current.source.author = author
             changed = True

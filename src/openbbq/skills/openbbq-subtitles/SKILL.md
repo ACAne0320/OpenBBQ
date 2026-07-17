@@ -28,6 +28,12 @@ Prefer OpenBBQ's atomic CLI commands over ad hoc scripts.
   manifest is the source of truth for stage state; a `running` stage marked
   `stale` is usually safe to rerun. Rerunning an upstream stage resets
   downstream stages to pending.
+- Never delete fetch `.part` files; fetch supports resume. Do not give `fetch`,
+  `transcribe`, or `burn` a harness timeout shorter than the task can reasonably
+  take.
+- Do not hand-edit `manifest.json`, `cues.json`, or exported ASS. Use
+  `openbbq review` for source, timing, translation, or sentence-boundary edits;
+  batch targets must go through `translate apply`.
 - Quote URL arguments in shells such as zsh.
 - Long tasks (`fetch`, `transcribe`, `burn`, `models pull`) may require status
   polling.
@@ -58,7 +64,8 @@ Prefer OpenBBQ's atomic CLI commands over ad hoc scripts.
    `openbbq init --workspace <ws>`; for series/named content, prepare or reuse a
    glossary and bind it during `init` with `--glossary <name>`.
 3. For YouTube input, first check auth: `openbbq auth status youtube`. If auth is
-   configured, prefer `openbbq fetch --workspace <ws> --auth youtube`; otherwise
+   configured, prefer `openbbq fetch --workspace <ws> --auth youtube --max-height
+   1080`; otherwise
    try anonymous fetch. If anonymous fetch fails because of cookies/bot checks,
    run `openbbq auth browser-login youtube`.
 4. For local files, skip fetch; after YouTube fetch, continue with
@@ -72,11 +79,13 @@ Prefer OpenBBQ's atomic CLI commands over ad hoc scripts.
    update the glossary before `segment`. If `segment` already ran, rerun
    `segment` and `translate init` after updating the glossary.
 7. Segment, then initialize translation with `translate init <lang>`.
-8. Fill translations: for few cues, use the Edit tool; for many cues, write a
-   `{id: target}` batch JSON and merge it with `openbbq translate apply <lang>
-   --workspace <ws> <batch.json>`.
+8. Fill translations: for many cues, first read a bounded batch with
+   `openbbq --json translate batch <lang> --workspace <ws> --from <id> --limit
+   20 --only-missing`, then write a `{id: target}` batch JSON and merge it with
+   `translate apply`. Do not load the entire worksheet into context.
 9. Mechanical check: run `openbbq translate check <lang> --workspace <ws>` and
-   clear `missing`, `over_budget`, and `term_issues`.
+   clear `missing`, `over_budget`, `zero_budget`, `term_issues`, and
+   `quality_issues`; only `ready: true` means the translation stage is complete.
 10. Human visual review: when the user asks for final manual review, cue timing
     changes, or sentence-boundary fixes, run `openbbq review --workspace <ws>
     --to <lang>`. The review service safely synchronizes cues and every
@@ -88,6 +97,9 @@ Prefer OpenBBQ's atomic CLI commands over ad hoc scripts.
 12. Export and burn: default to bilingual ASS, then burn. When a review file
     exists, incomplete review blocks export; use `--allow-unreviewed` only for
     an intentional draft. Pick `--ass-preset` by target surface.
+    `--allow-quality-warnings` and `burn --allow-stale` are only for a
+    user-requested draft or intentional external/manual artifact, never a final
+    delivery.
 13. Completion QA: follow `references/workflows.md` to check status,
     `translate check`, output MP4 duration/size, and a rendered subtitle frame.
 

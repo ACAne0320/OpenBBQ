@@ -440,6 +440,56 @@ def test_export_to_joins_worksheet(tmp_path) -> None:
     srt = path / "out" / "zh.srt"
     assert srt.exists() and "你好\n" in srt.read_text()
     assert ws.read_manifest(path).stages[Stage.EXPORT].artifact == "out/zh.srt"
+    ws.require_fresh_artifact(path, srt, Stage.EXPORT)
+
+
+def test_export_blocks_translation_quality_issues_by_default(tmp_path) -> None:
+    path, manifest = _workspace(tmp_path)
+    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=2, source="Hello there")))
+    _with_worksheet(path, _translation(_item(1, "Hello there", "Hello there")))
+
+    try:
+        export(_ctx(), workspace=str(path), to="zh")
+    except OpenBBQError as err:
+        assert err.code == "translation_quality_failed"
+        assert err.context["quality_ids"] == [1]
+    else:
+        raise AssertionError("expected OpenBBQError")
+
+
+def test_export_can_explicitly_allow_translation_quality_warnings(tmp_path) -> None:
+    path, manifest = _workspace(tmp_path)
+    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=2, source="Hello there")))
+    _with_worksheet(path, _translation(_item(1, "Hello there", "Hello there")))
+
+    export(
+        _ctx(),
+        workspace=str(path),
+        to="zh",
+        allow_quality_warnings=True,
+    )
+
+    assert (path / "out" / "zh.srt").exists()
+
+
+def test_export_provenance_detects_changed_translation(tmp_path) -> None:
+    path, manifest = _workspace(tmp_path)
+    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=2, source="Hello there")))
+    _with_worksheet(path, _translation(_item(1, "Hello there", "你好")))
+    export(_ctx(), workspace=str(path), to="zh", fmt="ass")
+    artifact = path / "out" / "zh.ass"
+
+    doc = ws.read_translation(path / "translation.zh.json")
+    doc.items[0].target = "您好"
+    ws.write_text_atomic(path / "translation.zh.json", doc.model_dump_json())
+
+    try:
+        ws.require_fresh_artifact(path, artifact, Stage.EXPORT)
+    except OpenBBQError as err:
+        assert err.code == "stale_artifact"
+        assert err.context["input"] == "translation.zh.json"
+    else:
+        raise AssertionError("expected OpenBBQError")
 
 
 def test_export_target_rejects_id_mismatch(tmp_path) -> None:
