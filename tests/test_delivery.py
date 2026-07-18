@@ -200,7 +200,7 @@ def _run_cli(
     return code, json.loads(captured.out)
 
 
-def test_delivery_assessment_passes_only_complete_fresh_visual_workflow(
+def test_delivery_assessment_passes_complete_fresh_workflow(
     tmp_path: Path,
 ) -> None:
     path = _workspace(tmp_path)
@@ -217,7 +217,7 @@ def test_delivery_assessment_passes_only_complete_fresh_visual_workflow(
     assert status["delivery_issues"] == []
 
 
-def test_delivery_cli_visual_failure_is_nonzero_ready_false(
+def test_delivery_cli_visual_failure_does_not_block_delivery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -230,11 +230,21 @@ def test_delivery_cli_visual_failure_is_nonzero_ready_false(
         capsys,
     )
 
-    assert code == 1
-    assert payload["error"] == "delivery_not_ready"
-    assert payload["ready"] is False
-    issues = cast(list[dict[str, object]], payload["issues"])
-    assert any(issue["code"] == "qa_visual_failed" for issue in issues)
+    assert code == 0
+    assert payload["ok"] is True
+    assert payload["ready"] is True
+    assert "qa_visual" not in cast(dict[str, bool], payload["gates"])
+
+
+def test_delivery_does_not_require_rendered_frame_qa(tmp_path: Path) -> None:
+    path = _workspace(tmp_path)
+    ws.qa_path(path).unlink()
+
+    assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
+
+    assert assessment.ready is True
+    assert assessment.gates["qa_mechanical"] is True
+    assert "qa_visual" not in assessment.gates
 
 
 def test_delivery_cli_complete_workspace_exits_zero_ready_true(
@@ -316,7 +326,6 @@ def test_delivery_detects_segment_stale_after_transcript_change(tmp_path: Path) 
     ("relative_path", "expected_code"),
     [
         (".openbbq/asr-review.json", "invalid_asr_review"),
-        (".openbbq/qa.json", "invalid_qa_report"),
     ],
 )
 def test_delivery_turns_malformed_sidecars_into_ready_false_issues(
@@ -331,6 +340,15 @@ def test_delivery_turns_malformed_sidecars_into_ready_false_issues(
 
     assert assessment.ready is False
     assert expected_code in {issue.code for issue in assessment.issues}
+
+
+def test_delivery_ignores_optional_malformed_visual_qa(tmp_path: Path) -> None:
+    path = _workspace(tmp_path)
+    ws.qa_path(path).write_text("{}", encoding="utf-8")
+
+    assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
+
+    assert assessment.ready is True
 
 
 def test_delivery_incomplete_workspace_reports_actionable_gate_not_exception(

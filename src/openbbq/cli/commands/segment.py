@@ -10,7 +10,7 @@ from ...core import asr_review as asr_reviewlib
 from ...core import glossary as glossarylib
 from ...core import segment as seg
 from ...core import workspace as ws
-from ...schemas import Cues, SegmentParams, Stage, StageState, StageStatus
+from ...schemas import Cues, OpenBBQModel, SegmentParams, Stage, StageState, StageStatus
 from ...errors import OpenBBQError
 from ..output import Output
 from ..results import Result
@@ -19,6 +19,12 @@ CUES_REL = "cues.json"  # derived artifact, relative to the workspace
 
 
 # --- contract layer -----------------------------------------------------------
+class GlossaryAliasApplicationReport(OpenBBQModel):
+    source: str
+    alias: str
+    count: int
+
+
 class SegmentResult(Result):
     artifact: str  # relative to the workspace
     cues: int  # number of cues produced
@@ -26,13 +32,25 @@ class SegmentResult(Result):
     over_cap: int  # cues that couldn't fit the line budget
     source_lang: str
     generic_profile: bool  # True when the latin fallback was used (no language profile)
+    glossary: str | None = None
+    glossary_matched_terms: list[str] = []
+    glossary_aliases_applied: list[GlossaryAliasApplicationReport] = []
+    glossary_no_effect: bool | None = None
     elapsed_s: float
 
     def render(self) -> str:
+        glossary = ""
+        if self.glossary is not None:
+            glossary = (
+                f"\n  glossary {self.glossary}: "
+                f"{len(self.glossary_matched_terms)} term(s) matched · "
+                f"{sum(item.count for item in self.glossary_aliases_applied)} alias correction(s)"
+            )
         return (
             f"[green]✓[/] segmented: {self.artifact}\n"
             f"  {self.cues} cues · {self.source_lang} · "
             f"{self.over_cps} over-CPS · {self.over_cap} over-width"
+            f"{glossary}"
         )
 
 
@@ -49,7 +67,9 @@ def segment(
     ] = None,
     glossary: Annotated[
         str | None,
-        typer.Option("--glossary", help="glossary name (overrides the manifest binding)"),
+        typer.Option(
+            "--glossary", help="glossary name (overrides the manifest binding)"
+        ),
     ] = None,
     max_cps: Annotated[
         float | None, typer.Option("--max-cps", help="max characters per second")
@@ -71,7 +91,9 @@ def segment(
     ] = None,
     pause_threshold: Annotated[
         float | None,
-        typer.Option("--pause-threshold", help="natural-pause split threshold, seconds"),
+        typer.Option(
+            "--pause-threshold", help="natural-pause split threshold, seconds"
+        ),
     ] = None,
 ) -> None:
     """Split the transcript into subtitle cues (source side, deterministic)."""
@@ -116,8 +138,10 @@ def segment(
         pause_threshold=pause_threshold,
     )
 
-    gloss = glossarylib.load_optional(glossary or manifest.glossary)
-    correct = asr_reviewlib.corrector(asr_review, glossarylib.corrector(gloss))
+    glossary_name = glossary or manifest.glossary
+    gloss = glossarylib.load_optional(glossary_name)
+    glossary_tracker = glossarylib.CorrectionTracker(gloss)
+    correct = asr_reviewlib.corrector(asr_review, glossary_tracker)
     reviewed_transcript = asr_reviewlib.apply_segment_decisions(
         transcript,
         asr_review,
@@ -172,6 +196,19 @@ def segment(
             over_cap=outcome.over_cap,
             source_lang=source_lang,
             generic_profile=generic,
+            glossary=glossary_name,
+            glossary_matched_terms=sorted(glossary_tracker.matched_terms),
+            glossary_aliases_applied=[
+                GlossaryAliasApplicationReport(
+                    source=item.source,
+                    alias=item.alias,
+                    count=item.count,
+                )
+                for item in glossary_tracker.alias_applications
+            ],
+            glossary_no_effect=(
+                not glossary_tracker.matched_terms if gloss is not None else None
+            ),
             elapsed_s=round(time.monotonic() - started, 2),
             next=(
                 "openbbq translate init <lang> "

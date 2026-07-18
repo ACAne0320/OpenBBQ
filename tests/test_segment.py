@@ -21,6 +21,8 @@ from openbbq.schemas import (
     StageState,
     StageStatus,
     Transcript,
+    Glossary,
+    Term,
     Word,
 )
 
@@ -73,10 +75,7 @@ def test_apply_overrides_only_touches_given_fields() -> None:
 
 def test_wrap_feasible_rejects_word_longer_than_line() -> None:
     # total chars under per_line*lines, but one word can't fit a line
-    assert (
-        seg.wrap_feasible([W("x" * (EN.max_chars_per_line + 1), 0, 1)], EN)
-        is False
-    )
+    assert seg.wrap_feasible([W("x" * (EN.max_chars_per_line + 1), 0, 1)], EN) is False
 
 
 def test_wrap_feasible_packs_short_words() -> None:
@@ -187,18 +186,22 @@ def _transcript(*segments: Segment, language: str = "en") -> Transcript:
     return Transcript(
         language=language,
         duration=10.0,
-        asr=ASRInfo(
-            backend="test", model="t", created_at=datetime.now(timezone.utc)
-        ),
+        asr=ASRInfo(backend="test", model="t", created_at=datetime.now(timezone.utc)),
         segments=list(segments),
     )
 
 
 def test_finalize_assigns_1_based_ids_and_source() -> None:
     outcome = seg.build_cues(
-        _transcript(Segment(id=0, start=0, end=2, text="x", words=[
-            W("Hello", 0, 0.6), W("there.", 0.6, 1.6)
-        ])),
+        _transcript(
+            Segment(
+                id=0,
+                start=0,
+                end=2,
+                text="x",
+                words=[W("Hello", 0, 0.6), W("there.", 0.6, 1.6)],
+            )
+        ),
         EN,
     )
     assert [c.id for c in outcome.cues] == [1]
@@ -227,8 +230,12 @@ def test_build_cues_keeps_screen_fit_sentence_whole() -> None:
 
 
 def test_finalize_enforces_min_gap_by_trimming_previous_end() -> None:
-    words = [W("Hi", 0, 0.4), W("there.", 0.4, 1.0),
-             W("Bye", 1.0, 1.4), W("now.", 1.4, 2.0)]
+    words = [
+        W("Hi", 0, 0.4),
+        W("there.", 0.4, 1.0),
+        W("Bye", 1.0, 1.4),
+        W("now.", 1.4, 2.0),
+    ]
     outcome = seg.build_cues(
         _transcript(Segment(id=0, start=0, end=2, text="x", words=words)), EN
     )
@@ -253,16 +260,17 @@ def test_finalize_clamps_preexisting_asr_word_overlap() -> None:
     assert [cue.source for cue in outcome.cues] == ["Alpha bravo.", "Charlie delta."]
     assert all(cue.start <= cue.end for cue in outcome.cues)
     assert all(
-        left.end <= right.start
-        for left, right in zip(outcome.cues, outcome.cues[1:])
+        left.end <= right.start for left, right in zip(outcome.cues, outcome.cues[1:])
     )
 
 
 def test_finalize_counts_over_cps() -> None:
     # 29 chars in a sub-second cue, extended to min_dur 1.0 -> 29 cps > 21 (en)
     words = [
-        W("hello", 0, 0.1), W("there", 0.1, 0.2),
-        W("wonderful", 0.2, 0.3), W("people.", 0.3, 0.5),
+        W("hello", 0, 0.1),
+        W("there", 0.1, 0.2),
+        W("wonderful", 0.2, 0.3),
+        W("people.", 0.3, 0.5),
     ]
     outcome = seg.build_cues(
         _transcript(Segment(id=0, start=0, end=0.5, text="x", words=words)), EN
@@ -272,9 +280,15 @@ def test_finalize_counts_over_cps() -> None:
 
 def test_build_cues_counts_over_cap_for_unsplittable_word() -> None:
     outcome = seg.build_cues(
-        _transcript(Segment(id=0, start=0, end=1, text="x", words=[
-            W("supercalifragilisticexpialidocious" * 3, 0, 1)
-        ])),
+        _transcript(
+            Segment(
+                id=0,
+                start=0,
+                end=1,
+                text="x",
+                words=[W("supercalifragilisticexpialidocious" * 3, 0, 1)],
+            )
+        ),
         EN,
     )
     assert outcome.over_cap == 1
@@ -363,9 +377,13 @@ def test_segment_invalid_transcript_errors(tmp_path) -> None:
 def test_segment_writes_cues_and_records_stage(tmp_path) -> None:
     path, manifest = _workspace(tmp_path)
     transcript = _transcript(
-        Segment(id=0, start=0, end=1.6, text="Hello there.", words=[
-            W("Hello", 0, 0.6), W("there.", 0.6, 1.6)
-        ])
+        Segment(
+            id=0,
+            start=0,
+            end=1.6,
+            text="Hello there.",
+            words=[W("Hello", 0, 0.6), W("there.", 0.6, 1.6)],
+        )
     )
     _with_transcript(path, manifest, transcript)
 
@@ -379,3 +397,83 @@ def test_segment_writes_cues_and_records_stage(tmp_path) -> None:
     assert doc.source_lang == "en"
     assert [c.id for c in doc.cues] == [1]
     assert ws.read_manifest(path).stages[Stage.SEGMENT].status is StageStatus.DONE
+
+
+def test_segment_reports_glossary_matches_alias_corrections_and_no_effect(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path / "home"))
+    from openbbq.core import glossary as glossarylib
+
+    glossarylib.save(
+        Glossary(
+            name="agents",
+            terms=[
+                Term(source="hot take", aliases=["hot tick"]),
+                Term(source="Notion"),
+            ],
+        )
+    )
+    path, manifest = _workspace(tmp_path)
+    manifest.glossary = "agents"
+    transcript = _transcript(
+        Segment(
+            id=0,
+            start=0,
+            end=2,
+            text="A hot tick in Notion.",
+            words=[
+                W("A", 0, 0.2),
+                W("hot", 0.2, 0.6),
+                W("tick", 0.6, 1.0),
+                W("in", 1.0, 1.2),
+                W("Notion.", 1.2, 2.0),
+            ],
+        )
+    )
+    _with_transcript(path, manifest, transcript)
+
+    segment(_ctx(), workspace=str(path))
+
+    import json
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["glossary_matched_terms"] == ["Notion", "hot take"]
+    assert payload["glossary_aliases_applied"] == [
+        {"source": "hot take", "alias": "hot tick", "count": 1}
+    ]
+    assert payload["glossary_no_effect"] is False
+    assert ws.read_cues(path / "cues.json").cues[0].source == "A hot take in Notion."
+
+
+def test_segment_reports_bound_glossary_with_no_effect(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path / "home"))
+    from openbbq.core import glossary as glossarylib
+
+    glossarylib.save(Glossary(name="unrelated", terms=[Term(source="Frieren")]))
+    path, manifest = _workspace(tmp_path)
+    manifest.glossary = "unrelated"
+    _with_transcript(
+        path,
+        manifest,
+        _transcript(
+            Segment(
+                id=0,
+                start=0,
+                end=1,
+                text="Hello there.",
+                words=[W("Hello", 0, 0.5), W("there.", 0.5, 1)],
+            )
+        ),
+    )
+
+    segment(_ctx(), workspace=str(path))
+
+    import json
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["glossary_matched_terms"] == []
+    assert payload["glossary_aliases_applied"] == []
+    assert payload["glossary_no_effect"] is True

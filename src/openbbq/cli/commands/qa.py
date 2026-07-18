@@ -65,19 +65,9 @@ def _result(
             "--result pass|fail --reason <observation>"
         )
     elif visual_status == "fail":
-        issue_codes = {issue.code for issue in report.visual_issues}
-        if QaVisualIssueCode.CONTENT_ERROR in issue_codes:
-            next_step = (
-                "fix ASR/translation content, rerun translation audit, export, burn, "
-                "and qa render"
-            )
-        elif issue_codes:
-            next_step = (
-                "openbbq export --format ass --mode bilingual "
-                "--ass-preset fansub-compact; then rerun burn and qa render"
-            )
-        else:
-            next_step = "fix the reported visual issue, then rerun export, burn, and qa"
+        # Visual QA is advisory. Keep the observation and structured issues, but
+        # do not turn them into an automatic preset switch or reburn loop.
+        next_step = None
     else:
         next_step = None
     return QaResult(

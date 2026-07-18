@@ -73,7 +73,43 @@ openbbq asr apply --workspace workspaces/demo asr-decisions.json
 词和实体使用 accept/replace；重复段可用 keep_first/drop。所有决定都必须写理由；
 短语 replace 还要提供精确的 `find` 与 `replacement`。fetch 到 YouTube VTT 时，batch
 会附带同时间的参考文字。
-重复处理直到 `asr check` 返回 `ready: true`；未决或过期决定会阻止 `segment`。
+重复处理直到 `asr check` 返回 `ready: true`；未决或过期决定会阻止 `segment`。该门禁
+只覆盖检测器发现的问题，不代表高置信词一定正确。
+
+检测器门禁通过后，必须结合语义上下文审计全部转写段：
+
+```bash
+openbbq --json glossary suggest --workspace workspaces/demo
+openbbq --json glossary audit --workspace workspaces/demo --offset 0 --limit 20
+```
+
+沿 `next_offset` 翻页，直到 `remaining` 为 0。每项包含前后段、词级概率、已解析/原始
+source、可用时的参考字幕和 glossary 命中。Agent 根据上下文判断；概率和参考文字只是
+证据。
+
+没有检测器 issue id 的一次性错误，用有界 amendment 修正：
+
+```json
+{"amendments":[{"segment_id":12,"find":"hot tick","replacement":"hot take","reason":"结合前后句可知这里是固定表达 hot take。"}]}
+```
+
+```bash
+openbbq asr amend --workspace workspaces/demo asr-amendments.json
+```
+
+可复用的专名和 ASR 变体用原子 patch 更新已绑定 glossary：
+
+```json
+{"terms":[{"source":"Andy Matuschak","aliases":["Annie Matushak"],"note":"研究者；已确认的 ASR 变体"}]}
+```
+
+```bash
+openbbq glossary apply --workspace workspaces/demo glossary-terms.json
+openbbq --json segment --workspace workspaces/demo
+```
+
+segment 输出会报告 `glossary_matched_terms`、`glossary_aliases_applied` 和
+`glossary_no_effect`。仅仅绑定 glossary 不能证明术语维护真的生效。
 
 ## 翻译
 
@@ -162,23 +198,19 @@ openbbq --json status --workspace workspaces/demo
 外部 ASS 仍然受支持。成功 burn 还会记录最终 MP4，以及所用源视频和 ASS 的精确
 内容哈希。
 
-## 完成 QA
+## 完成交付检查
 
 ```bash
-openbbq --json qa render --workspace workspaces/demo
-openbbq --json qa check --workspace workspaces/demo
 openbbq --json delivery check --workspace workspaces/demo --to zh
 ```
 
-`qa render` 默认选择最多 7 张首尾、中段、长句、高 CPS、短时长风险帧。
-`mechanical_status: pass` 只证明当前非空 MP4、源视频、ASS 和截帧 hash 一致，
-不等于看过画面。只有实际打开并检查返回的每一张 frame 后，有视觉输入能力的审核者
-才能运行 `qa attest --result pass|fail --reason ...`。失败必须额外用一个或多个
-`--issue` 记录结构化问题。没有图像输入能力时必须保留
-`visual_status: not_performed`，并明确说明未执行视觉检查。
-
 最终 `delivery check` 是硬门禁：它综合 ASR、翻译机械检查、全覆盖上下文审校、
-export/burn freshness 与视觉 QA。任一失败都会返回 `ready:false` 和非零退出码。
+双语 ASS 内容、export/burn freshness、烧录 provenance 与非空 MP4。任一失败都会返回
+`ready:false` 和非零退出码。视觉排版不属于默认门禁；非多模态模型不需要查看风险帧，
+也不会因此被判定失败。
+
+`qa render`、`qa check` 和 `qa attest` 仍保留为用户明确要求时的可选人工诊断，
+但不会自动切换 ASS 预设或触发重烧录。
 
 ## ASS 预设
 
@@ -191,7 +223,8 @@ openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass
 
 - `default`：常规 16:9 横屏视频。
 - `fansub`：译文行更醒目。
-- `fansub-compact`：更小且上移的双语堆叠，用于下三分之一冲突或遮挡修复。
+- `fansub-compact`：更小且上移的双语堆叠，仅在用户明确指定时使用；默认流程不会
+  根据抽帧自动选择它。
 - `mobile`：面向 9:16 竖屏视频，使用竖屏画布和更大的底部安全区。
 
 `mobile` 只改变渲染样式。目标语行容量由 `translate init` 的覆盖参数控制；如果仍
@@ -256,10 +289,10 @@ openbbq fetch
 openbbq extract-audio
 openbbq transcribe
 openbbq segment
-openbbq asr check/batch/apply
+openbbq asr check/batch/apply/amend
 openbbq translate init/batch/apply/check/audit/audit-apply
 openbbq review
-openbbq glossary list/show/new/use/suggest
+openbbq glossary list/show/new/use/suggest/audit/apply
 openbbq export
 openbbq burn
 openbbq qa render/check/attest

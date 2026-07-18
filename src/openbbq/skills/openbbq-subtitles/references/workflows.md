@@ -10,6 +10,7 @@ openbbq extract-audio --workspace workspaces/demo
 openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
 openbbq --json asr check --workspace workspaces/demo
 openbbq glossary suggest --workspace workspaces/demo
+openbbq --json glossary audit --workspace workspaces/demo --limit 20
 openbbq segment --workspace workspaces/demo
 openbbq translate init zh --workspace workspaces/demo --max-lines 2
 ```
@@ -33,6 +34,7 @@ openbbq extract-audio --workspace workspaces/demo
 openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
 openbbq --json asr check --workspace workspaces/demo
 openbbq glossary suggest --workspace workspaces/demo
+openbbq --json glossary audit --workspace workspaces/demo --limit 20
 openbbq segment --workspace workspaces/demo
 openbbq translate init zh --workspace workspaces/demo --max-lines 2
 ```
@@ -70,7 +72,10 @@ openbbq asr apply --workspace workspaces/demo asr-decisions.json
 ```
 
 Repeat batch/apply until `asr check` is `ready: true`. Never accept blindly to
-clear the gate.
+clear the gate. Then complete every `glossary audit` page: this second pass is
+where the Agent catches semantic ASR errors regardless of confidence. Use
+`asr amend` for context-specific errors without an issue id and `glossary apply`
+for safe reusable terms/aliases, following `glossary.md`.
 
 ## Fill Translations
 
@@ -139,13 +144,11 @@ cue invalidates adjacent context reviews. Minimum requirements:
 
 Only export and burn after both mechanical checks and quality self-review pass.
 
-## Completion QA
+## Completion Checks
 
 ```bash
 openbbq --json status --workspace workspaces/demo
 openbbq translate check zh --workspace workspaces/demo
-openbbq --json qa render --workspace workspaces/demo
-openbbq --json qa check --workspace workspaces/demo
 openbbq --json delivery check --workspace workspaces/demo --to zh
 ```
 
@@ -154,27 +157,18 @@ Confirm:
 - Relevant manifest stages are complete, with no failed/stale/running state.
 - `translate check` returns `ready: true`; the final flow did not use
   `--allow-quality-warnings` or `burn --allow-stale`.
-- `qa check` has `mechanical_status: pass`, proving the current MP4 is non-empty
-  and matches the current source video, ASS, and frame hashes.
-- With image input, open every path in `frames`, inspect bilingual content,
-  wrapping, occlusion, and safe area, then run:
+- `delivery check` returns `ready: true`, proving that the bilingual ASS, source
+  video, burned MP4, and stage provenance agree and that the MP4 is non-empty.
+
+Visual QA is not part of the default one-shot flow. Only when the user explicitly
+requests it and the current model has image input, optionally run:
 
 ```bash
+openbbq --json qa render --workspace workspaces/demo
+openbbq --json qa check --workspace workspaces/demo
 openbbq qa attest --workspace workspaces/demo --result pass --reason '<actual observation>'
 ```
 
-On failure, record a structured issue. For example, for a lower-third conflict:
-
-```bash
-openbbq qa attest --workspace workspaces/demo --result fail \
-  --issue lower_third_conflict --reason 'cue 43 overlaps the speaker name card'
-openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass \
-  --ass-preset fansub-compact --output out/zh.ass
-```
-
-After fixing, rerun burn, QA render, and attestation. Final `delivery check` must
-exit 0 with `ready: true`; it combines ASR anomalies, translation checks,
-full-context semantic review, artifact freshness, and visual QA.
-
-- Without image input, never run `qa attest`. Final delivery must explicitly say
-  `visual_status: not_performed`, not “visual QA passed.”
+Visual results are advisory diagnostics only. They do not participate in
+`delivery check`, automatically select `fansub-compact`, or trigger a reburn.
+Models without image input should simply skip this optional step.

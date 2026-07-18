@@ -501,6 +501,10 @@ def is_bilingual_ass(
     targets = _targets(translation)
 
     def text_key(text: str) -> str:
+        # ASS uses a literal ``\\N`` token for a rendered line break.  It is
+        # presentation-only and must not become the letter "n" in the semantic
+        # comparison below.
+        text = text.replace(r"\N", "").replace(r"\n", "")
         return "".join(character.casefold() for character in text if character.isalnum())
 
     for index, cue in enumerate(cues.cues):

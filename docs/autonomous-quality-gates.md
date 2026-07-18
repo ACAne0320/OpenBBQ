@@ -58,29 +58,28 @@ commands consume verified state but do not duplicate review logic.
 - Final export blocks while any current cue remains unaudited. The audit
   must not claim that deterministic heuristics prove semantic correctness.
 
-### 3. Honest completion QA
+### 3. Optional visual diagnostics
 
-- Add a QA report that separates mechanical evidence (current artifact hashes,
-  duration, non-empty video, rendered frame files) from visual observation.
-- A model that cannot receive images may complete mechanical QA, but the result
-  must say that visual inspection was not performed; it must never report a
-  visual pass.
+- Keep the QA report as an optional diagnostic that separates rendered-frame
+  evidence from visual observation.
+- A model that cannot receive images skips visual QA. This is not a delivery
+  failure and does not reduce the assessed subtitle-content quality.
 - A visual attestation, when available, is tied to the current MP4 and rendered
   frame hashes. Changing the video invalidates the attestation.
-- The bundled skill must use the structured QA result and must not infer visual
-  success from file existence alone.
+- The bundled skill must not run visual QA in the default one-shot flow or infer
+  visual success from file existence alone.
 - Select up to seven risk frames by boundaries, midpoint, source/target length,
-  source CPS, and short duration instead of relying on three uniform frames.
-- A visual failure requires structured issue codes. Layout failures can be
-  remediated with the smaller, raised `fansub-compact` preset before reburn.
+  source CPS, and short duration when a user explicitly requests visual review.
+- A visual result is advisory and never automatically selects `fansub-compact`
+  or triggers export/burn rework.
 
 ### 4. Hard delivery gate
 
 - `openbbq --json delivery check` is the sole final readiness decision. Any
   failed gate returns `ready:false` and a non-zero process exit.
 - Aggregate ASR, fresh segmentation, deterministic translation checks,
-  full-context audit, exact bilingual ASS events, burn provenance, QA hashes,
-  and visual attestation without duplicating the underlying domain rules.
+  full-context audit, exact bilingual ASS events, burn provenance, and a
+  non-empty burned artifact without duplicating the underlying domain rules.
 - `status` reports the same delivery result. A successful command or existing
   MP4 alone never means delivery-ready.
 
@@ -156,7 +155,7 @@ commands consume verified state but do not duplicate review logic.
 
 1. Detect word and segment-level ASR failures with metadata/caption evidence.
 2. Require full-coverage, neighbor-bound semantic translation decisions.
-3. Add risk-frame visual QA, structured issues, and compact remediation.
+3. Keep risk-frame visual QA as an explicit, advisory diagnostic only.
 4. Aggregate all facts into a non-zero hard delivery gate and status summary.
 5. Keep deterministic checks read-only and every derived artifact hash-bound.
 6. Update bundled skills/docs and run static, unit, and real-workspace regressions.

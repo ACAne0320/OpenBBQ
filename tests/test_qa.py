@@ -298,7 +298,7 @@ def test_check_is_read_only_and_attestation_becomes_stale_with_video(
     assert "artifact_content_changed" in issues
 
 
-def test_failed_attestation_requires_structured_issue_and_suggests_compact_preset(
+def test_failed_attestation_requires_structured_issue_without_remediation_loop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -330,9 +330,7 @@ def test_failed_attestation_requires_structured_issue_and_suggests_compact_prese
     assert payload["visual_issues"] == [
         {"code": "lower_third_conflict", "cue_ids": []}
     ]
-    next_step = payload["next"]
-    assert isinstance(next_step, str)
-    assert "fansub-compact" in next_step
+    assert payload.get("next") is None
 
 
 def test_failed_rerender_keeps_previous_qa_report_valid(

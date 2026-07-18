@@ -7,6 +7,7 @@ workspace sidecar and are consumed as exact phrase corrections by segmentation.
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import re
 from collections.abc import Callable, Mapping
@@ -17,7 +18,14 @@ from typing import Literal
 from pydantic import ValidationError
 
 from openbbq.errors import OpenBBQError
-from openbbq.schemas import AsrDecision, AsrReview, Segment, Transcript, Word
+from openbbq.schemas import (
+    AsrAmendment,
+    AsrDecision,
+    AsrReview,
+    Segment,
+    Transcript,
+    Word,
+)
 
 DEFAULT_MAX_PROB = 0.5
 MAX_WORDS_PER_SECOND = 9.0
@@ -169,6 +177,31 @@ def _vtt_seconds(value: str) -> float:
     return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
 
+def _merge_rolling_texts(values: list[str]) -> str:
+    """Collapse YouTube's cumulative/rolling caption lines by token overlap."""
+
+    merged: list[str] = []
+    for value in values:
+        tokens = value.split()
+        if not tokens:
+            continue
+        current = " ".join(merged)
+        if value in current:
+            continue
+        if current and current in value:
+            merged = tokens
+            continue
+        overlap = 0
+        for size in range(min(len(merged), len(tokens)), 0, -1):
+            if [token.casefold() for token in merged[-size:]] == [
+                token.casefold() for token in tokens[:size]
+            ]:
+                overlap = size
+                break
+        merged.extend(tokens[overlap:])
+    return " ".join(merged)
+
+
 def parse_reference_captions(text: str) -> list[ReferenceCaption]:
     """Parse the timing/text subset shared by WebVTT subtitle variants."""
 
@@ -183,11 +216,11 @@ def parse_reference_captions(text: str) -> list[ReferenceCaption]:
         index += 1
         body: list[str] = []
         while index < len(lines) and lines[index].strip():
-            cleaned = _VTT_TAG_RE.sub("", lines[index]).strip()
-            if cleaned and (not body or cleaned != body[-1]):
+            cleaned = html.unescape(_VTT_TAG_RE.sub("", lines[index])).strip()
+            if cleaned:
                 body.append(cleaned)
             index += 1
-        caption_text = " ".join(body).strip()
+        caption_text = _merge_rolling_texts(body)
         if caption_text:
             cues.append(
                 ReferenceCaption(
@@ -210,7 +243,8 @@ def reference_caption_text(
         for caption in captions
         if caption.start < end and caption.end > start
     ]
-    return " ".join(dict.fromkeys(overlapping)) if overlapping else None
+    merged = _merge_rolling_texts(overlapping)
+    return merged or None
 
 
 def _metadata_entity_anomalies(
@@ -254,9 +288,7 @@ def _metadata_entity_anomalies(
                     ).ratio()
                     if not 0.6 <= similarity < 0.95:
                         continue
-                    find = segment.text[
-                        observed_first.start() : observed_last.end()
-                    ]
+                    find = segment.text[observed_first.start() : observed_last.end()]
                     replacement = reference[
                         expected_first.start() : expected_last.end()
                     ]
@@ -292,9 +324,7 @@ def _metadata_entity_anomalies(
 def _anomaly_context(
     transcript: Transcript, first_index: int, last_index: int
 ) -> tuple[str | None, str | None]:
-    previous = (
-        transcript.segments[first_index - 1].text if first_index > 0 else None
-    )
+    previous = transcript.segments[first_index - 1].text if first_index > 0 else None
     next_text = (
         transcript.segments[last_index + 1].text
         if last_index + 1 < len(transcript.segments)
@@ -373,9 +403,7 @@ def extract_anomalies(
                 words_per_second=round(rate, 3),
             )
         )
-    anomalies.extend(
-        _metadata_entity_anomalies(transcript, tuple(reference_texts))
-    )
+    anomalies.extend(_metadata_entity_anomalies(transcript, tuple(reference_texts)))
     return sorted(anomalies, key=lambda issue: (issue.start, issue.id))
 
 
@@ -455,6 +483,42 @@ def parse_decisions(text: str) -> dict[str, AsrDecision]:
             detail=str(error),
         ) from error
     return decisions
+
+
+def parse_amendments(text: str) -> list[AsrAmendment]:
+    """Parse a bounded contextual-audit patch document.
+
+    The wrapper keeps the format self-describing and leaves room for future
+    audit metadata without changing the list of amendment fields.
+    """
+
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise OpenBBQError(
+            "asr_amendments_invalid",
+            detail="expected a JSON object with a non-empty amendments array",
+        ) from error
+    values = raw.get("amendments") if isinstance(raw, dict) else None
+    if not isinstance(values, list) or not values:
+        raise OpenBBQError(
+            "asr_amendments_invalid",
+            detail="expected a JSON object with a non-empty amendments array",
+        )
+    if len(values) > MAX_DECISION_BATCH:
+        raise OpenBBQError(
+            "asr_amendments_too_large",
+            count=len(values),
+            max=MAX_DECISION_BATCH,
+            fix="apply at most 20 contextual corrections at a time",
+        )
+    try:
+        return [AsrAmendment.model_validate(value) for value in values]
+    except (ValidationError, ValueError, TypeError) as error:
+        raise OpenBBQError(
+            "asr_amendments_invalid",
+            detail=str(error),
+        ) from error
 
 
 def _text_key(text: str) -> str:
@@ -559,7 +623,7 @@ def merge_decisions(
         current.update(
             (issue_id, decision)
             for issue_id, decision in review.decisions.items()
-            if issue_id in by_id
+            if issue_id in by_id or issue_id.startswith("m:s")
         )
     current.update(decisions)
     replacements: dict[str, str] = {}
@@ -582,6 +646,105 @@ def merge_decisions(
         transcript_hash=fingerprint,
         max_prob=max_prob,
         decisions=current,
+    )
+
+
+def _manual_amendment_id(amendment: AsrAmendment) -> str:
+    digest = hashlib.sha256(
+        f"{amendment.segment_id}|{amendment.find.casefold()}".encode()
+    ).hexdigest()[:10]
+    return f"m:s{amendment.segment_id}:{digest}"
+
+
+def merge_amendments(
+    transcript: Transcript,
+    review: AsrReview | None,
+    amendments: list[AsrAmendment],
+    *,
+    max_prob: float | None = None,
+) -> tuple[AsrReview, list[str]]:
+    """Merge agent-found corrections that are not tied to detector issue ids."""
+
+    if not amendments or len(amendments) > MAX_DECISION_BATCH:
+        raise OpenBBQError(
+            "asr_amendments_too_large" if amendments else "asr_amendments_invalid",
+            count=len(amendments),
+            max=MAX_DECISION_BATCH,
+            fix="apply from 1 to 20 contextual corrections at a time",
+        )
+    fingerprint = transcript_hash(transcript)
+    threshold = _validate_max_prob(
+        max_prob
+        if max_prob is not None
+        else review.max_prob
+        if review is not None
+        else DEFAULT_MAX_PROB
+    )
+    if review is not None and (
+        review.transcript_hash != fingerprint or review.max_prob != threshold
+    ):
+        raise OpenBBQError(
+            "asr_review_stale",
+            fix="rerun `openbbq asr check` and resolve the current transcript first",
+        )
+
+    segments = {segment.id: segment for segment in transcript.segments}
+    current = dict(review.decisions) if review is not None else {}
+    applied_ids: list[str] = []
+    existing_replacements = {
+        (decision.find or "").casefold(): decision.replacement or ""
+        for decision in current.values()
+        if decision.action == "replace" and decision.find
+    }
+    active_text = corrector(review)
+    for amendment in amendments:
+        segment = segments.get(amendment.segment_id)
+        if segment is None:
+            raise OpenBBQError(
+                "asr_amendment_unknown_segment",
+                segment_id=amendment.segment_id,
+                fix="use a segment_id returned by `openbbq glossary audit`",
+            )
+        active_segment_text = active_text(segment.text)
+        if (
+            amendment.find.casefold() not in segment.text.casefold()
+            and amendment.find.casefold() not in active_segment_text.casefold()
+        ):
+            raise OpenBBQError(
+                "asr_amendment_find_missing",
+                segment_id=amendment.segment_id,
+                find=amendment.find,
+                fix="copy the exact phrase from `openbbq glossary audit`",
+            )
+        issue_id = _manual_amendment_id(amendment)
+        previous = existing_replacements.get(amendment.find.casefold())
+        if (
+            previous is not None
+            and previous != amendment.replacement
+            and issue_id not in current
+        ):
+            raise OpenBBQError(
+                "asr_decision_conflict",
+                find=amendment.find,
+                replacements=[previous, amendment.replacement],
+                fix="use one replacement for the same source phrase",
+            )
+        current[issue_id] = AsrDecision(
+            action="replace",
+            find=amendment.find,
+            replacement=amendment.replacement,
+            reason=amendment.reason,
+        )
+        existing_replacements[amendment.find.casefold()] = amendment.replacement
+        applied_ids.append(issue_id)
+
+    return (
+        AsrReview(
+            transcript_hash=fingerprint,
+            max_prob=threshold,
+            decisions=current,
+        ),
+        applied_ids,
     )
 
 
@@ -671,7 +834,9 @@ def corrector(
         key=lambda item: len(item[0]),
         reverse=True,
     )
-    patterns = [(_phrase_pattern(find), replacement) for find, replacement in replacements]
+    patterns = [
+        (_phrase_pattern(find), replacement) for find, replacement in replacements
+    ]
 
     def apply(text: str) -> str:
         corrected = text
@@ -680,3 +845,39 @@ def corrector(
         return downstream(corrected)
 
     return apply
+
+
+def resolved_transcript(
+    transcript: Transcript,
+    review: AsrReview | None,
+    *,
+    reference_texts: list[str] | tuple[str, ...] = (),
+) -> Transcript:
+    """Return the current review view without mutating ``transcript.json``.
+
+    Stale sidecars are deliberately ignored. When a phrase replacement changes
+    a segment, its original word list no longer describes the corrected token
+    surfaces, so the resolved view drops those words instead of presenting
+    misleading confidence evidence.
+    """
+
+    if review is None or review.transcript_hash != transcript_hash(transcript):
+        return transcript
+    reviewed = apply_segment_decisions(
+        transcript,
+        review,
+        reference_texts=reference_texts,
+    )
+    fix = corrector(review)
+    segments: list[Segment] = []
+    for segment in reviewed.segments:
+        text = fix(segment.text)
+        segments.append(
+            segment.model_copy(
+                update={
+                    "text": text,
+                    "words": segment.words if text == segment.text else None,
+                }
+            )
+        )
+    return reviewed.model_copy(update={"segments": segments})

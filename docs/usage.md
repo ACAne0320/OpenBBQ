@@ -78,7 +78,45 @@ Use accept/replace for words and entities, and keep_first/drop for repeated
 segments. Every decision requires a reason; phrase replacements also include
 the exact `find` phrase and `replacement`. When fetch preserved a YouTube VTT,
 the batch includes overlapping reference text. Repeat until `asr check` returns
-`ready: true`; `segment` blocks unresolved or stale decisions.
+`ready: true`; `segment` blocks unresolved or stale decisions. This gate only
+closes detector-found issues. It does not certify high-confidence words.
+
+After the detector gate, audit every transcript segment with semantic context:
+
+```bash
+openbbq --json glossary suggest --workspace workspaces/demo
+openbbq --json glossary audit --workspace workspaces/demo --offset 0 --limit 20
+```
+
+Follow `next_offset` until `remaining` is zero. Audit items include previous and
+next text, word probabilities, resolved/raw source, reference captions when
+available, and glossary matches. The Agent decides from context; probability and
+reference text are advisory evidence.
+
+For a one-off error with no detector issue id, apply a bounded contextual patch:
+
+```json
+{"amendments":[{"segment_id":12,"find":"hot tick","replacement":"hot take","reason":"The surrounding sentence uses the idiom hot take."}]}
+```
+
+```bash
+openbbq asr amend --workspace workspaces/demo asr-amendments.json
+```
+
+For reusable names and ASR variants, atomically update the bound glossary:
+
+```json
+{"terms":[{"source":"Andy Matuschak","aliases":["Annie Matushak"],"note":"researcher; confirmed ASR variant"}]}
+```
+
+```bash
+openbbq glossary apply --workspace workspaces/demo glossary-terms.json
+openbbq --json segment --workspace workspaces/demo
+```
+
+Segment output reports `glossary_matched_terms`,
+`glossary_aliases_applied`, and `glossary_no_effect`. A bound glossary with no
+matches is not treated as proof that terminology was maintained.
 
 ## Translate
 
@@ -175,26 +213,22 @@ for an intentional manual draft; an explicitly supplied ASS outside the
 workspace remains supported. Successful burn also records the final MP4 hash
 and the exact source-video and ASS hashes.
 
-## Completion QA
+## Completion Checks
 
 ```bash
-openbbq --json qa render --workspace workspaces/demo
-openbbq --json qa check --workspace workspaces/demo
 openbbq --json delivery check --workspace workspaces/demo --to zh
 ```
 
-`qa render` defaults to up to seven boundary, midpoint, long-line, high-CPS,
-and short-duration risk frames. `mechanical_status: pass` proves that the current non-empty MP4, source video,
-ASS, and rendered frame hashes agree. It is not a visual observation. Only
-after actually opening every returned frame should a vision-capable reviewer
-run `qa attest --result pass|fail --reason ...`. A failure also requires one or
-more structured `--issue` values. Without image input, leave
-`visual_status: not_performed` and disclose that visual inspection was not
-performed.
-
 Final `delivery check` is a hard gate combining ASR, deterministic translation,
-full-context semantic review, export/burn freshness, and visual QA. Any failure
-returns `ready:false` with a non-zero exit code.
+full-context semantic review, exact bilingual ASS content, export/burn
+freshness, burn provenance, and a non-empty MP4. Any failure returns
+`ready:false` with a non-zero exit code.
+Visual layout is not a default gate; non-vision models do not need to inspect
+risk frames and are not penalized for skipping them.
+
+`qa render`, `qa check`, and `qa attest` remain available as optional manual
+diagnostics when the user explicitly requests visual review. They do not
+automatically select an ASS preset or trigger a reburn.
 
 ## ASS Presets
 
@@ -207,8 +241,8 @@ openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass
 
 - `default`: normal 16:9 horizontal video.
 - `fansub`: more prominent translated line.
-- `fansub-compact`: a smaller, raised bilingual stack for lower-third conflicts
-  and overlap remediation.
+- `fansub-compact`: a smaller, raised bilingual stack used only when explicitly
+  requested; the default flow never auto-selects it from sampled frames.
 - `mobile`: 9:16 vertical video with a vertical canvas and larger bottom safe
   area.
 
@@ -278,10 +312,10 @@ openbbq fetch
 openbbq extract-audio
 openbbq transcribe
 openbbq segment
-openbbq asr check/batch/apply
+openbbq asr check/batch/apply/amend
 openbbq translate init/batch/apply/check/audit/audit-apply
 openbbq review
-openbbq glossary list/show/new/use/suggest
+openbbq glossary list/show/new/use/suggest/audit/apply
 openbbq export
 openbbq burn
 openbbq qa render/check/attest

@@ -342,6 +342,7 @@ def test_render_ass_reflows_two_target_lines_without_losing_text() -> None:
 
     assert "这个想法让我爱上\\N这门技艺" in out
     assert "Dialogue: 0,0:00:00.00,0:00:04.00,EN" in out
+    assert exp.is_bilingual_ass(out, cues, translation) is True
 
 
 # --- command shell ------------------------------------------------------------

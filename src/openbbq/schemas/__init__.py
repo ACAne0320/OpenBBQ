@@ -1,5 +1,5 @@
 from .common import OpenBBQModel, Seconds, Stage, StageStatus
-from .asr_review import AsrDecision, AsrReview
+from .asr_review import AsrAmendment, AsrDecision, AsrReview
 from .cues import Budget, Cue, Cues, SegmentParams
 from .glossary import Glossary, Term
 from .manifest import Manifest, Progress, Source, SourceType, StageState
@@ -22,6 +22,7 @@ __all__ = [
     "Stage",
     "StageStatus",
     # asr-review@1
+    "AsrAmendment",
     "AsrDecision",
     "AsrReview",
     # transcript@1

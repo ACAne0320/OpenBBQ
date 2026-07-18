@@ -12,7 +12,6 @@ from pathlib import Path
 
 from openbbq.core import asr_review as asrlib
 from openbbq.core import export as exportlib
-from openbbq.core import qa as qalib
 from openbbq.core import translate as translatelib
 from openbbq.core import translation_audit as auditlib
 from openbbq.core import workspace as ws
@@ -150,7 +149,6 @@ def assess_delivery(
         "export": False,
         "burn": False,
         "qa_mechanical": False,
-        "qa_visual": False,
     }
     resolved_lang, lang_issue = _resolved_lang(path, lang)
     if lang_issue is not None:
@@ -406,69 +404,19 @@ def assess_delivery(
             )
         else:
             gates["burn"] = True
-
-        qa_invalid = False
-        try:
-            report = ws.read_qa_optional(path)
-        except OpenBBQError as error:
-            qa_invalid = True
-            report = None
-            _read_error(
-                issues,
-                gate="qa_mechanical",
-                error=error,
-                fix="remove the invalid QA report and rerun openbbq qa render",
-            )
-        if report is None and not qa_invalid:
-            issues.append(
-                DeliveryIssue(
-                    code="qa_not_found",
-                    gate="qa_mechanical",
-                    detail="no rendered-frame QA report exists",
-                    fix="openbbq qa render",
-                )
-            )
-        elif report is not None:
-            artifact = manifest.stages[Stage.BURN].artifact
-            assert artifact is not None
-            qa = qalib.assess(
-                report,
-                artifact=artifact,
-                artifact_path=burn_path,
-                workspace=path,
-            )
-            if qa.mechanical_status == "pass" and gates["burn"]:
+            try:
+                nonempty = burn_path.stat().st_size > 0
+            except OSError:
+                nonempty = False
+            if nonempty:
                 gates["qa_mechanical"] = True
             else:
                 issues.append(
                     DeliveryIssue(
-                        code="qa_mechanical_stale",
+                        code="invalid_burn_output",
                         gate="qa_mechanical",
-                        detail="QA evidence is stale: " + ", ".join(qa.issues),
-                        fix="openbbq qa render",
-                    )
-                )
-            if gates["qa_mechanical"] and report.visual_status == "pass":
-                gates["qa_visual"] = True
-            elif gates["qa_mechanical"] and report.visual_status == "fail":
-                issues.append(
-                    DeliveryIssue(
-                        code="qa_visual_failed",
-                        gate="qa_visual",
-                        detail=report.visual_reason or "visual inspection failed",
-                        fix="fix the reported layout issue, then rerun export, burn, and qa",
-                    )
-                )
-            elif gates["qa_mechanical"]:
-                issues.append(
-                    DeliveryIssue(
-                        code="qa_visual_not_performed",
-                        gate="qa_visual",
-                        detail="rendered frames have not been visually inspected",
-                        fix=(
-                            "inspect every frame, then run openbbq qa attest "
-                            "--result pass --reason <observation>"
-                        ),
+                        detail="burned video is empty or unreadable",
+                        fix="openbbq burn",
                     )
                 )
 

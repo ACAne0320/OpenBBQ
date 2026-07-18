@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -10,7 +11,7 @@ from rich.table import Table
 from ...core import asr_review as reviewlib
 from ...core import workspace as ws
 from ...errors import OpenBBQError
-from ...schemas import OpenBBQModel, Stage
+from ...schemas import AsrReview, OpenBBQModel, Stage
 from ..output import Output
 from ..results import Result
 
@@ -163,6 +164,19 @@ class AsrApplyResult(Result):
         )
 
 
+class AsrAmendResult(Result):
+    artifact: str
+    applied: int
+    amendment_ids: list[str]
+    ready: bool
+
+    def render(self) -> str:
+        return (
+            f"[green]✓[/] contextual ASR corrections applied: {self.applied}\n"
+            f"  artifact: {self.artifact}"
+        )
+
+
 def _load(workspace: str | None):
     path = ws.resolve_workspace(workspace)
     manifest = ws.read_manifest(path)
@@ -185,6 +199,17 @@ def _load(workspace: str | None):
     return path, transcript, review, reference_texts, captions
 
 
+def _write_review_and_invalidate(path: Path, review: AsrReview) -> Path:
+    artifact = ws.write_asr_review(path, review)
+    manifest = ws.read_manifest(path)
+    transcribe_state = manifest.stages.get(Stage.TRANSCRIBE)
+    if transcribe_state is not None:
+        # Review data is an input to segmentation. Re-recording transcribe
+        # invalidates later artifacts without changing transcript.json itself.
+        ws.record_stage(path, manifest, Stage.TRANSCRIBE, transcribe_state)
+    return artifact
+
+
 @app.command()
 def check(
     ctx: typer.Context,
@@ -194,12 +219,15 @@ def check(
     ] = None,
     max_prob: Annotated[
         float,
-        typer.Option("--max-prob", help="review word occurrences below this probability"),
+        typer.Option(
+            "--max-prob", help="review word occurrences below this probability"
+        ),
     ] = reviewlib.DEFAULT_MAX_PROB,
 ) -> None:
     """Report whether every ASR word issue and segment anomaly has a decision."""
     output: Output = ctx.obj
-    _, transcript, review, reference_texts, captions = _load(workspace)
+    path, transcript, review, reference_texts, captions = _load(workspace)
+    workspace_arg = shlex.quote(str(path))
     report = reviewlib.check(
         transcript,
         review,
@@ -220,9 +248,9 @@ def check(
             ready=report.ready,
             reference_caption_available=bool(captions),
             next=(
-                "openbbq segment"
+                f"openbbq glossary suggest --workspace {workspace_arg}"
                 if report.ready
-                else "openbbq asr batch --limit 20"
+                else f"openbbq asr batch --workspace {workspace_arg} --limit 20"
             ),
         )
     )
@@ -235,15 +263,21 @@ def batch(
         str | None,
         typer.Option("--workspace", "-w", help="workspace dir (default: cwd upward)"),
     ] = None,
-    offset: Annotated[int, typer.Option("--offset", help="zero-based result offset")] = 0,
-    limit: Annotated[int, typer.Option("--limit", help="maximum issues to return")] = 20,
+    offset: Annotated[
+        int, typer.Option("--offset", help="zero-based result offset")
+    ] = 0,
+    limit: Annotated[
+        int, typer.Option("--limit", help="maximum issues to return")
+    ] = 20,
     only_unresolved: Annotated[
         bool,
         typer.Option("--only-unresolved/--all", help="exclude already resolved issues"),
     ] = True,
     max_prob: Annotated[
         float,
-        typer.Option("--max-prob", help="review word occurrences below this probability"),
+        typer.Option(
+            "--max-prob", help="review word occurrences below this probability"
+        ),
     ] = reviewlib.DEFAULT_MAX_PROB,
 ) -> None:
     """Read a bounded batch of ASR anomalies followed by word occurrences."""
@@ -255,7 +289,8 @@ def batch(
             fix=f"use --offset >= 0 and --limit from 1 to {reviewlib.MAX_DECISION_BATCH}",
         )
     output: Output = ctx.obj
-    _, transcript, review, reference_texts, captions = _load(workspace)
+    path, transcript, review, reference_texts, captions = _load(workspace)
+    workspace_arg = shlex.quote(str(path))
     report = reviewlib.check(
         transcript,
         review,
@@ -269,7 +304,9 @@ def batch(
         if not only_unresolved or issue.id not in resolved
     ]
     selected = candidates[offset : offset + limit]
-    next_offset = offset + len(selected) if offset + len(selected) < len(candidates) else None
+    next_offset = (
+        offset + len(selected) if offset + len(selected) < len(candidates) else None
+    )
     output.emit(
         AsrBatchResult(
             transcript_hash=report.transcript_hash,
@@ -288,9 +325,10 @@ def batch(
             stale=report.stale,
             reference_caption_available=bool(captions),
             next=(
-                f"openbbq asr batch --offset {next_offset} --limit {limit}"
+                f"openbbq asr batch --workspace {workspace_arg} "
+                f"--offset {next_offset} --limit {limit}"
                 if next_offset is not None
-                else "openbbq asr apply <decisions.json>"
+                else f"openbbq asr apply --workspace {workspace_arg} <decisions.json>"
             ),
         )
     )
@@ -309,7 +347,9 @@ def apply(
     ] = None,
     max_prob: Annotated[
         float,
-        typer.Option("--max-prob", help="review word occurrences below this probability"),
+        typer.Option(
+            "--max-prob", help="review word occurrences below this probability"
+        ),
     ] = reviewlib.DEFAULT_MAX_PROB,
 ) -> None:
     """Merge explicit accept/replace/drop/keep_first ASR decisions."""
@@ -332,19 +372,8 @@ def apply(
         max_prob=max_prob,
         reference_texts=reference_texts,
     )
-    artifact = ws.write_asr_review(path, merged)
-    manifest = ws.read_manifest(path)
-    transcribe_state = manifest.stages.get(Stage.TRANSCRIBE)
-    if transcribe_state is not None:
-        # ASR decisions are inputs to segmentation. Re-recording the completed
-        # transcribe state invalidates every downstream artifact without
-        # pretending transcript.json itself changed.
-        ws.record_stage(
-            path,
-            manifest,
-            Stage.TRANSCRIBE,
-            transcribe_state,
-        )
+    artifact = _write_review_and_invalidate(path, merged)
+    workspace_arg = shlex.quote(str(path))
     report = reviewlib.check(
         transcript,
         merged,
@@ -360,9 +389,65 @@ def apply(
             unresolved=len(report.unresolved_ids),
             ready=report.ready,
             next=(
-                "openbbq segment"
+                f"openbbq glossary suggest --workspace {workspace_arg}"
                 if report.ready
-                else "openbbq asr batch --limit 20 --only-unresolved"
+                else f"openbbq asr batch --workspace {workspace_arg} "
+                "--limit 20 --only-unresolved"
+            ),
+        )
+    )
+
+
+@app.command()
+def amend(
+    ctx: typer.Context,
+    amendments: Annotated[
+        str,
+        typer.Argument(help="JSON file with contextual ASR amendments"),
+    ],
+    workspace: Annotated[
+        str | None,
+        typer.Option("--workspace", "-w", help="workspace dir (default: cwd upward)"),
+    ] = None,
+) -> None:
+    """Apply agent-found phrase corrections without a detector issue id."""
+
+    output: Output = ctx.obj
+    path, transcript, review, reference_texts, _ = _load(workspace)
+    amendments_path = Path(amendments).expanduser()
+    try:
+        raw = amendments_path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise OpenBBQError(
+            "asr_amendments_not_found",
+            path=str(amendments_path),
+            fix="write the amendment JSON and try again",
+        ) from error
+    parsed = reviewlib.parse_amendments(raw)
+    merged, amendment_ids = reviewlib.merge_amendments(
+        transcript,
+        review,
+        parsed,
+    )
+    artifact = _write_review_and_invalidate(path, merged)
+    workspace_arg = shlex.quote(str(path))
+    report = reviewlib.check(
+        transcript,
+        merged,
+        max_prob=merged.max_prob,
+        reference_texts=reference_texts,
+    )
+    output.emit(
+        AsrAmendResult(
+            artifact=str(artifact.relative_to(path)),
+            applied=len(parsed),
+            amendment_ids=amendment_ids,
+            ready=report.ready,
+            next=(
+                f"openbbq glossary suggest --workspace {workspace_arg}"
+                if report.ready
+                else f"openbbq asr batch --workspace {workspace_arg} "
+                "--limit 20 --only-unresolved"
             ),
         )
     )
