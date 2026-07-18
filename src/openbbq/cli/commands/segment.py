@@ -6,10 +6,12 @@ from typing import Annotated
 
 import typer
 
+from ...core import asr_review as asr_reviewlib
 from ...core import glossary as glossarylib
 from ...core import segment as seg
 from ...core import workspace as ws
 from ...schemas import Cues, SegmentParams, Stage, StageState, StageStatus
+from ...errors import OpenBBQError
 from ..output import Output
 from ..results import Result
 
@@ -82,6 +84,24 @@ def segment(
         path, manifest, Stage.TRANSCRIBE, fix="openbbq transcribe"
     )
     transcript = ws.read_transcript(tpath)
+    asr_review = ws.read_asr_review_optional(path)
+    reference_texts = [
+        text
+        for text in (manifest.source.title, manifest.source.author)
+        if manifest.source.type == "url" and text
+    ]
+    asr_report = asr_reviewlib.check(
+        transcript,
+        asr_review,
+        reference_texts=reference_texts,
+    )
+    if not asr_report.ready:
+        raise OpenBBQError(
+            "asr_review_incomplete",
+            stale=asr_report.stale,
+            unresolved=asr_report.unresolved_ids[:20],
+            fix="run `openbbq asr batch --limit 20`, then `openbbq asr apply <decisions.json>`",
+        )
 
     source_lang = lang or transcript.language
     profile, generic = seg.resolve_profile(source_lang)
@@ -97,7 +117,13 @@ def segment(
     )
 
     gloss = glossarylib.load_optional(glossary or manifest.glossary)
-    outcome = seg.build_cues(transcript, profile, glossarylib.corrector(gloss))
+    correct = asr_reviewlib.corrector(asr_review, glossarylib.corrector(gloss))
+    reviewed_transcript = asr_reviewlib.apply_segment_decisions(
+        transcript,
+        asr_review,
+        reference_texts=reference_texts,
+    )
+    outcome = seg.build_cues(reviewed_transcript, profile, correct)
 
     doc = Cues(
         source_lang=source_lang,
@@ -112,8 +138,21 @@ def segment(
         ),
         cues=outcome.cues,
     )
-    ws.write_text_atomic(
-        path / CUES_REL, doc.model_dump_json(indent=2, exclude_none=True)
+    cues_path = path / CUES_REL
+    ws.write_text_atomic(cues_path, doc.model_dump_json(indent=2, exclude_none=True))
+    provenance_inputs = [tpath]
+    asr_review_path = ws.asr_review_path(path)
+    if asr_review_path.is_file():
+        provenance_inputs.append(asr_review_path)
+    if glossary or manifest.glossary:
+        provenance_inputs.append(
+            glossarylib.glossary_path(glossary or manifest.glossary or "")
+        )
+    ws.record_artifact_provenance(
+        path,
+        cues_path,
+        Stage.SEGMENT,
+        inputs=provenance_inputs,
     )
     ws.record_stage(
         path,

@@ -5,12 +5,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
 import typer
 
 from openbbq.cli.commands.export import export
 from openbbq.cli.output import Output
 from openbbq.core import export as exp
 from openbbq.core import review as reviewlib
+from openbbq.core import translation_audit as auditlib
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
@@ -18,12 +20,15 @@ from openbbq.schemas import (
     Cue,
     Cues,
     Manifest,
+    Progress,
     SegmentParams,
+    ReviewStatus,
     Source,
     Stage,
     StageState,
     StageStatus,
     Translation,
+    TranslationAuditDecision,
     TranslationItem,
 )
 
@@ -291,11 +296,52 @@ def test_render_ass_fansub_preset_uses_emphasized_target_style() -> None:
     ) in out
 
 
+def test_render_ass_fansub_compact_reduces_stack_and_moves_it_above_lower_thirds() -> None:
+    cues = _cues(Cue(id=1, start=0, end=1, source="Hello."))
+    tr = _translation(_item(1, "Hello.", "你好。"))
+    out = exp.render_ass(
+        cues,
+        exp.ExportMode.BILINGUAL,
+        translation=tr,
+        preset=exp.AssPreset.FANSUB_COMPACT,
+    )
+
+    assert "Style: ZH_TOP,Hiragino Sans GB,56" in out
+    assert ",2,120,120,150,1" in out
+    assert "Style: EN,Arial,36" in out
+    assert ",2,120,120,92,1" in out
+
+
 def test_render_ass_escapes_override_braces() -> None:
     cues = _cues(Cue(id=1, start=0, end=1, source="literal {tag}"))
     out = exp.render_ass(cues, exp.ExportMode.SOURCE)
     assert r"literal \\{tag\\}" not in out
     assert r"literal \{tag\}" in out
+
+
+def test_render_ass_reflows_two_target_lines_without_losing_text() -> None:
+    cues = _cues(Cue(id=1, start=0, end=4, source="The idea made me love the craft."))
+    params = SegmentParams(
+        max_cps=11,
+        max_chars_per_line=8,
+        max_lines=2,
+        min_dur=1,
+        max_dur=7,
+        min_gap=0.083,
+    )
+    translation = _translation(
+        _item(1, "The idea made me love the craft.", "这个想法让我爱上这门技艺"),
+        params=params,
+    )
+
+    out = exp.render_ass(
+        cues,
+        exp.ExportMode.BILINGUAL,
+        translation=translation,
+    )
+
+    assert "这个想法让我爱上\\N这门技艺" in out
+    assert "Dialogue: 0,0:00:00.00,0:00:04.00,EN" in out
 
 
 # --- command shell ------------------------------------------------------------
@@ -331,6 +377,30 @@ def _with_cues(path: Path, manifest: Manifest, doc: Cues) -> None:
 
 def _with_worksheet(path: Path, doc: Translation, lang: str = "zh") -> None:
     ws.worksheet_path(path, lang).write_text(doc.model_dump_json())
+
+
+def _with_semantic_audit(
+    path: Path,
+    cues: Cues,
+    translation: Translation,
+    lang: str = "zh",
+) -> None:
+    items = auditlib.audit_items(cues, translation, None, coverage="all")
+    report = auditlib.apply_decisions(
+        cues,
+        translation,
+        None,
+        items,
+        {
+            item.id: TranslationAuditDecision(
+                action="accept",
+                reason="Test fixture confirms source meaning and target intent match.",
+            )
+            for item in items
+        },
+        coverage="all",
+    )
+    ws.write_translation_audit(path, lang, report.audit)
 
 
 def test_export_missing_input_errors(tmp_path) -> None:
@@ -432,14 +502,20 @@ def test_export_writes_source_srt_and_records_stage(tmp_path) -> None:
 
 def test_export_to_joins_worksheet(tmp_path) -> None:
     path, manifest = _workspace(tmp_path)
-    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=1.6, source="Hello.")))
-    _with_worksheet(path, _translation(_item(1, "Hello.", "你好。")))
+    cues = _cues(Cue(id=1, start=0, end=1.6, source="Hello."))
+    translation = _translation(_item(1, "Hello.", "你好。"))
+    _with_cues(path, manifest, cues)
+    _with_worksheet(path, translation)
+    _with_semantic_audit(path, cues, translation)
 
     export(_ctx(), workspace=str(path), to="zh")
 
     srt = path / "out" / "zh.srt"
     assert srt.exists() and "你好\n" in srt.read_text()
-    assert ws.read_manifest(path).stages[Stage.EXPORT].artifact == "out/zh.srt"
+    final_manifest = ws.read_manifest(path)
+    assert final_manifest.stages[Stage.EXPORT].artifact == "out/zh.srt"
+    assert final_manifest.stages[Stage.TRANSLATE].status is StageStatus.DONE
+    assert final_manifest.stages[Stage.TRANSLATE].progress == Progress(done=1, total=1)
     ws.require_fresh_artifact(path, srt, Stage.EXPORT)
 
 
@@ -472,10 +548,52 @@ def test_export_can_explicitly_allow_translation_quality_warnings(tmp_path) -> N
     assert (path / "out" / "zh.srt").exists()
 
 
+def test_export_blocks_pending_translation_audit_then_accepts_current_review(
+    tmp_path,
+) -> None:
+    path, manifest = _workspace(tmp_path)
+    cues = _cues(
+        Cue(id=1, start=0, end=2, source="If it worked for them, why not me?")
+    )
+    translation = _translation(
+        _item(1, "If it worked for them, why not me?", "如果ta能成功，为什么我不行？")
+    )
+    _with_cues(path, manifest, cues)
+    _with_worksheet(path, translation)
+
+    with pytest.raises(OpenBBQError) as raised:
+        export(_ctx(), workspace=str(path), to="zh")
+    assert raised.value.code == "translation_audit_incomplete"
+    assert raised.value.context["ids"] == [1]
+
+    risks = auditlib.audit_items(cues, translation, None, coverage="all")
+    reviewed = auditlib.apply_decisions(
+        cues,
+        translation,
+        None,
+        risks,
+        {
+            1: TranslationAuditDecision(
+                action="accept",
+                reason="The source intentionally uses the neutral written form ta.",
+            )
+        },
+        coverage="all",
+    )
+    ws.write_translation_audit(path, "zh", reviewed.audit)
+
+    export(_ctx(), workspace=str(path), to="zh")
+
+    assert (path / "out" / "zh.srt").is_file()
+
+
 def test_export_provenance_detects_changed_translation(tmp_path) -> None:
     path, manifest = _workspace(tmp_path)
-    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=2, source="Hello there")))
-    _with_worksheet(path, _translation(_item(1, "Hello there", "你好")))
+    cues = _cues(Cue(id=1, start=0, end=2, source="Hello there"))
+    translation = _translation(_item(1, "Hello there", "你好"))
+    _with_cues(path, manifest, cues)
+    _with_worksheet(path, translation)
+    _with_semantic_audit(path, cues, translation)
     export(_ctx(), workspace=str(path), to="zh", fmt="ass")
     artifact = path / "out" / "zh.ass"
 
@@ -589,8 +707,11 @@ def test_export_output_override(tmp_path) -> None:
 
 def test_export_blocks_incomplete_review_when_review_exists(tmp_path) -> None:
     path, manifest = _workspace(tmp_path)
-    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=1.6, source="Hello.")))
-    _with_worksheet(path, _translation(_item(1, "Hello.", "你好。")))
+    cues = _cues(Cue(id=1, start=0, end=1.6, source="Hello."))
+    translation = _translation(_item(1, "Hello.", "你好。"))
+    _with_cues(path, manifest, cues)
+    _with_worksheet(path, translation)
+    _with_semantic_audit(path, cues, translation)
     reviewlib.ReviewSession.open(path, "zh")
 
     try:
@@ -604,10 +725,50 @@ def test_export_blocks_incomplete_review_when_review_exists(tmp_path) -> None:
 
 def test_export_allow_unreviewed_explicitly_bypasses_review_gate(tmp_path) -> None:
     path, manifest = _workspace(tmp_path)
-    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=1.6, source="Hello.")))
-    _with_worksheet(path, _translation(_item(1, "Hello.", "你好。")))
+    cues = _cues(Cue(id=1, start=0, end=1.6, source="Hello."))
+    translation = _translation(_item(1, "Hello.", "你好。"))
+    _with_cues(path, manifest, cues)
+    _with_worksheet(path, translation)
+    _with_semantic_audit(path, cues, translation)
     reviewlib.ReviewSession.open(path, "zh")
 
     export(_ctx(), workspace=str(path), to="zh", allow_unreviewed=True)
 
     assert (path / "out" / "zh.srt").exists()
+
+
+def test_export_finalizes_translation_without_invalidating_current_review(
+    tmp_path: Path,
+) -> None:
+    path, manifest = _workspace(tmp_path)
+    cues = _cues(Cue(id=1, start=0, end=1.6, source="Hello."))
+    translation = _translation(_item(1, "Hello.", "你好。"))
+    _with_cues(path, manifest, cues)
+    _with_worksheet(path, translation)
+    _with_semantic_audit(path, cues, translation)
+    session = reviewlib.ReviewSession.open(path, "zh")
+    snapshot = session.snapshot()
+    session.set_status(
+        1,
+        ReviewStatus.REVIEWED,
+        base_revision=snapshot.revision,
+        op_id="review-1",
+    )
+    manifest = ws.read_manifest(path)
+    manifest.stages[Stage.EXPORT] = StageState(
+        status=StageStatus.DONE,
+        artifact="out/old.ass",
+    )
+    manifest.stages[Stage.BURN] = StageState(
+        status=StageStatus.DONE,
+        artifact="out/old.mp4",
+    )
+    ws.write_manifest(path, manifest)
+
+    export(_ctx(), workspace=str(path), to="zh")
+
+    final = ws.read_manifest(path)
+    assert final.stages[Stage.TRANSLATE].status is StageStatus.DONE
+    assert final.stages[Stage.REVIEW].status is StageStatus.DONE
+    assert final.stages[Stage.EXPORT].status is StageStatus.DONE
+    assert final.stages[Stage.BURN].status is StageStatus.PENDING

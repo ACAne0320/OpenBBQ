@@ -8,9 +8,10 @@ openbbq auth status youtube
 openbbq fetch --workspace workspaces/demo --auth youtube --max-height 1080
 openbbq extract-audio --workspace workspaces/demo
 openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
+openbbq --json asr check --workspace workspaces/demo
 openbbq glossary suggest --workspace workspaces/demo
 openbbq segment --workspace workspaces/demo
-openbbq translate init zh --workspace workspaces/demo
+openbbq translate init zh --workspace workspaces/demo --max-lines 2
 ```
 
 If there is no glossary, remove `--glossary <name>`; if transcription reveals
@@ -30,12 +31,46 @@ openbbq auth browser-login youtube
 openbbq init --workspace workspaces/demo --glossary <name> /path/to/video.mp4
 openbbq extract-audio --workspace workspaces/demo
 openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
+openbbq --json asr check --workspace workspaces/demo
 openbbq glossary suggest --workspace workspaces/demo
 openbbq segment --workspace workspaces/demo
-openbbq translate init zh --workspace workspaces/demo
+openbbq translate init zh --workspace workspaces/demo --max-lines 2
 ```
 
 Local files skip `fetch`.
+
+## Resolve ASR Uncertainty
+
+When `asr check` is not ready, read a bounded page:
+
+```bash
+openbbq --json asr batch --workspace workspaces/demo --limit 20 --only-unresolved
+```
+
+After checking context, write reasoned decisions for both accepts and replacements:
+
+```json
+{
+  "s3:w8": {"action": "accept", "reason": "Context and the glossary support this spelling"},
+  "s7:w2": {
+    "action": "replace",
+    "find": "Sean Hongxiu",
+    "replacement": "Sean Hongshu",
+    "reason": "The end credit and earlier mention use Hongshu"
+  },
+  "a:repeat:205-221": {
+    "action": "drop",
+    "reason": "Seventeen identical segments span 30 seconds, confirming decoder hallucination"
+  }
+}
+```
+
+```bash
+openbbq asr apply --workspace workspaces/demo asr-decisions.json
+```
+
+Repeat batch/apply until `asr check` is `ready: true`. Never accept blindly to
+clear the gate.
 
 ## Fill Translations
 
@@ -60,10 +95,11 @@ openbbq translate apply zh --workspace workspaces/demo targets.batch1.json
 
 Multiple batches are fine; later batches only overwrite provided cue ids.
 
-## Check, Self-Review, Export, Burn
+## Check, Risk Audit, Export, Burn
 
 ```bash
 openbbq translate check zh --workspace workspaces/demo
+openbbq --json translate audit zh --workspace workspaces/demo --coverage all --limit 20
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset fansub --output out/zh.ass
 openbbq burn --workspace workspaces/demo --subtitle out/zh.ass --output out/zh-burned.mp4
 ```
@@ -71,8 +107,24 @@ openbbq burn --workspace workspaces/demo --subtitle out/zh.ass --output out/zh-b
 Clear `missing`, `over_budget`, `zero_budget`, `term_issues`, and
 `quality_issues`, and require `ready: true`, before export.
 
-Before export, perform an agent translation quality self-review to avoid finding
-translation problems only after burn. Minimum requirements:
+`translate check` is read-only: it does not mutate the manifest or invalidate a
+completed export/burn. When the risk audit returns pending cues, write reasoned
+decisions:
+
+```json
+{
+  "43": {"action": "revise", "target": "Garnt from Trash Taste went too.", "reason": "Restore the omitted show name"},
+  "92": {"action": "accept", "reason": "Mew matches the creator name in context"}
+}
+```
+
+```bash
+openbbq translate audit-apply zh --workspace workspaces/demo translation-audit.json
+```
+
+Repeat check/audit until both return `ready: true`. `coverage: all` prioritizes
+risk but requires every cue to be reviewed with neighboring context; changing a
+cue invalidates adjacent context reviews. Minimum requirements:
 
 - Compare source/target pairs in `translation.zh.json`; spot-check or read
   through the full worksheet.
@@ -82,9 +134,8 @@ translation problems only after burn. Minimum requirements:
   source and target lines express the same meaning.
 - Make revisions only with the Edit tool or a `{id: target}` batch JSON merged
   by `translate apply`.
-- After self-review revisions, rerun `openbbq translate check zh --workspace
-  workspaces/demo`; `missing`, `over_budget`, and `term_issues` must remain
-  clear.
+- After revisions, rerun `translate check` and the affected audit; every gate
+  must remain clear.
 
 Only export and burn after both mechanical checks and quality self-review pass.
 
@@ -93,8 +144,9 @@ Only export and burn after both mechanical checks and quality self-review pass.
 ```bash
 openbbq --json status --workspace workspaces/demo
 openbbq translate check zh --workspace workspaces/demo
-ffprobe -v error -show_entries format=duration,size -of json workspaces/demo/out/zh-burned.mp4
-ffmpeg -y -ss 60 -i workspaces/demo/out/zh-burned.mp4 -frames:v 1 workspaces/demo/qa-frame-60s.png
+openbbq --json qa render --workspace workspaces/demo
+openbbq --json qa check --workspace workspaces/demo
+openbbq --json delivery check --workspace workspaces/demo --to zh
 ```
 
 Confirm:
@@ -102,6 +154,27 @@ Confirm:
 - Relevant manifest stages are complete, with no failed/stale/running state.
 - `translate check` returns `ready: true`; the final flow did not use
   `--allow-quality-warnings` or `burn --allow-stale`.
-- Output MP4 is non-empty and matches the source duration.
-- The captured frame shows rendered subtitles in the right position; for
-  bilingual output, both lines are readable.
+- `qa check` has `mechanical_status: pass`, proving the current MP4 is non-empty
+  and matches the current source video, ASS, and frame hashes.
+- With image input, open every path in `frames`, inspect bilingual content,
+  wrapping, occlusion, and safe area, then run:
+
+```bash
+openbbq qa attest --workspace workspaces/demo --result pass --reason '<actual observation>'
+```
+
+On failure, record a structured issue. For example, for a lower-third conflict:
+
+```bash
+openbbq qa attest --workspace workspaces/demo --result fail \
+  --issue lower_third_conflict --reason 'cue 43 overlaps the speaker name card'
+openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass \
+  --ass-preset fansub-compact --output out/zh.ass
+```
+
+After fixing, rerun burn, QA render, and attestation. Final `delivery check` must
+exit 0 with `ready: true`; it combines ASR anomalies, translation checks,
+full-context semantic review, artifact freshness, and visual QA.
+
+- Without image input, never run `qa attest`. Final delivery must explicitly say
+  `visual_status: not_performed`, not “visual QA passed.”

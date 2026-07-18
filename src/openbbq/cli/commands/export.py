@@ -10,9 +10,10 @@ import typer
 from ...core import export as exp
 from ...core import review as reviewlib
 from ...core import translate as translatelib
+from ...core import translation_audit as auditlib
 from ...core import workspace as ws
 from ...errors import OpenBBQError
-from ...schemas import Stage, StageState, StageStatus
+from ...schemas import Progress, Stage, StageState, StageStatus
 from ..output import Output
 from ..results import Result
 
@@ -65,7 +66,7 @@ def export(
         exp.AssPreset,
         typer.Option(
             "--ass-preset",
-            help="ASS style preset: default | fansub | mobile",
+            help="ASS style preset: default | fansub | fansub-compact | mobile",
         ),
     ] = exp.AssPreset.DEFAULT,
     allow_missing: Annotated[
@@ -111,6 +112,8 @@ def export(
 
     translation = None
     translation_lang = None
+    translation_audit_path: Path | None = None
+    translation_ready = False
     wpath: Path | None = None
     resolved = mode or exp.default_mode(to)
     if resolved is not exp.ExportMode.SOURCE:
@@ -145,11 +148,67 @@ def export(
                 ),
             )
 
+        audit_state = ws.read_translation_audit_optional(path, to)
+        transcript = None
+        transcribe_state = manifest.stages.get(Stage.TRANSCRIBE)
+        if (
+            transcribe_state is not None
+            and transcribe_state.status is StageStatus.DONE
+            and transcribe_state.artifact
+        ):
+            transcript_path = Path(transcribe_state.artifact)
+            if not transcript_path.is_absolute():
+                transcript_path = path / transcript_path
+            if transcript_path.is_file():
+                transcript = ws.read_transcript(transcript_path)
+        risks = auditlib.audit_items(
+            doc,
+            translation,
+            audit_state,
+            uncertain_ids=auditlib.uncertain_cue_ids(doc, transcript),
+            coverage="all",
+        )
+        pending_audit = auditlib.pending_items(
+            risks,
+            translation,
+            audit_state,
+            require_context=True,
+        )
+        if pending_audit and not allow_quality_warnings:
+            raise OpenBBQError(
+                "translation_audit_incomplete",
+                ids=[item.id for item in pending_audit[:15]],
+                total=len(pending_audit),
+                fix=(
+                    f"run `openbbq translate audit {to} --coverage all --limit 20` "
+                    "and review every cue; "
+                    "use --allow-quality-warnings only for an intentional draft"
+                ),
+            )
+        candidate_audit_path = ws.translation_audit_path(path, to)
+        if candidate_audit_path.is_file():
+            translation_audit_path = candidate_audit_path
+        translation_ready = report.ready and not pending_audit
+
     if not allow_unreviewed:
         review_lang = (
             translation_lang if resolved is not exp.ExportMode.SOURCE else None
         )
         reviewlib.require_complete_review(path, doc, translation, review_lang)
+
+    if translation is not None and wpath is not None and translation_ready:
+        ws.record_stage(
+            path,
+            manifest,
+            Stage.TRANSLATE,
+            StageState(
+                status=StageStatus.DONE,
+                artifact=wpath.name,
+                progress=Progress(done=len(translation.items), total=len(translation.items)),
+                updated_at=datetime.now(timezone.utc),
+            ),
+            preserve_later={Stage.REVIEW},
+        )
 
     if fmt == "ass":
         content = exp.render_ass(
@@ -179,6 +238,8 @@ def export(
     provenance_inputs = [cpath]
     if wpath is not None:
         provenance_inputs.append(wpath)
+    if translation_audit_path is not None:
+        provenance_inputs.append(translation_audit_path)
     review_lang = translation_lang if resolved is not exp.ExportMode.SOURCE else None
     review_path = reviewlib.review_path(path, review_lang)
     if review_path.is_file():

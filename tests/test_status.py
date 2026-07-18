@@ -37,6 +37,8 @@ def test_status_result_includes_resume_fields_and_stale_stage(tmp_path) -> None:
     stages = cast(dict[str, dict[str, object]], payload["stages"])
     assert source == {"type": "local_audio", "ref": str(src)}
     assert payload["glossary"] == "frieren"
+    assert payload["delivery_ready"] is False
+    assert "delivery_issues" in payload
     assert "next" not in payload
     assert worksheets == ["zh"]
     assert stages["transcribe"]["stale"] is True
@@ -47,4 +49,5 @@ def test_status_result_includes_resume_fields_and_stale_stage(tmp_path) -> None:
     assert "source: local_audio" in rendered
     assert "glossary: frieren" in rendered
     assert "worksheets: zh" in rendered
+    assert "delivery: blocked" in rendered
     assert "(stale)" in rendered

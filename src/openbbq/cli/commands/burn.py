@@ -251,6 +251,12 @@ def burn(
 
     artifact = _relative_to_workspace(dest, path)
     subtitle_artifact = _relative_to_workspace(sub, path)
+    ws.record_artifact_provenance(
+        path,
+        dest,
+        Stage.BURN,
+        inputs=[src, sub],
+    )
     ws.record_stage(
         path,
         manifest,
@@ -269,5 +275,6 @@ def burn(
             duration_s=outcome.duration_s,
             elapsed_s=round(time.monotonic() - started, 2),
             ffmpeg=outcome.ffmpeg,
+            next="openbbq qa render",
         )
     )

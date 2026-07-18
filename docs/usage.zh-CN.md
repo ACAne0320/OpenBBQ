@@ -62,12 +62,25 @@ openbbq segment --workspace workspaces/demo
 所选 ASR 后端支持时，`--gpu` 是默认的快速路径。如果原生后端在受限 sandbox 中崩溃
 或失败，请在 sandbox 外重新运行 `transcribe`，或改用 `--cpu` 重试。
 
+分段前必须处理所有低置信词和段级异常（重复幻觉、异常词速、标题/作者实体冲突）：
+
+```bash
+openbbq --json asr check --workspace workspaces/demo
+openbbq --json asr batch --workspace workspaces/demo --limit 20 --only-unresolved
+openbbq asr apply --workspace workspaces/demo asr-decisions.json
+```
+
+词和实体使用 accept/replace；重复段可用 keep_first/drop。所有决定都必须写理由；
+短语 replace 还要提供精确的 `find` 与 `replacement`。fetch 到 YouTube VTT 时，batch
+会附带同时间的参考文字。
+重复处理直到 `asr check` 返回 `ready: true`；未决或过期决定会阻止 `segment`。
+
 ## 翻译
 
 创建中文翻译工作表：
 
 ```bash
-openbbq translate init zh --workspace workspaces/demo
+openbbq translate init zh --workspace workspaces/demo --max-lines 2
 ```
 
 长视频先读取有界批次，避免 Agent 把整个 worksheet 塞进上下文：
@@ -92,6 +105,19 @@ openbbq translate check zh --workspace workspaces/demo
 只有 `ready: true` 才表示翻译完成。必须处理 `missing`、`over_budget`、
 `zero_budget`、`term_issues` 和 `quality_issues`；只有明确导出草稿时才使用
 `--allow-quality-warnings` 绕过。
+`translate check` 完全只读，不会让已完成的 export/burn 失效。双语 ASS 会按
+worksheet 的目标语行预算确定性插入 `\N`，不会截断译文。
+
+分批审核全覆盖语义队列（风险项优先，每条带前后文）：
+
+```bash
+openbbq --json translate audit zh --workspace workspaces/demo --coverage all --limit 20
+openbbq translate audit-apply zh --workspace workspaces/demo translation-audit.json
+```
+
+每条 accept/revise 都要写理由，revise 还要带 `target`。每个 cue 都必须审核；修改一条
+会使本条和相邻上下文决定失效。存在当前未审核项时，
+正式导出会被阻止；`--allow-quality-warnings` 只用于明确草稿。
 
 ## 可视化审核与字幕编辑
 
@@ -133,21 +159,43 @@ openbbq --json status --workspace workspaces/demo
 
 导出会记录 cues、译文、review 状态和 ASS 的内容哈希。burn 默认拒绝已改动或未追踪
 的 workspace 内 ASS；`--allow-stale` 只用于明确的手工草稿，显式传入 workspace
-外部 ASS 仍然受支持。
+外部 ASS 仍然受支持。成功 burn 还会记录最终 MP4，以及所用源视频和 ASS 的精确
+内容哈希。
+
+## 完成 QA
+
+```bash
+openbbq --json qa render --workspace workspaces/demo
+openbbq --json qa check --workspace workspaces/demo
+openbbq --json delivery check --workspace workspaces/demo --to zh
+```
+
+`qa render` 默认选择最多 7 张首尾、中段、长句、高 CPS、短时长风险帧。
+`mechanical_status: pass` 只证明当前非空 MP4、源视频、ASS 和截帧 hash 一致，
+不等于看过画面。只有实际打开并检查返回的每一张 frame 后，有视觉输入能力的审核者
+才能运行 `qa attest --result pass|fail --reason ...`。失败必须额外用一个或多个
+`--issue` 记录结构化问题。没有图像输入能力时必须保留
+`visual_status: not_performed`，并明确说明未执行视觉检查。
+
+最终 `delivery check` 是硬门禁：它综合 ASR、翻译机械检查、全覆盖上下文审校、
+export/burn freshness 与视觉 QA。任一失败都会返回 `ready:false` 和非零退出码。
 
 ## ASS 预设
 
 ```bash
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset default
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset fansub
+openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset fansub-compact
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset mobile
 ```
 
 - `default`：常规 16:9 横屏视频。
 - `fansub`：译文行更醒目。
+- `fansub-compact`：更小且上移的双语堆叠，用于下三分之一冲突或遮挡修复。
 - `mobile`：面向 9:16 竖屏视频，使用竖屏画布和更大的底部安全区。
 
-`mobile` 只改变渲染样式。长字幕仍然需要更短的切分或更紧凑的翻译。
+`mobile` 只改变渲染样式。目标语行容量由 `translate init` 的覆盖参数控制；如果仍
+超过阅读速度或行容量门禁，需要修订译文或重新切分。
 
 ## Agent 使用
 
@@ -187,6 +235,9 @@ skills 目录，Claude Code 使用 `openbbq skill install --agent claude`，Code
 - `transcript.json`：ASR 转录结果。
 - `cues.json`：原文字幕 cue。
 - `translation.<lang>.json`：可编辑翻译工作表。
+- `.openbbq/asr-review.json`：绑定 transcript hash 的低置信词决定。
+- `.openbbq/translation-audit.<lang>.json`：绑定当前 cue 内容的风险审核决定。
+- `.openbbq/qa.json`：MP4/截帧证据和可选视觉证明。
 - `review.<lang>.json`：逐 cue 的人工审核状态与已审核内容 hash。
 - `.openbbq/artifacts.json`：供 burn 校验的导出来源与内容 hash。
 - `.openbbq/review/`：本地 lock、checkpoint、waveform cache 和预览 proxy。
@@ -205,10 +256,13 @@ openbbq fetch
 openbbq extract-audio
 openbbq transcribe
 openbbq segment
-openbbq translate init/batch/apply/check
+openbbq asr check/batch/apply
+openbbq translate init/batch/apply/check/audit/audit-apply
 openbbq review
 openbbq glossary list/show/new/use/suggest
 openbbq export
 openbbq burn
+openbbq qa render/check/attest
+openbbq delivery check
 openbbq models list/pull
 ```

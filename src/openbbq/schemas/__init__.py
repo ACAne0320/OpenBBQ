@@ -1,10 +1,19 @@
 from .common import OpenBBQModel, Seconds, Stage, StageStatus
+from .asr_review import AsrDecision, AsrReview
 from .cues import Budget, Cue, Cues, SegmentParams
 from .glossary import Glossary, Term
 from .manifest import Manifest, Progress, Source, SourceType, StageState
+from .qa import QaFrame, QaReport, QaVisualIssue, QaVisualIssueCode
 from .review import Review, ReviewItem, ReviewStatus
 from .transcript import ASRInfo, Segment, Transcript, Word
 from .translation import GlossaryRef, Translation, TranslationItem
+from .translation_audit import (
+    TranslationAudit,
+    TranslationAuditDecision,
+    TranslationAuditFlag,
+    TranslationAuditFlagCode,
+    TranslationAuditRecord,
+)
 
 __all__ = [
     # common
@@ -12,6 +21,9 @@ __all__ = [
     "OpenBBQModel",
     "Stage",
     "StageStatus",
+    # asr-review@1
+    "AsrDecision",
+    "AsrReview",
     # transcript@1
     "Transcript",
     "ASRInfo",
@@ -29,6 +41,12 @@ __all__ = [
     "Translation",
     "TranslationItem",
     "GlossaryRef",
+    # translation-audit@1
+    "TranslationAudit",
+    "TranslationAuditDecision",
+    "TranslationAuditFlag",
+    "TranslationAuditFlagCode",
+    "TranslationAuditRecord",
     # review@1
     "Review",
     "ReviewItem",
@@ -39,4 +57,9 @@ __all__ = [
     "SourceType",
     "StageState",
     "Progress",
+    # qa@1
+    "QaFrame",
+    "QaReport",
+    "QaVisualIssue",
+    "QaVisualIssueCode",
 ]

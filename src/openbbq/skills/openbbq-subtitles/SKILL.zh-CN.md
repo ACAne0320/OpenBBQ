@@ -9,6 +9,13 @@
 
 优先使用 OpenBBQ 的原子 CLI 命令，不要写临时脚本。
 
+## 简单请求的默认约定
+
+用户只给一个视频并说“帮我把这个视频制作成双语字幕的视频”时，直接执行完整工作流，
+不要追问常规选项：目标语默认取用户当前使用的语言（中文请求默认 `zh`），输出默认双语
+ASS 硬字幕视频，横屏默认 `fansub`。只有版权范围、目标语言确实不明或需要外部权限时才停下来
+询问。最终只有 `delivery check` 通过才可以说任务完成。
+
 ## 必读规则
 
 - 自动化一律用 `openbbq --json ...`，除非用户明确要看人类终端 UI。
@@ -27,7 +34,11 @@
 - 沙箱环境通常不能用本机 GPU 做 ASR；需要 GPU 时询问用户是否允许在沙箱外运行
   `transcribe`。
 - 默认双语视频不要烧录 SRT；导出双语 ASS，再烧录 ASS。
-- ASS preset 按目标画面选：`fansub` 更醒目，`mobile` 适合 9:16 竖屏。
+- ASS preset 按目标画面选：`fansub` 更醒目，`fansub-compact` 用于下三分之一冲突、
+  遮挡或字幕堆叠，`mobile` 适合 9:16 竖屏。
+- 最终交付不得跳过 ASR 不确定词门禁、翻译风险审计或结构化 QA。不得把“成功截帧”
+  说成“已看过画面”；没有实际图像输入能力时，必须如实报告 `visual_status:
+  not_performed`，不能运行 `qa attest`。
 
 ## 何时读取 reference
 
@@ -39,8 +50,9 @@
 
 ## 单视频通用流程
 
-1. 运行时预检：首次在机器上处理字幕，或遇到依赖错误时，跑 `openbbq doctor`。
-   正式转写前确认 Whisper 模型已缓存；缺模型再 `openbbq models pull <model>`。
+1. 运行时预检：每个简单请求开始先跑 `openbbq --json doctor`。如果已安装的 agent
+   skill 过期，doctor 会不健康；先按 fix 执行 `openbbq skill install --force`，不能用旧
+   工作流继续。正式转写前确认 Whisper 模型已缓存；缺模型再拉取。
 2. 初始化 workspace。YouTube URL 和本地文件都可用 `openbbq init --workspace <ws>`；
    系列/专名内容先准备或复用 glossary，并在 `init` 时绑定 `--glossary <name>`。
 3. YouTube 输入先检查 auth：`openbbq auth status youtube`。已有 auth 时优先
@@ -49,29 +61,40 @@
 4. 本地文件跳过 fetch；YouTube fetch 后继续 `extract-audio`。
 5. 转写：通常用 `openbbq transcribe --workspace <ws> --model large-v3-turbo
    --language <lang> --gpu`。沙箱无法用 GPU 时，按必读规则请求授权或改 CPU。
-6. 专名处理：转写后必须跑 `openbbq glossary suggest --workspace <ws>`。按
+6. ASR 审核：先跑 `openbbq --json asr check --workspace <ws>`；有未决项时，用
+   `asr batch --limit 20` 分批读取。除低置信词外，还要处理重复段、异常词速和标题/作者
+   实体冲突；YouTube 参考字幕可用时 batch 会附带同时间文字。词和实体使用
+   accept/replace，幻觉重复段使用 keep_first/drop，整段损坏才用 replace。每个决定必须有
+   具体证据，不能批量盲目接受。直到 `ready: true` 才能继续。
+7. 专名处理：跑 `openbbq glossary suggest --workspace <ws>`。按
    `references/glossary.zh-CN.md` 主动审计 ASR 专名错误、拼写变体和新关键术语；
    更新 glossary 后再 `segment`。如果 `segment` 已跑过，更新 glossary 后重跑
    `segment` 和 `translate init`。
-7. 分段并初始化翻译：`segment` 后跑 `translate init <lang>`。
-8. 填译文：大量 cue 先用 `openbbq --json translate batch <lang> --workspace
+8. 分段并初始化翻译：`segment` 后跑 `translate init <lang> --max-lines 2`。默认
+   双语视频先给目标语两行空间，不要为了单行限制删掉原意。
+9. 填译文：大量 cue 先用 `openbbq --json translate batch <lang> --workspace
    <ws> --from <id> --limit 20 --only-missing` 读取有界批次，再写 `{id: target}`
    批次 JSON，并用 `translate apply` 合并。不要把完整 worksheet 塞进上下文。
-9. 机械检查：跑 `openbbq translate check <lang> --workspace <ws>`，清掉 `missing`、
+10. 机械检查：跑 `openbbq translate check <lang> --workspace <ws>`，清掉 `missing`、
    `over_budget`、`zero_budget`、`term_issues` 和 `quality_issues`；只有输出
-   `ready: true` 才能视为翻译 stage 完成。
-10. 人工可视化审核：用户要求最终人工校对、调整 cue 时间或修复断句时，使用
+   `ready: true` 才能进入审计。此命令只读；翻译 stage 由正式 `export` 完成。
+11. 全覆盖语义审计：用 `translate audit <lang> --coverage all --limit 20` 分批读取；
+   高风险 cue 优先，但每个已翻译 cue 都必须结合前后各一条上下文逐条 accept 或 revise，
+   并用 `translate audit-apply` 写入带理由的决策。不能因为机械检查通过就批量接受。
+   修改任一译文会使本条及相邻上下文审校失效，必须重新 check/audit，直到 ready。
+12. 人工可视化审核：用户要求最终人工校对、调整 cue 时间或修复断句时，使用
     `openbbq review --workspace <ws> --to <lang>`。审核页会受控同步 cues 与所有
     worksheet；不要同时让其他 Agent 直接编辑这些文件。
-11. 翻译质量自审：导出前抽查或通读 worksheet，主动修正误译、不自然、语气不符、
-    上下文断裂、术语漂移和双语 source/target 不匹配的问题。修订后重新
-    `translate apply` 和 `translate check`。
-12. 导出和烧录：默认导出双语 ASS，再 burn。存在 review 文件时，未完成审核会
+13. 导出和烧录：默认导出双语 ASS，再 burn。存在 review 文件时，未完成审核会
     阻止导出；只有明确需要草稿时才用 `--allow-unreviewed`。导出时可按场景选择
     `--ass-preset`。`--allow-quality-warnings` 和 `burn --allow-stale` 只用于用户
     明确要求的草稿或手工外部产物，不能用于最终交付。
-13. 完成 QA：按 `references/workflows.zh-CN.md` 检查 status、translate check、
-    输出 MP4 时长/大小，并截帧确认字幕渲染。
+14. 完成 QA：运行 `qa render`（默认最多 7 张首尾/中段/长句/高 CPS/短时长风险帧）
+    和只读 `qa check`。有图像输入能力时读取每张 frame；失败 attestation 必须用
+    `--issue` 记录结构化问题。版式冲突优先改用 `fansub-compact` 后重新 export、burn、
+    render；内容错误回到 ASR/翻译审校。没有图像输入能力时不得 attest。
+15. 硬交付门禁：最后运行 `openbbq --json delivery check --workspace <ws> --to <lang>`。
+    只有退出码 0 且 `ready: true` 才能交付；否则严格执行返回的 fix，不能用文字解释绕过。
 
 ## Glossary 原则
 

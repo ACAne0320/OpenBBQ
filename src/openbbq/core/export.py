@@ -2,9 +2,9 @@
 subtitle file (SRT or ASS).
 
 Source/target split (DESIGN translate spec): cues.json carries the timeline +
-source, the per-language worksheet carries target. Export renders one visual
-line per language: source/target modes emit one line, bilingual emits target
-over source. Cue length belongs upstream in segmentation and translation budget.
+source, the per-language worksheet carries target. ASS export can reflow a
+target across the worksheet's configured line count without changing the source
+timeline or deleting target text.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from enum import StrEnum
 import re
 from typing import cast
 
-from openbbq.core.translate import is_filled, verify_integrity
+from openbbq.core.translate import is_filled, verify_integrity, wrap_target_lines
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import Cue, Cues, Translation
 
@@ -28,6 +28,7 @@ class ExportMode(StrEnum):
 class AssPreset(StrEnum):
     DEFAULT = "default"
     FANSUB = "fansub"
+    FANSUB_COMPACT = "fansub-compact"
     MOBILE = "mobile"
 
 
@@ -289,6 +290,47 @@ _ASS_PRESETS: dict[AssPreset, _AssPresetConfig] = {
             ),
         ),
     ),
+    AssPreset.FANSUB_COMPACT: _AssPresetConfig(
+        play_res_x=1920,
+        play_res_y=1080,
+        styles=(
+            _style(
+                "ZH",
+                "Hiragino Sans GB",
+                56,
+                margin_v=92,
+                outline_width=2,
+                primary=_SOFT_WHITE,
+                outline=_DODGER_BLUE,
+                margin_x=120,
+            ),
+            _style(
+                "ZH_TOP",
+                "Hiragino Sans GB",
+                56,
+                margin_v=150,
+                outline_width=2,
+                primary=_SOFT_WHITE,
+                outline=_DODGER_BLUE,
+                margin_x=120,
+            ),
+            _style("EN", "Arial", 36, margin_v=92, outline_width=2, margin_x=120),
+            _style(
+                "EN_TOP", "Arial", 36, margin_v=150, outline_width=2, margin_x=120
+            ),
+            _style(
+                "DEFAULT", "Arial", 44, margin_v=92, outline_width=2, margin_x=120
+            ),
+            _style(
+                "DEFAULT_TOP",
+                "Arial",
+                44,
+                margin_v=150,
+                outline_width=2,
+                margin_x=120,
+            ),
+        ),
+    ),
     AssPreset.MOBILE: _AssPresetConfig(
         play_res_x=1080,
         play_res_y=1920,
@@ -388,7 +430,8 @@ def _ass_style(lang: str, *, top: bool = False) -> str:
 
 def _ass_text(text: str) -> str:
     """Escape text that could be parsed as ASS override markup."""
-    return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+    escaped = text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+    return escaped.replace("\r\n", "\n").replace("\r", "\n").replace("\n", r"\N")
 
 
 def render_ass(
@@ -412,11 +455,10 @@ def render_ass(
         end = _ass_timestamp(cue.end)
         source = _one_line(cue.source, cues.source_lang)
         raw = targets.get(cue.id)
-        target = (
-            _one_line(cast("str", raw), translation.target_lang)
-            if translation is not None and is_filled(raw)
-            else None
-        )
+        target = None
+        if translation is not None and is_filled(raw):
+            normalized_target = _one_line(cast("str", raw), translation.target_lang)
+            target = "\n".join(wrap_target_lines(translation, normalized_target))
         if mode is ExportMode.SOURCE or translation is None:
             rows = [(0, _ass_style(cues.source_lang), source)]
         elif mode is ExportMode.TARGET:
@@ -435,3 +477,47 @@ def render_ass(
                 f"Dialogue: {layer},{start},{end},{style},,0,0,0,,{_ass_text(text)}"
             )
     return _ass_header(preset) + "\n".join(events) + ("\n" if events else "")
+
+
+def is_bilingual_ass(
+    content: str,
+    cues: Cues,
+    translation: Translation,
+) -> bool:
+    """Verify bilingual timing and text without prescribing a style preset.
+
+    The comparison ignores punctuation/line-wrap presentation so a valid ASS
+    produced by an older OpenBBQ patch or another preset remains acceptable,
+    while missing, source-only, reordered, or semantically different rows fail.
+    """
+
+    events = [
+        line.split(",", 9)
+        for line in content.splitlines()
+        if line.startswith("Dialogue:")
+    ]
+    if not cues.cues or len(events) != len(cues.cues) * 2:
+        return False
+    targets = _targets(translation)
+
+    def text_key(text: str) -> str:
+        return "".join(character.casefold() for character in text if character.isalnum())
+
+    for index, cue in enumerate(cues.cues):
+        target_event, source_event = events[index * 2 : index * 2 + 2]
+        if len(target_event) != 10 or len(source_event) != 10:
+            return False
+        if target_event[0] != "Dialogue: 1" or source_event[0] != "Dialogue: 0":
+            return False
+        start = _ass_timestamp(cue.start)
+        end = _ass_timestamp(cue.end)
+        if target_event[1:3] != [start, end] or source_event[1:3] != [start, end]:
+            return False
+        target = targets.get(cue.id)
+        if not is_filled(target):
+            return False
+        if text_key(target_event[9]) != text_key(cast("str", target)):
+            return False
+        if text_key(source_event[9]) != text_key(cue.source):
+            return False
+    return True

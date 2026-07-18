@@ -6,7 +6,9 @@ import typer
 
 from .. import __version__
 from .commands.auth import app as auth_app
+from .commands.asr import app as asr_app
 from .commands.burn import burn
+from .commands.delivery import app as delivery_app
 from .commands.doctor import doctor
 from .commands.export import export
 from .commands.extract_audio import extract_audio
@@ -14,6 +16,7 @@ from .commands.fetch import fetch
 from .commands.glossary import app as glossary_app
 from .commands.init import init
 from .commands.models import app as models_app
+from .commands.qa import app as qa_app
 from .commands.review import review
 from .commands.segment import segment
 from .commands.skill import app as skill_app
@@ -76,4 +79,7 @@ app.command()(burn)
 app.add_typer(models_app, name="models")
 app.add_typer(glossary_app, name="glossary")
 app.add_typer(auth_app, name="auth")
+app.add_typer(asr_app, name="asr")
+app.add_typer(qa_app, name="qa")
+app.add_typer(delivery_app, name="delivery")
 app.add_typer(skill_app, name="skill")

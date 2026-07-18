@@ -17,6 +17,15 @@ explicitly provides them.
 
 Prefer OpenBBQ's atomic CLI commands over ad hoc scripts.
 
+## Defaults for a Simple Request
+
+When a user supplies one video and asks only to “make this a bilingual subtitled
+video,” run the full workflow without asking about routine options. Infer the
+target language from the user's language (a Chinese request defaults to `zh`),
+produce a hard-subtitled bilingual ASS video, and use `fansub` for landscape.
+Pause only for genuinely ambiguous language, rights scope, or external
+permission. Do not call the task complete until `delivery check` passes.
+
 ## Required Rules
 
 - Use `openbbq --json ...` for automation unless the user explicitly wants the
@@ -43,7 +52,12 @@ Prefer OpenBBQ's atomic CLI commands over ad hoc scripts.
 - For the default bilingual-video workflow, do not burn SRT. Export bilingual
   ASS and burn ASS.
 - Pick ASS presets by target surface: `fansub` for prominent bilingual subtitles,
-  and `mobile` for 9:16 vertical video.
+  `fansub-compact` for lower-third conflicts, overlap, or a crowded subtitle
+  stack, and `mobile` for 9:16 vertical video.
+- Final delivery must not skip the ASR uncertainty gate, risk-ranked translation
+  audit, or structured QA. A rendered file is not a visual observation. Without
+  actual image input, report `visual_status: not_performed` and never run
+  `qa attest`.
 
 ## When To Read References
 
@@ -57,9 +71,10 @@ Prefer OpenBBQ's atomic CLI commands over ad hoc scripts.
 
 ## Generic Single-Video Flow
 
-1. Runtime preflight: on the first subtitle job on a machine, or after dependency
-   errors, run `openbbq doctor`. Before final transcription, confirm the Whisper
-   model is cached; if missing, run `openbbq models pull <model>`.
+1. Runtime preflight: start every simple request with `openbbq --json doctor`.
+   An installed but outdated agent skill makes doctor unhealthy; follow its fix
+   with `openbbq skill install --force` before continuing. Confirm the Whisper
+   model is cached before transcription.
 2. Initialize a workspace. YouTube URLs and local files both use
    `openbbq init --workspace <ws>`; for series/named content, prepare or reuse a
    glossary and bind it during `init` with `--glossary <name>`.
@@ -73,35 +88,51 @@ Prefer OpenBBQ's atomic CLI commands over ad hoc scripts.
 5. Transcribe, usually with `openbbq transcribe --workspace <ws> --model
    large-v3-turbo --language <lang> --gpu`. If the sandbox cannot use GPU,
    follow the required rule above.
-6. Named-entity pass: after transcription, always run
+6. ASR review: run `openbbq --json asr check --workspace <ws>`, then read bounded
+   `asr batch --limit 20` pages. Resolve low-confidence words, repeated segments,
+   impossible word rates, and title/author entity conflicts; overlapping YouTube
+   reference captions appear when available. Use accept/replace for words and
+   entities, keep_first/drop for hallucinated repetitions, and whole-segment
+   replace only for a damaged segment. Every decision needs evidence. Continue
+   only at `ready: true`.
+7. Named-entity pass: run
    `openbbq glossary suggest --workspace <ws>`. Use `references/glossary.md` to
    actively audit ASR proper-noun mistakes, spelling variants, and new key terms;
    update the glossary before `segment`. If `segment` already ran, rerun
    `segment` and `translate init` after updating the glossary.
-7. Segment, then initialize translation with `translate init <lang>`.
-8. Fill translations: for many cues, first read a bounded batch with
+8. Segment, then initialize translation with `translate init <lang> --max-lines
+   2`. For bilingual video, use the second target line before deleting meaning.
+9. Fill translations: for many cues, first read a bounded batch with
    `openbbq --json translate batch <lang> --workspace <ws> --from <id> --limit
    20 --only-missing`, then write a `{id: target}` batch JSON and merge it with
    `translate apply`. Do not load the entire worksheet into context.
-9. Mechanical check: run `openbbq translate check <lang> --workspace <ws>` and
+10. Mechanical check: run `openbbq translate check <lang> --workspace <ws>` and
    clear `missing`, `over_budget`, `zero_budget`, `term_issues`, and
-   `quality_issues`; only `ready: true` means the translation stage is complete.
-10. Human visual review: when the user asks for final manual review, cue timing
+   `quality_issues`. Continue only at `ready: true`. The command is read-only;
+   formal `export` completes the translation stage.
+11. Full-coverage semantic audit: page through `translate audit <lang>
+   --coverage all --limit 20`. Risky cues come first, but every translated cue
+   must be accepted or revised against its previous and next context. Never
+   bulk-accept because deterministic checks passed. Editing a cue invalidates
+   its own and adjacent context reviews; rerun check/audit until ready.
+12. Human visual review: when the user asks for final manual review, cue timing
     changes, or sentence-boundary fixes, run `openbbq review --workspace <ws>
     --to <lang>`. The review service safely synchronizes cues and every
     worksheet; do not edit those files concurrently from another Agent.
-11. Translation quality self-review: before export, spot-check or read through
-    the worksheet and proactively fix mistranslations, unnatural phrasing, tone
-    mismatches, broken context, term drift, and bilingual source/target
-    mismatches. After revisions, rerun `translate apply` and `translate check`.
-12. Export and burn: default to bilingual ASS, then burn. When a review file
+13. Export and burn: default to bilingual ASS, then burn. When a review file
     exists, incomplete review blocks export; use `--allow-unreviewed` only for
     an intentional draft. Pick `--ass-preset` by target surface.
     `--allow-quality-warnings` and `burn --allow-stale` are only for a
     user-requested draft or intentional external/manual artifact, never a final
     delivery.
-13. Completion QA: follow `references/workflows.md` to check status,
-    `translate check`, output MP4 duration/size, and a rendered subtitle frame.
+14. Completion QA: `qa render` defaults to up to seven risk frames covering
+    boundaries, midpoint, long lines, high CPS, and short cues. Inspect every
+    image before attesting. A failed attestation must include structured
+    `--issue` values; use `fansub-compact` for layout conflicts, or return to ASR
+    and semantic audit for content errors. Without image input, never attest.
+15. Hard delivery gate: run `openbbq --json delivery check --workspace <ws> --to
+    <lang>`. Deliver only when it exits 0 with `ready: true`; follow its returned
+    fix instead of explaining away a failed gate.
 
 ## Glossary Principles
 

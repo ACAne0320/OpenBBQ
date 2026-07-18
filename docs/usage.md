@@ -65,12 +65,27 @@ openbbq segment --workspace workspaces/demo
 native backend crashes or fails inside a restricted sandbox, rerun `transcribe`
 outside the sandbox or retry with `--cpu`.
 
+Before segmentation, resolve every low-confidence word and segment anomaly
+(decoder repetition, impossible word rate, or title/author entity conflict):
+
+```bash
+openbbq --json asr check --workspace workspaces/demo
+openbbq --json asr batch --workspace workspaces/demo --limit 20 --only-unresolved
+openbbq asr apply --workspace workspaces/demo asr-decisions.json
+```
+
+Use accept/replace for words and entities, and keep_first/drop for repeated
+segments. Every decision requires a reason; phrase replacements also include
+the exact `find` phrase and `replacement`. When fetch preserved a YouTube VTT,
+the batch includes overlapping reference text. Repeat until `asr check` returns
+`ready: true`; `segment` blocks unresolved or stale decisions.
+
 ## Translate
 
 Create a Chinese translation worksheet:
 
 ```bash
-openbbq translate init zh --workspace workspaces/demo
+openbbq translate init zh --workspace workspaces/demo --max-lines 2
 ```
 
 Read long worksheets in bounded batches so an Agent does not load the whole
@@ -96,6 +111,22 @@ openbbq translate check zh --workspace workspaces/demo
 The translation is complete only when `ready` is `true`. Resolve `missing`,
 `over_budget`, `zero_budget`, `term_issues`, and `quality_issues`; export blocks
 these warnings unless `--allow-quality-warnings` explicitly marks a draft.
+`translate check` is read-only and never invalidates completed export/burn
+stages. Bilingual ASS uses the worksheet's target line budget and inserts
+deterministic `\N` wrapping without truncating target text.
+
+Review the full-coverage semantic queue in bounded pages (risk first, with
+neighbor context):
+
+```bash
+openbbq --json translate audit zh --workspace workspaces/demo --coverage all --limit 20
+openbbq translate audit-apply zh --workspace workspaces/demo translation-audit.json
+```
+
+Each accept/revise decision requires a reason, and revisions include `target`.
+Every cue requires an accept/revise decision. Editing one cue invalidates its
+own and adjacent context reviews. Export blocks current unaudited items unless a deliberate draft uses
+`--allow-quality-warnings`.
 
 ## Visual Review And Subtitle Editing
 
@@ -141,23 +172,49 @@ openbbq --json status --workspace workspaces/demo
 Export records content hashes for cues, translation, review state, and the ASS.
 Burn rejects a changed or untracked workspace ASS. `--allow-stale` is reserved
 for an intentional manual draft; an explicitly supplied ASS outside the
-workspace remains supported.
+workspace remains supported. Successful burn also records the final MP4 hash
+and the exact source-video and ASS hashes.
+
+## Completion QA
+
+```bash
+openbbq --json qa render --workspace workspaces/demo
+openbbq --json qa check --workspace workspaces/demo
+openbbq --json delivery check --workspace workspaces/demo --to zh
+```
+
+`qa render` defaults to up to seven boundary, midpoint, long-line, high-CPS,
+and short-duration risk frames. `mechanical_status: pass` proves that the current non-empty MP4, source video,
+ASS, and rendered frame hashes agree. It is not a visual observation. Only
+after actually opening every returned frame should a vision-capable reviewer
+run `qa attest --result pass|fail --reason ...`. A failure also requires one or
+more structured `--issue` values. Without image input, leave
+`visual_status: not_performed` and disclose that visual inspection was not
+performed.
+
+Final `delivery check` is a hard gate combining ASR, deterministic translation,
+full-context semantic review, export/burn freshness, and visual QA. Any failure
+returns `ready:false` with a non-zero exit code.
 
 ## ASS Presets
 
 ```bash
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset default
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset fansub
+openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset fansub-compact
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset mobile
 ```
 
 - `default`: normal 16:9 horizontal video.
 - `fansub`: more prominent translated line.
+- `fansub-compact`: a smaller, raised bilingual stack for lower-third conflicts
+  and overlap remediation.
 - `mobile`: 9:16 vertical video with a vertical canvas and larger bottom safe
   area.
 
-The mobile preset changes rendering only. Long subtitles still need shorter
-segments or tighter translations.
+The mobile preset changes rendering only. Use target-side `translate init`
+overrides to set line capacity; content that still exceeds reading-speed or
+line-capacity gates must be revised or resegmented.
 
 ## Agent Usage
 
@@ -200,6 +257,9 @@ Common workspace outputs:
 - `transcript.json`: ASR output.
 - `cues.json`: source subtitle cues.
 - `translation.<lang>.json`: editable translation worksheet.
+- `.openbbq/asr-review.json`: transcript-hash-bound uncertain-word decisions.
+- `.openbbq/translation-audit.<lang>.json`: current-cue risk review decisions.
+- `.openbbq/qa.json`: MP4/frame evidence and optional visual attestation.
 - `review.<lang>.json`: cue-level human review state and reviewed-content hashes.
 - `.openbbq/artifacts.json`: export provenance and content hashes used by burn.
 - `.openbbq/review/`: local locks, checkpoints, waveform cache, and preview proxy.
@@ -218,10 +278,13 @@ openbbq fetch
 openbbq extract-audio
 openbbq transcribe
 openbbq segment
-openbbq translate init/batch/apply/check
+openbbq asr check/batch/apply
+openbbq translate init/batch/apply/check/audit/audit-apply
 openbbq review
 openbbq glossary list/show/new/use/suggest
 openbbq export
 openbbq burn
+openbbq qa render/check/attest
+openbbq delivery check
 openbbq models list/pull
 ```
