@@ -111,7 +111,7 @@ Update the glossary before `segment`. If `segment` already ran, rerun:
 
 ```bash
 openbbq segment --workspace workspaces/demo
-openbbq translate init zh --workspace workspaces/demo
+openbbq translate init zh --workspace workspaces/demo --max-lines 2
 ```
 
 ## Checks

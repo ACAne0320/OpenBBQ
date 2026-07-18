@@ -82,10 +82,29 @@ def _glossary_refs(g: Glossary | None) -> list[GlossaryRef]:
 
 
 def build_worksheet(
-    cues: Cues, glossary: Glossary | None, target_lang: str
+    cues: Cues,
+    glossary: Glossary | None,
+    target_lang: str,
+    *,
+    max_cps: float | None = None,
+    max_chars_per_line: int | None = None,
+    max_lines: int | None = None,
 ) -> tuple[Translation, bool]:
     """Prepare a worksheet for ``target_lang``. Returns (doc, generic_profile)."""
     profile, generic = seg.resolve_profile(target_lang)
+    overrides = {
+        "max_cps": max_cps,
+        "max_chars_per_line": max_chars_per_line,
+        "max_lines": max_lines,
+    }
+    invalid = {name: value for name, value in overrides.items() if value is not None and value <= 0}
+    if invalid:
+        raise OpenBBQError(
+            "invalid_translation_profile",
+            values=invalid,
+            fix="use positive target-side budget overrides",
+        )
+    profile = seg.apply_overrides(profile, **overrides)
     params = _snapshot(profile)
     items = [
         TranslationItem(
@@ -312,6 +331,30 @@ def _worksheet_profile(worksheet: Translation) -> seg.LanguageProfile:
     )
 
 
+def count_target_chars(worksheet: Translation, text: str) -> int:
+    return seg.count_chars(text, _worksheet_profile(worksheet))
+
+
+_CJK_WRAP_TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:['’.-][A-Za-z0-9]+)*|[^\s]")
+_LATIN_WRAP_TOKEN_RE = re.compile(r"^[A-Za-z0-9]+(?:['’.-][A-Za-z0-9]+)*$")
+
+
+def wrap_target_lines(worksheet: Translation, text: str) -> list[str]:
+    """Deterministically reflow target text without dropping or rewriting it."""
+    profile = _worksheet_profile(worksheet)
+    if profile.cjk:
+        raw_tokens = _CJK_WRAP_TOKEN_RE.findall(text)
+        tokens: list[str] = []
+        previous_latin = False
+        for token in raw_tokens:
+            latin = _LATIN_WRAP_TOKEN_RE.match(token) is not None
+            tokens.append(f" {token}" if latin and previous_latin else token)
+            previous_latin = latin
+    else:
+        tokens = text.split()
+    return [line.strip() for line in seg.pack_lines(tokens, profile)]
+
+
 def _over_budget(worksheet: Translation) -> list[int]:
     profile = _worksheet_profile(worksheet)
     return [
@@ -383,6 +426,22 @@ def _quality_issues(worksheet: Translation) -> list[QualityIssue]:
     if worksheet.source_lang.casefold() != worksheet.target_lang.casefold():
         for item in filled:
             target = item.target or ""
+            lines = wrap_target_lines(worksheet, target)
+            profile = _worksheet_profile(worksheet)
+            if len(lines) > profile.max_lines or any(
+                seg.count_chars(line, profile) > profile.max_chars_per_line
+                for line in lines
+            ):
+                issues.append(
+                    QualityIssue(
+                        id=item.id,
+                        code="line_capacity",
+                        detail=(
+                            f"target needs {len(lines)} line(s); profile allows "
+                            f"{profile.max_lines} × {profile.max_chars_per_line} chars"
+                        ),
+                    )
+                )
             if _quality_key(item.source) == _quality_key(
                 target
             ) and not _kept_source_only(worksheet, item.source):

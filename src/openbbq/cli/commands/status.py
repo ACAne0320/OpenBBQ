@@ -10,6 +10,7 @@ from rich.table import Table
 
 from ...core import workspace as ws
 from ...schemas import Manifest, OpenBBQModel, SourceType, Stage, StageState, StageStatus
+from ..delivery import assess_delivery
 from ..output import Output
 from ..results import Result
 
@@ -44,10 +45,14 @@ class StatusResult(Result):
     thumbnail: str | None = None
     worksheets: list[str]
     stages: dict[Stage, StatusStage]  # the work log — only stages actually run
+    delivery_ready: bool
+    delivery_lang: str | None = None
+    delivery_issues: list[str]
 
     @classmethod
     def of(cls, path: Path, manifest: Manifest) -> StatusResult:
         now = datetime.now(timezone.utc)
+        delivery = assess_delivery(path, manifest)
         return cls(
             workspace=str(path),
             source=StatusSource(type=manifest.source.type, ref=manifest.source.ref),
@@ -60,6 +65,9 @@ class StatusResult(Result):
                 stage: StatusStage.of(state, now)
                 for stage, state in manifest.stages.items()
             },
+            delivery_ready=delivery.ready,
+            delivery_lang=delivery.lang,
+            delivery_issues=[issue.code for issue in delivery.issues],
         )
 
     def render(self) -> RenderableType:
@@ -73,6 +81,12 @@ class StatusResult(Result):
             head += f"\n  author: {self.author}"
         if self.thumbnail is not None:
             head += f"\n  cover: {self.thumbnail}"
+        delivery = "ready" if self.delivery_ready else "blocked"
+        if self.delivery_lang is not None:
+            delivery += f" · {self.delivery_lang}"
+        head += f"\n  delivery: {delivery}"
+        if self.delivery_issues:
+            head += f"\n  delivery issues: {', '.join(self.delivery_issues[:5])}"
         if not self.stages:
             return f"{head}\n  (no stages run yet)"
         table = Table(show_header=True, header_style="bold", box=None)

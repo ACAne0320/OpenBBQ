@@ -58,10 +58,41 @@ def test_fetch_defaults_to_anonymous_ytdlp(tmp_path, monkeypatch) -> None:
     assert result.artifact == "media/video.webm"
     assert "--cookies" not in calls[0]
     assert "--write-thumbnail" in calls[0]
+    assert "--write-subs" in calls[0]
+    assert "--write-auto-subs" in calls[0]
     assert "--progress-template" in calls[0]
     assert any(arg.startswith("before_dl:openbbq-title") for arg in calls[0])
     assert any(arg.startswith("before_dl:openbbq-uploader") for arg in calls[0])
     assert calls[0][calls[0].index("-o") + 1].endswith("%(title)s.%(ext)s")
+
+
+def test_fetch_preserves_optional_youtube_caption_as_asr_reference(
+    tmp_path, monkeypatch
+) -> None:
+    wsdir = tmp_path / "ws"
+    wsdir.mkdir()
+    manifest = _manifest()
+    monkeypatch.setattr(fetchlib, "_yt_dlp_command", lambda: ["yt-dlp"])
+
+    def fake_run(
+        args: list[str], *, on_progress=None, on_metadata=None
+    ) -> subprocess.CompletedProcess[str]:
+        output = wsdir / "media" / "Demo.webm"
+        output.write_bytes(b"media")
+        (wsdir / "media" / "Demo.en.vtt").write_text(
+            "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(args, 0, stdout=_output_line(output))
+
+    monkeypatch.setattr(fetchlib, "_run_yt_dlp", fake_run)
+
+    result = fetchlib.fetch_media(wsdir, manifest)
+
+    assert result.reference_caption == ".openbbq/reference-caption.vtt"
+    caption = ws.read_reference_caption_optional(wsdir)
+    assert caption is not None
+    assert caption.startswith("WEBVTT")
 
 
 def test_fetch_max_height_adds_bounded_format_selector(tmp_path, monkeypatch) -> None:

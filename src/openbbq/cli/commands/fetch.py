@@ -36,6 +36,7 @@ class FetchResult(Result):
     thumbnail: str | None = None
     auth: str | None = None
     max_height: int | None = None
+    reference_caption: str | None = None
 
     def _artifact_text(self, artifact: str) -> Text:
         uri = (Path(self.workspace) / artifact).resolve().as_uri()
@@ -57,6 +58,8 @@ class FetchResult(Result):
         table.add_row("file", self._artifact_text(self.artifact))
         if self.thumbnail:
             table.add_row("cover", self._artifact_text(self.thumbnail))
+        if self.reference_caption:
+            table.add_row("ASR reference", self._artifact_text(self.reference_caption))
         if self.auth:
             table.add_row("auth", Text(self.auth))
         if self.max_height is not None:
@@ -341,6 +344,7 @@ def fetch(
             thumbnail=result.thumbnail,
             auth=result.auth,
             max_height=result.max_height,
+            reference_caption=result.reference_caption,
             next="openbbq extract-audio",
         )
     )

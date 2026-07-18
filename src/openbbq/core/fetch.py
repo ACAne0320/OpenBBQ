@@ -10,6 +10,7 @@ from pathlib import Path
 
 from openbbq.core.auth import store as auth_store
 from openbbq.core.auth.sites import policy_for_url, require_policy
+from openbbq.core import workspace as workspacelib
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import Manifest
 
@@ -22,6 +23,7 @@ class FetchResult:
     thumbnail: str | None = None
     auth: str | None = None
     max_height: int | None = None
+    reference_caption: str | None = None
 
 
 @dataclass(frozen=True)
@@ -203,6 +205,29 @@ def _find_thumbnail(
     return None
 
 
+def _preserve_reference_caption(
+    workspace: Path,
+    media_dir: Path,
+    output_path: Path,
+) -> str | None:
+    candidates = [
+        candidate
+        for candidate in media_dir.glob(f"{output_path.stem}*.vtt")
+        if "live_chat" not in candidate.name
+    ]
+    if not candidates:
+        return None
+    # Prefer a concise language filename (for example ``title.en.vtt``) over
+    # region/dialect variants when yt-dlp fetched more than one candidate.
+    source = min(candidates, key=lambda candidate: (len(candidate.name), candidate.name))
+    try:
+        content = source.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    destination = workspacelib.write_reference_caption(workspace, content)
+    return _relative_artifact(workspace, destination)
+
+
 def auto_auth_site(url: str) -> str | None:
     policy = policy_for_url(url)
     if policy is None:
@@ -248,6 +273,12 @@ def fetch_media(
         "--quiet",
         "--no-warnings",
         "--write-thumbnail",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-langs",
+        "en.*,en",
+        "--sub-format",
+        "vtt",
         *format_args,
         "--newline",
         "--progress",
@@ -337,6 +368,7 @@ def fetch_media(
     thumbnail = (
         _relative_artifact(ws, thumbnail_path) if thumbnail_path is not None else None
     )
+    reference_caption = _preserve_reference_caption(ws, media_dir, output_path)
     return FetchResult(
         artifact=_relative_artifact(ws, output_path),
         title=title,
@@ -344,4 +376,5 @@ def fetch_media(
         thumbnail=thumbnail,
         auth=auth_site,
         max_height=max_height,
+        reference_caption=reference_caption,
     )

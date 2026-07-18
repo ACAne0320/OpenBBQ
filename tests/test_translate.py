@@ -109,6 +109,32 @@ def test_build_worksheet_budget_and_snapshot() -> None:
     assert doc.items[0].target is None and doc.items[0].source == "hello world"
 
 
+def test_build_worksheet_target_line_override_increases_visual_capacity() -> None:
+    cues = _cues(Cue(id=1, start=0.0, end=4.0, source="hello world"))
+
+    default, _ = tr.build_worksheet(cues, None, "zh")
+    two_lines, _ = tr.build_worksheet(cues, None, "zh", max_lines=2)
+
+    assert default.items[0].budget.max_chars == 32
+    assert two_lines.params.max_lines == 2
+    assert two_lines.items[0].budget.max_chars == 44
+
+
+def test_wrap_target_lines_preserves_mixed_cjk_and_latin_text() -> None:
+    doc, _ = tr.build_worksheet(
+        _cues(Cue(id=1, start=0, end=4, source="thanks")),
+        None,
+        "zh",
+        max_chars_per_line=9,
+        max_lines=2,
+    )
+
+    lines = tr.wrap_target_lines(doc, "感谢Sean Hongxiu支持")
+
+    assert lines == ["感谢Sean", "Hongxiu支持"]
+    assert "".join(lines).replace(" ", "") == "感谢SeanHongxiu支持"
+
+
 def test_build_worksheet_unknown_lang_is_generic() -> None:
     _, generic = tr.build_worksheet(
         _cues(Cue(id=1, start=0, end=1, source="x")), None, "xx"
@@ -468,6 +494,28 @@ def test_init_writes_worksheet_and_records_running_progress(tmp_path) -> None:
     assert stage.progress == Progress(done=0, total=1)
 
 
+def test_init_accepts_target_line_budget_overrides(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _workspace(tmp_path, Cue(id=1, start=0, end=4, source="Hello."))
+
+    init_cmd(
+        _ctx(),
+        lang="zh",
+        workspace=str(path),
+        max_chars_per_line=20,
+        max_lines=2,
+    )
+
+    payload = _payload(capsys)
+    doc = ws.read_translation(path / "translation.zh.json")
+    assert payload["max_chars_per_line"] == 20
+    assert payload["max_lines"] == 2
+    assert doc.params.max_chars_per_line == 20
+    assert doc.params.max_lines == 2
+    assert doc.items[0].budget.max_chars == 40
+
+
 def test_init_refuses_overwrite_without_force(tmp_path) -> None:
     path = _workspace(tmp_path, Cue(id=1, start=0, end=1, source="hi"))
     init_cmd(_ctx(), lang="zh", workspace=str(path))
@@ -514,7 +562,27 @@ def test_apply_command_merges_batches(tmp_path) -> None:
     assert stage.status is StageStatus.RUNNING
     assert stage.progress == Progress(done=2, total=2)
     check_cmd(_ctx(), lang="zh", workspace=str(path))
-    assert ws.read_manifest(path).stages[Stage.TRANSLATE].status is StageStatus.DONE
+    assert ws.read_manifest(path).stages[Stage.TRANSLATE].status is StageStatus.RUNNING
+
+
+def test_apply_command_records_budget_driven_shortening_for_audit(tmp_path) -> None:
+    path = _workspace(tmp_path, Cue(id=1, start=0, end=1, source="hello there"))
+    init_cmd(_ctx(), lang="zh", workspace=str(path))
+    long_batch = tmp_path / "targets.long.json"
+    long_batch.write_text(
+        json.dumps({"1": "这是一条明显超过字幕预算的冗长翻译文本"}),
+        encoding="utf-8",
+    )
+    apply_cmd(_ctx(), lang="zh", targets=str(long_batch), workspace=str(path))
+    short_batch = tmp_path / "targets.short.json"
+    short_batch.write_text(json.dumps({"1": "简短译文"}), encoding="utf-8")
+
+    apply_cmd(_ctx(), lang="zh", targets=str(short_batch), workspace=str(path))
+
+    audit = ws.read_translation_audit_optional(path, "zh")
+    assert audit is not None
+    assert "budget_rewrite" in audit.flags[1].codes
+    assert "shortened_translation" in audit.flags[1].codes
 
 
 def test_apply_command_requires_worksheet(tmp_path) -> None:
@@ -548,10 +616,12 @@ def test_check_command_progress(tmp_path) -> None:
     doc = ws.read_translation(wpath)
     doc.items[0].target = "你好"
     ws.write_text_atomic(wpath, doc.model_dump_json())
+    before = (path / "manifest.json").read_bytes()
     check_cmd(_ctx(), lang="zh", workspace=str(path))  # smoke: no raise, reports 1/2
+    assert (path / "manifest.json").read_bytes() == before
     stage = ws.read_manifest(path).stages[Stage.TRANSLATE]
     assert stage.status is StageStatus.RUNNING
-    assert stage.progress == Progress(done=1, total=2)
+    assert stage.progress == Progress(done=0, total=2)
 
 
 def test_translate_command_payload_next_hints(
@@ -581,7 +651,7 @@ def test_translate_command_payload_next_hints(
     check_cmd(_ctx(), lang="zh", workspace=str(path))
     assert (
         _payload(capsys)["next"]
-        == "openbbq export --to zh --mode bilingual --format ass"
+        == "openbbq translate audit zh --limit 20"
     )
 
 
@@ -652,6 +722,38 @@ def test_translate_check_quality_issue_keeps_stage_running(
     assert ws.read_manifest(path).stages[Stage.TRANSLATE].status is StageStatus.RUNNING
 
 
+def test_translate_check_reports_target_line_capacity() -> None:
+    params = SegmentParams(
+        max_cps=100,
+        max_chars_per_line=4,
+        max_lines=2,
+        min_dur=1,
+        max_dur=7,
+        min_gap=0.083,
+    )
+    cues = _cues(Cue(id=1, start=0, end=2, source="hello"))
+    worksheet = Translation(
+        source_lang="en",
+        target_lang="zh",
+        params=params,
+        items=[
+            TranslationItem(
+                id=1,
+                source="hello",
+                target="一二三四五六七八九",
+                budget=Budget(max_chars=20, seconds=2),
+            )
+        ],
+    )
+
+    report = tr.check(cues, worksheet, "zh")
+
+    assert report.over_budget == []
+    assert [(issue.id, issue.code) for issue in report.quality_issues] == [
+        (1, "line_capacity")
+    ]
+
+
 def test_translate_batch_returns_bounded_items_context_and_next_cursor(
     tmp_path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -685,7 +787,7 @@ def test_translate_batch_returns_bounded_items_context_and_next_cursor(
     assert payload["remaining"] == 2
 
 
-def test_check_command_syncs_full_worksheet_to_done(tmp_path) -> None:
+def test_check_command_is_read_only_after_full_worksheet(tmp_path) -> None:
     path = _workspace(
         tmp_path,
         Cue(id=1, start=0, end=1, source="hi"),
@@ -698,11 +800,25 @@ def test_check_command_syncs_full_worksheet_to_done(tmp_path) -> None:
     doc.items[1].target = "再见"
     ws.write_text_atomic(wpath, doc.model_dump_json())
 
+    manifest = ws.read_manifest(path)
+    manifest.stages[Stage.EXPORT] = StageState(
+        status=StageStatus.DONE,
+        artifact="out/zh.ass",
+    )
+    manifest.stages[Stage.BURN] = StageState(
+        status=StageStatus.DONE,
+        artifact="out/zh-burned.mp4",
+    )
+    ws.write_manifest(path, manifest)
+    before = (path / "manifest.json").read_bytes()
+
     check_cmd(_ctx(), lang="zh", workspace=str(path))
 
-    stage = ws.read_manifest(path).stages[Stage.TRANSLATE]
-    assert stage.status is StageStatus.DONE
-    assert stage.progress == Progress(done=2, total=2)
+    assert (path / "manifest.json").read_bytes() == before
+    after = ws.read_manifest(path)
+    assert after.stages[Stage.TRANSLATE].status is StageStatus.RUNNING
+    assert after.stages[Stage.EXPORT].status is StageStatus.DONE
+    assert after.stages[Stage.BURN].status is StageStatus.DONE
 
 
 def test_check_infers_single_worksheet(tmp_path) -> None:

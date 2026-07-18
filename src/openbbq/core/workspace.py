@@ -19,8 +19,10 @@ from pydantic import ValidationError
 
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
+    AsrReview,
     Cues,
     Manifest,
+    QaReport,
     Review,
     Source,
     SourceType,
@@ -29,10 +31,14 @@ from openbbq.schemas import (
     StageStatus,
     Transcript,
     Translation,
+    TranslationAudit,
 )
 
 MANIFEST_NAME = "manifest.json"
 _PROVENANCE_PATH = Path(".openbbq") / "artifacts.json"
+_ASR_REVIEW_PATH = Path(".openbbq") / "asr-review.json"
+_QA_PATH = Path(".openbbq") / "qa.json"
+_REFERENCE_CAPTION_PATH = Path(".openbbq") / "reference-caption.vtt"
 # BCP-47 subset: lang is interpolated into a filename, so guard against `../` etc.
 _LANG_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]+)*$")
 
@@ -219,6 +225,118 @@ def read_review(path: Path) -> Review:
             path=str(path),
             fix="restore a review checkpoint or remove the malformed review file",
         ) from e
+
+
+def asr_review_path(workspace: Path) -> Path:
+    return workspace / _ASR_REVIEW_PATH
+
+
+def read_asr_review_optional(workspace: Path) -> AsrReview | None:
+    path = asr_review_path(workspace)
+    if not path.is_file():
+        return None
+    try:
+        return AsrReview.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as e:
+        raise OpenBBQError(
+            "invalid_asr_review",
+            path=str(path),
+            fix="remove .openbbq/asr-review.json and rerun openbbq asr check",
+        ) from e
+
+
+def write_asr_review(workspace: Path, review: AsrReview) -> Path:
+    path = asr_review_path(workspace)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(path, review.model_dump_json(indent=2) + "\n")
+    return path
+
+
+def translation_audit_path(workspace: Path, lang: str) -> Path:
+    return workspace / ".openbbq" / f"translation-audit.{validate_lang(lang)}.json"
+
+
+def read_translation_audit_optional(
+    workspace: Path, lang: str
+) -> TranslationAudit | None:
+    path = translation_audit_path(workspace, lang)
+    if not path.is_file():
+        return None
+    try:
+        audit = TranslationAudit.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as e:
+        raise OpenBBQError(
+            "invalid_translation_audit",
+            path=str(path),
+            fix=f"remove {path.name} and rerun openbbq translate audit {lang}",
+        ) from e
+    if audit.target_lang != lang:
+        raise OpenBBQError(
+            "invalid_translation_audit",
+            path=str(path),
+            target_lang=audit.target_lang,
+            expected=lang,
+        )
+    return audit
+
+
+def write_translation_audit(
+    workspace: Path, lang: str, audit: TranslationAudit
+) -> Path:
+    path = translation_audit_path(workspace, lang)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(path, audit.model_dump_json(indent=2) + "\n")
+    return path
+
+
+def qa_path(workspace: Path) -> Path:
+    return workspace / _QA_PATH
+
+
+def read_qa_optional(workspace: Path) -> QaReport | None:
+    path = qa_path(workspace)
+    if not path.is_file():
+        return None
+    try:
+        return QaReport.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as e:
+        raise OpenBBQError(
+            "invalid_qa_report",
+            path=str(path),
+            fix="remove .openbbq/qa.json and rerun openbbq qa render",
+        ) from e
+
+
+def write_qa(workspace: Path, report: QaReport) -> Path:
+    path = qa_path(workspace)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(path, report.model_dump_json(indent=2) + "\n")
+    return path
+
+
+def reference_caption_path(workspace: Path) -> Path:
+    return workspace / _REFERENCE_CAPTION_PATH
+
+
+def read_reference_caption_optional(workspace: Path) -> str | None:
+    path = reference_caption_path(workspace)
+    if not path.is_file():
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise OpenBBQError(
+            "invalid_reference_caption",
+            path=str(path),
+            fix="remove .openbbq/reference-caption.vtt or rerun openbbq fetch",
+        ) from error
+
+
+def write_reference_caption(workspace: Path, content: str) -> Path:
+    path = reference_caption_path(workspace)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(path, content)
+    return path
 
 
 # --- artifact provenance -----------------------------------------------------
@@ -436,10 +554,15 @@ def _manifest_for_merge(ws: Path, fallback: Manifest) -> Manifest:
         return fallback
 
 
-def _invalidate_later_stages(manifest: Manifest, stage: Stage) -> None:
+def _invalidate_later_stages(
+    manifest: Manifest,
+    stage: Stage,
+    *,
+    preserve: set[Stage] | None = None,
+) -> None:
     index = _STAGE_ORDER.index(stage)
     for later in _STAGE_ORDER[index + 1 :]:
-        if later in manifest.stages:
+        if later in manifest.stages and (preserve is None or later not in preserve):
             manifest.stages[later] = StageState(status=StageStatus.PENDING)
 
 
@@ -462,12 +585,20 @@ def media_input(manifest: Manifest, workspace: Path | None = None) -> Path:
     raise OpenBBQError("media_unavailable", fix="fetch the media first (url source)")
 
 
-def record_stage(ws: Path, manifest: Manifest, stage: Stage, state: StageState) -> None:
+def record_stage(
+    ws: Path,
+    manifest: Manifest,
+    stage: Stage,
+    state: StageState,
+    *,
+    invalidate_later: bool = True,
+    preserve_later: set[Stage] | None = None,
+) -> None:
     """Merge one stage state into the latest on-disk manifest."""
     current = _manifest_for_merge(ws, manifest)
     current.stages[stage] = state
-    if state.status in {StageStatus.RUNNING, StageStatus.DONE}:
-        _invalidate_later_stages(current, stage)
+    if invalidate_later and state.status in {StageStatus.RUNNING, StageStatus.DONE}:
+        _invalidate_later_stages(current, stage, preserve=preserve_later)
     write_manifest(ws, current)
     _sync_manifest_snapshot(manifest, current)
 

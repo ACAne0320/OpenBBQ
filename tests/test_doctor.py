@@ -144,10 +144,10 @@ def test_agent_skill_check_reports_outdated(tmp_path) -> None:
     check = doctor._agent_skill(tmp_path)
 
     assert check.ok is False
-    assert check.required is False
+    assert check.required is True
     assert "outdated" in check.detail
     assert check.fix == "openbbq skill install --force"
-    assert DoctorResult.of([check]).healthy is True
+    assert DoctorResult.of([check]).healthy is False
 
 
 def test_doctor_result_exposes_runtime_version_and_executable() -> None:

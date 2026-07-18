@@ -299,6 +299,52 @@ def burn_subtitles(
     return BurnOutcome(duration_s=duration, ffmpeg=str(exe))
 
 
+def render_video_frame(
+    src: Path,
+    dst: Path,
+    *,
+    at_s: float,
+    ffmpeg: str | None = None,
+) -> str:
+    """Render one PNG frame from a video and return the ffmpeg executable used."""
+    requested = ffmpeg or "ffmpeg"
+    exe = _resolve_executable(requested)
+    if exe is None:
+        raise OpenBBQError(
+            "missing_dependency",
+            dep=requested,
+            fix="install ffmpeg or pass --ffmpeg",
+        )
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(
+        [
+            str(exe),
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-ss",
+            f"{max(0.0, at_s):.3f}",
+            "-i",
+            str(src),
+            "-frames:v",
+            "1",
+            "-an",
+            str(dst),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0 or not dst.is_file() or dst.stat().st_size <= 0:
+        dst.unlink(missing_ok=True)
+        raise OpenBBQError(
+            "ffmpeg_failed",
+            detail=_last_line(proc.stderr, "ffmpeg did not render a frame"),
+        )
+    return str(exe)
+
+
 def wav_duration(path: Path) -> float:
     """WAV duration in seconds, using the file header only."""
     try:

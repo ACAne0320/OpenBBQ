@@ -98,7 +98,7 @@ source 行，因为英文源文也会出现在成片里；中文译文正确不�
 
 ```bash
 openbbq segment --workspace workspaces/demo
-openbbq translate init zh --workspace workspaces/demo
+openbbq translate init zh --workspace workspaces/demo --max-lines 2
 ```
 
 ## 检查点

@@ -96,7 +96,31 @@ def test_burn_uses_last_ass_export_and_records_stage(
     final = ws.read_manifest(path).stages[Stage.BURN]
     assert final.status is StageStatus.DONE
     assert final.artifact == "out/zh-burned.mp4"
+    ws.require_fresh_artifact(path, path / final.artifact, Stage.BURN)
     assert "openbbq --json status --workspace" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("changed", ["video", "source", "subtitle"])
+def test_burn_provenance_detects_changed_content(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    changed: str,
+) -> None:
+    path, manifest = _workspace(tmp_path)
+    sub = _with_export(path, manifest)
+    calls: dict[str, object] = {}
+    _patch_burn(monkeypatch, calls)
+    burn(_ctx(), workspace=str(path))
+    video = path / "out" / "zh-burned.mp4"
+    source = Path(manifest.source.ref)
+    {"video": video, "source": source, "subtitle": sub}[changed].write_bytes(
+        b"changed"
+    )
+
+    with pytest.raises(OpenBBQError) as exc:
+        ws.require_fresh_artifact(path, video, Stage.BURN)
+
+    assert exc.value.code == "stale_artifact"
 
 
 def test_burn_accepts_output_and_ffmpeg_override(
