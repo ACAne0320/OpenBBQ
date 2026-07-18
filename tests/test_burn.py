@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -97,7 +98,9 @@ def test_burn_uses_last_ass_export_and_records_stage(
     assert final.status is StageStatus.DONE
     assert final.artifact == "out/zh-burned.mp4"
     ws.require_fresh_artifact(path, path / final.artifact, Stage.BURN)
-    assert "openbbq --json status --workspace" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "openbbq --json status --workspace" in captured.err
+    assert json.loads(captured.out)["next"] == "openbbq delivery check"
 
 
 @pytest.mark.parametrize("changed", ["video", "source", "subtitle"])

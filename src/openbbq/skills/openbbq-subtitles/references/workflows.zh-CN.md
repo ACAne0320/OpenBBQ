@@ -10,6 +10,7 @@ openbbq extract-audio --workspace workspaces/demo
 openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
 openbbq --json asr check --workspace workspaces/demo
 openbbq glossary suggest --workspace workspaces/demo
+openbbq --json glossary audit --workspace workspaces/demo --limit 20
 openbbq segment --workspace workspaces/demo
 openbbq translate init zh --workspace workspaces/demo --max-lines 2
 ```
@@ -32,6 +33,7 @@ openbbq extract-audio --workspace workspaces/demo
 openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
 openbbq --json asr check --workspace workspaces/demo
 openbbq glossary suggest --workspace workspaces/demo
+openbbq --json glossary audit --workspace workspaces/demo --limit 20
 openbbq segment --workspace workspaces/demo
 openbbq translate init zh --workspace workspaces/demo --max-lines 2
 ```
@@ -68,7 +70,10 @@ openbbq --json asr batch --workspace workspaces/demo --limit 20 --only-unresolve
 openbbq asr apply --workspace workspaces/demo asr-decisions.json
 ```
 
-重复 batch/apply，直到 `asr check` 返回 `ready: true`。不要为了通过门禁盲目接受。
+重复 batch/apply，直到 `asr check` 返回 `ready: true`。不要为了通过门禁盲目接受。随后
+翻完所有 `glossary audit` 页面；这一步由 Agent 结合语义发现与置信度无关的 ASR 错误。
+没有 issue id 的上下文错误用 `asr amend`，安全且可复用的术语/alias 用
+`glossary apply`，具体规则见 `glossary.zh-CN.md`。
 
 ## 填写译文
 
@@ -130,13 +135,11 @@ cue 都需要结合前后文审核；修改一条会使相邻上下文审核失�
 
 只有通过机械检查和质量自审后，才进入 `export` / `burn`。
 
-## 完成 QA
+## 完成交付检查
 
 ```bash
 openbbq --json status --workspace workspaces/demo
 openbbq translate check zh --workspace workspaces/demo
-openbbq --json qa render --workspace workspaces/demo
-openbbq --json qa check --workspace workspaces/demo
 openbbq --json delivery check --workspace workspaces/demo --to zh
 ```
 
@@ -145,27 +148,16 @@ openbbq --json delivery check --workspace workspaces/demo --to zh
 - manifest 相关 stage 全部完成，没有 failed/stale/running。
 - `translate check` 返回 `ready: true`；最终流程没有使用
   `--allow-quality-warnings` 或 `burn --allow-stale`。
-- `qa check` 的 `mechanical_status` 是 `pass`，证明当前 MP4 非空且与当前源视频、
-  ASS 和截帧 hash 一致。
-- 有图像输入能力时，实际打开 `frames` 里的每张图片，检查双语内容、`\N`
-  换行、遮挡和安全区，再运行：
+- `delivery check` 返回 `ready: true`，证明双语 ASS、源视频、烧录 MP4 和各阶段
+  provenance 一致，并且 MP4 非空。
+
+视觉 QA 不属于默认 one-shot 流程。只有用户明确要求且当前模型有图像能力时，才可选运行：
 
 ```bash
+openbbq --json qa render --workspace workspaces/demo
+openbbq --json qa check --workspace workspaces/demo
 openbbq qa attest --workspace workspaces/demo --result pass --reason '<实际观察>'
 ```
 
-如果失败，必须记录结构化问题。例如下三分之一冲突：
-
-```bash
-openbbq qa attest --workspace workspaces/demo --result fail \
-  --issue lower_third_conflict --reason 'cue 43 与视频人物名牌重叠'
-openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass \
-  --ass-preset fansub-compact --output out/zh.ass
-```
-
-修复后重新 burn、qa render 和 attest。最终 `delivery check` 必须退出码 0 且
-`ready: true`；它会同时检查 ASR 异常、翻译机械门禁、全量上下文语义审校、产物 freshness
-和视觉 QA。
-
-- 没有图像输入能力时不得运行 `qa attest`；最终说明必须写明
-  `visual_status: not_performed`，不能声称“视觉检查通过”。
+视觉结果仅用于用户要求的人工诊断，不参与 `delivery check`，也不自动切换
+`fansub-compact` 或触发重新烧录。没有图像输入能力时直接跳过即可。

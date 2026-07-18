@@ -11,6 +11,7 @@ import pytest
 import typer
 
 from openbbq.cli.commands.asr import apply as apply_cmd
+from openbbq.cli.commands.asr import amend as amend_cmd
 from openbbq.cli.commands.asr import batch as batch_cmd
 from openbbq.cli.commands.asr import check as check_cmd
 from openbbq.cli.commands.segment import segment as segment_cmd
@@ -57,9 +58,7 @@ def _segment(
     cursor = float(segment_id)
     timed: list[Word] = []
     for word, probability in words:
-        timed.append(
-            Word(word=word, start=cursor, end=cursor + 0.25, prob=probability)
-        )
+        timed.append(Word(word=word, start=cursor, end=cursor + 0.25, prob=probability))
         cursor += 0.25
     return Segment(
         id=segment_id,
@@ -128,7 +127,13 @@ def test_extracts_every_low_probability_occurrence_with_stable_context() -> None
         _segment(
             7,
             "Thank you to Sean Hongxiu.",
-            [("Thank", 0.99), ("you", 0.99), ("to", 0.99), ("Sean", 0.38), ("Hongxiu.", 0.86)],
+            [
+                ("Thank", 0.99),
+                ("you", 0.99),
+                ("to", 0.99),
+                ("Sean", 0.38),
+                ("Hongxiu.", 0.86),
+            ],
         )
     )
 
@@ -148,9 +153,7 @@ def test_extracts_every_low_probability_occurrence_with_stable_context() -> None
 
 
 def test_transcript_without_word_probabilities_has_no_gate() -> None:
-    transcript = _transcript(
-        Segment(id=0, start=0, end=1, text="hello", words=None)
-    )
+    transcript = _transcript(Segment(id=0, start=0, end=1, text="hello", words=None))
 
     report = asr_review.check(transcript, None)
 
@@ -205,7 +208,9 @@ def test_keep_first_removes_only_duplicate_segments_from_a_repeat_run() -> None:
     )
     transcript = _transcript(
         *[
-            _timed_segment(index, float(index * 2), float(index * 2 + 2), repeated, repeated_words)
+            _timed_segment(
+                index, float(index * 2), float(index * 2 + 2), repeated, repeated_words
+            )
             for index in range(1, 5)
         ],
         following,
@@ -246,7 +251,17 @@ def test_metadata_entity_conflict_catches_high_confidence_name_misspelling() -> 
             10,
             15,
             "Today I am talking with Jeffrey Litt about software.",
-            ["Today", "I", "am", "talking", "with", "Jeffrey", "Litt", "about", "software"],
+            [
+                "Today",
+                "I",
+                "am",
+                "talking",
+                "with",
+                "Jeffrey",
+                "Litt",
+                "about",
+                "software",
+            ],
         )
     )
 
@@ -269,13 +284,21 @@ def test_metadata_entity_replacement_corrects_text_without_collapsing_segment() 
             10,
             15,
             "Today I am talking with Jeffrey Litt about software.",
-            ["Today", "I", "am", "talking", "with", "Jeffrey", "Litt", "about", "software"],
+            [
+                "Today",
+                "I",
+                "am",
+                "talking",
+                "with",
+                "Jeffrey",
+                "Litt",
+                "about",
+                "software",
+            ],
         )
     )
     references = ["A conversation with Geoffrey Litt"]
-    issue = asr_review.extract_anomalies(
-        transcript, reference_texts=references
-    )[0]
+    issue = asr_review.extract_anomalies(transcript, reference_texts=references)[0]
     review = asr_review.merge_decisions(
         transcript,
         None,
@@ -320,6 +343,23 @@ Geoffrey Litt joins us
     )
 
 
+def test_reference_caption_evidence_unescapes_and_compacts_rolling_text() -> None:
+    captions = asr_review.parse_reference_captions(
+        """WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+&gt;&gt; Thanks for coming to
+
+00:00:02.000 --> 00:00:05.000
+&gt;&gt; Thanks for coming to the design engineering track at AI.
+"""
+    )
+
+    assert asr_review.reference_caption_text(captions, start=2.0, end=3.0) == (
+        ">> Thanks for coming to the design engineering track at AI."
+    )
+
+
 def test_accept_decision_resolves_current_issue() -> None:
     transcript = _transcript(_segment(0, "Heva!", [("Heva!", 0.36)]))
     review = asr_review.merge_decisions(
@@ -345,7 +385,13 @@ def test_replace_decision_corrects_full_phrase_boundary_safely() -> None:
         _segment(
             206,
             "Thank you to Sean Hongxiu.",
-            [("Thank", 0.99), ("you", 0.99), ("to", 0.99), ("Sean", 0.38), ("Hongxiu.", 0.86)],
+            [
+                ("Thank", 0.99),
+                ("you", 0.99),
+                ("to", 0.99),
+                ("Sean", 0.38),
+                ("Hongxiu.", 0.86),
+            ],
         )
     )
     review = asr_review.merge_decisions(
@@ -367,9 +413,123 @@ def test_replace_decision_corrects_full_phrase_boundary_safely() -> None:
     assert fix("Sean HongxiuExtra") == "Sean HongxiuExtra"
 
 
+def test_contextual_amendment_corrects_high_confidence_error_without_issue_id() -> None:
+    transcript = _transcript(
+        _segment(
+            12,
+            "That is my hot tick about agents.",
+            [
+                ("That", 0.99),
+                ("is", 0.99),
+                ("my", 0.99),
+                ("hot", 0.98),
+                ("tick", 0.97),
+                ("about", 0.99),
+                ("agents.", 0.99),
+            ],
+        )
+    )
+    assert asr_review.check(transcript, None).ready is True
+
+    parsed = asr_review.parse_amendments(
+        json.dumps(
+            {
+                "amendments": [
+                    {
+                        "segment_id": 12,
+                        "find": "hot tick",
+                        "replacement": "hot take",
+                        "reason": "The surrounding sentence uses the idiom hot take.",
+                    }
+                ]
+            }
+        )
+    )
+    review, ids = asr_review.merge_amendments(transcript, None, parsed)
+
+    assert ids[0].startswith("m:s12:")
+    assert asr_review.check(transcript, review).ready is True
+    assert asr_review.corrector(review)(transcript.segments[0].text) == (
+        "That is my hot take about agents."
+    )
+    assert asr_review.resolved_transcript(transcript, review).segments[0].text == (
+        "That is my hot take about agents."
+    )
+
+
+def test_contextual_amendment_requires_exact_phrase_in_declared_segment() -> None:
+    transcript = _transcript(
+        _segment(2, "Agents can edit the interface.", [("Agents", 0.99)])
+    )
+    amendment = asr_review.parse_amendments(
+        json.dumps(
+            {
+                "amendments": [
+                    {
+                        "segment_id": 2,
+                        "find": "Asians",
+                        "replacement": "Agents",
+                        "reason": "Context refers to software agents.",
+                    }
+                ]
+            }
+        )
+    )
+
+    with pytest.raises(OpenBBQError) as raised:
+        asr_review.merge_amendments(transcript, None, amendment)
+
+    assert raised.value.code == "asr_amendment_find_missing"
+
+
+def test_contextual_amendment_can_be_revised_without_leaving_conflicting_rules() -> (
+    None
+):
+    transcript = _transcript(_segment(3, "She mentioned Annie.", [("Annie.", 0.99)]))
+    first = asr_review.parse_amendments(
+        json.dumps(
+            {
+                "amendments": [
+                    {
+                        "segment_id": 3,
+                        "find": "Annie",
+                        "replacement": "Andy",
+                        "reason": "Initial contextual reading.",
+                    }
+                ]
+            }
+        )
+    )
+    review, first_ids = asr_review.merge_amendments(transcript, None, first)
+    revised = asr_review.parse_amendments(
+        json.dumps(
+            {
+                "amendments": [
+                    {
+                        "segment_id": 3,
+                        "find": "Annie",
+                        "replacement": "Annie Murphy",
+                        "reason": "Later context gives the full confirmed name.",
+                    }
+                ]
+            }
+        )
+    )
+
+    review, revised_ids = asr_review.merge_amendments(transcript, review, revised)
+
+    assert revised_ids == first_ids
+    assert len(review.decisions) == 1
+    assert asr_review.corrector(review)(transcript.segments[0].text) == (
+        "She mentioned Annie Murphy."
+    )
+
+
 def test_replace_must_cover_uncertain_word_and_exist_in_segment() -> None:
     transcript = _transcript(
-        _segment(0, "Mew inspired me.", [("Mew", 0.4), ("inspired", 0.99), ("me.", 0.99)])
+        _segment(
+            0, "Mew inspired me.", [("Mew", 0.4), ("inspired", 0.99), ("me.", 0.99)]
+        )
     )
 
     with pytest.raises(OpenBBQError) as raised:
@@ -467,7 +627,7 @@ def test_check_command_is_read_only_and_reports_next_action(
     payload = _payload(capsys)
     assert payload["ready"] is False
     assert payload["unresolved"] == 1
-    assert payload["next"] == "openbbq asr batch --limit 20"
+    assert payload["next"] == f"openbbq asr batch --workspace {path} --limit 20"
     assert (path / "manifest.json").read_bytes() == manifest_before
     assert not ws.asr_review_path(path).exists()
 
@@ -479,7 +639,13 @@ def test_batch_is_bounded_and_apply_unblocks_segment_with_correction(
         _segment(
             0,
             "Thank you to Sean Hongxiu.",
-            [("Thank", 0.99), ("you", 0.99), ("to", 0.99), ("Sean", 0.38), ("Hongxiu.", 0.86)],
+            [
+                ("Thank", 0.99),
+                ("you", 0.99),
+                ("to", 0.99),
+                ("Sean", 0.38),
+                ("Hongxiu.", 0.86),
+            ],
         ),
         _segment(1, "Heva!", [("Heva!", 0.36)]),
     )
@@ -535,3 +701,47 @@ def test_batch_is_bounded_and_apply_unblocks_segment_with_correction(
     )
     _payload(capsys)
     assert ws.read_manifest(path).stages[Stage.SEGMENT].status is StageStatus.PENDING
+
+
+def test_amend_command_persists_agent_found_high_confidence_correction(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    transcript = _transcript(
+        _segment(
+            0,
+            "Here is my hot tick.",
+            [
+                ("Here", 0.99),
+                ("is", 0.99),
+                ("my", 0.99),
+                ("hot", 0.99),
+                ("tick.", 0.99),
+            ],
+        )
+    )
+    path = _workspace(tmp_path, transcript)
+    amendments = tmp_path / "amendments.json"
+    amendments.write_text(
+        json.dumps(
+            {
+                "amendments": [
+                    {
+                        "segment_id": 0,
+                        "find": "hot tick",
+                        "replacement": "hot take",
+                        "reason": "The idiom is clear from the surrounding discussion.",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    amend_cmd(_ctx(), amendments=str(amendments), workspace=str(path))
+
+    payload = _payload(capsys)
+    assert payload["applied"] == 1
+    assert payload["ready"] is True
+    segment_cmd(_ctx(), workspace=str(path))
+    _payload(capsys)
+    assert ws.read_cues(path / "cues.json").cues[0].source == "Here is my hot take."

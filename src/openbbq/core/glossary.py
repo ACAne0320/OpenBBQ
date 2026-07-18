@@ -1,16 +1,17 @@
-"""Glossary library: a global, named named-entity dictionary per series/topic,
+"""Glossary library: a global named-entity dictionary per series/topic,
 stored at ``$OPENBBQ_HOME/glossaries/<name>.json``.
 
 The single place that knows the library layout. It loads/validates into the
-``glossary@1`` schema and derives the three deterministic consumables: the ASR
-**bias** term list, the ``alias -> source`` **correction** map, and **suggest**
-candidates mined from a transcript. Pure domain logic — no cli/output; failures
-surface as ``OpenBBQError`` (DESIGN glossary spec §3/§6). Authoring the terms
-themselves is semantic and stays with the agent (§1.6).
+``glossary@1`` schema and derives deterministic ASR **bias**, ``alias -> source``
+**correction**, candidate **suggestion**, atomic term patching, and correction
+effect reports. Pure domain logic — no cli/output; failures surface as
+``OpenBBQError``. Authoring the terms themselves is semantic and stays with the
+agent.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections.abc import Callable, Iterator
@@ -21,7 +22,9 @@ from pydantic import ValidationError
 
 from openbbq.core.workspace import write_text_atomic
 from openbbq.errors import OpenBBQError
-from openbbq.schemas import Glossary, Transcript
+from openbbq.schemas import Glossary, Term, Transcript
+
+MAX_GLOSSARY_PATCH = 20
 
 # --- library layout -----------------------------------------------------------
 
@@ -85,6 +88,152 @@ def scaffold(name: str, context: str | None = None) -> Path:
     skeleton = Glossary(name=name, context=context, terms=[])
     write_text_atomic(path, skeleton.model_dump_json(indent=2, exclude_none=True))
     return path
+
+
+def save(glossary: Glossary) -> Path:
+    """Validate and atomically persist a glossary in its canonical location."""
+
+    path = glossary_path(glossary.name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    validated = Glossary.model_validate(glossary.model_dump(by_alias=True))
+    write_text_atomic(
+        path,
+        validated.model_dump_json(indent=2, exclude_none=True) + "\n",
+    )
+    return path
+
+
+@dataclass(frozen=True)
+class PatchReport:
+    added: tuple[str, ...]
+    updated: tuple[str, ...]
+    unchanged: tuple[str, ...]
+    aliases_added: int
+
+
+def parse_term_patch(text: str) -> list[Term]:
+    """Parse ``{"terms": [...]}`` for one bounded, atomic glossary update."""
+
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise OpenBBQError(
+            "glossary_patch_invalid",
+            detail="expected a JSON object with a non-empty terms array",
+        ) from error
+    values = raw.get("terms") if isinstance(raw, dict) else None
+    if not isinstance(values, list) or not values:
+        raise OpenBBQError(
+            "glossary_patch_invalid",
+            detail="expected a JSON object with a non-empty terms array",
+        )
+    if len(values) > MAX_GLOSSARY_PATCH:
+        raise OpenBBQError(
+            "glossary_patch_too_large",
+            count=len(values),
+            max=MAX_GLOSSARY_PATCH,
+            fix="apply at most 20 glossary terms at a time",
+        )
+    try:
+        terms = [Term.model_validate(value) for value in values]
+    except (ValidationError, ValueError, TypeError) as error:
+        raise OpenBBQError("glossary_patch_invalid", detail=str(error)) from error
+    for term in terms:
+        provided = set(term.model_fields_set)
+        term.source = term.source.strip()
+        if not term.source:
+            raise OpenBBQError(
+                "glossary_patch_invalid",
+                detail="term source must not be blank",
+            )
+        term.aliases = [alias.strip() for alias in term.aliases if alias.strip()]
+        if "target" in provided:
+            term.target = term.target.strip() if term.target is not None else None
+        if "note" in provided:
+            term.note = term.note.strip() if term.note is not None else None
+        term.model_fields_set.intersection_update(provided)
+    return terms
+
+
+def _validate_form_ownership(terms: list[Term]) -> None:
+    owners: dict[str, str] = {}
+    for term in terms:
+        owner = term.source.casefold()
+        for form in (term.source, *term.aliases):
+            key = form.casefold()
+            previous = owners.get(key)
+            if previous is not None and previous != owner:
+                raise OpenBBQError(
+                    "glossary_form_conflict",
+                    form=form,
+                    sources=sorted({previous, owner}),
+                    fix="keep each canonical spelling or alias owned by one term",
+                )
+            owners[key] = owner
+
+
+def upsert_terms(
+    glossary: Glossary, patches: list[Term]
+) -> tuple[Glossary, PatchReport]:
+    """Merge validated terms in memory; callers save only after the whole batch passes."""
+
+    terms = [term.model_copy(deep=True) for term in glossary.terms]
+    by_source = {term.source.casefold(): index for index, term in enumerate(terms)}
+    added: list[str] = []
+    updated: list[str] = []
+    unchanged: list[str] = []
+    aliases_added = 0
+
+    for patch in patches:
+        key = patch.source.casefold()
+        index = by_source.get(key)
+        if index is None:
+            aliases = list(
+                dict.fromkeys(
+                    alias for alias in patch.aliases if alias.casefold() != key
+                )
+            )
+            term = patch.model_copy(update={"aliases": aliases})
+            terms.append(term)
+            by_source[key] = len(terms) - 1
+            added.append(term.source)
+            aliases_added += len(aliases)
+            continue
+
+        current = terms[index]
+        before = current.model_dump()
+        aliases = list(current.aliases)
+        known_aliases = {alias.casefold() for alias in aliases}
+        for alias in patch.aliases:
+            alias_key = alias.casefold()
+            if alias_key == key or alias_key in known_aliases:
+                continue
+            aliases.append(alias)
+            known_aliases.add(alias_key)
+            aliases_added += 1
+        changes: dict[str, object] = {"aliases": aliases}
+        if "target" in patch.model_fields_set:
+            changes["target"] = patch.target
+        if "note" in patch.model_fields_set:
+            changes["note"] = patch.note
+        if "keep" in patch.model_fields_set:
+            changes["keep"] = patch.keep
+        merged = current.model_copy(update=changes)
+        terms[index] = merged
+        if merged.model_dump() == before:
+            unchanged.append(current.source)
+        else:
+            updated.append(current.source)
+
+    _validate_form_ownership(terms)
+    result = glossary.model_copy(update={"terms": terms})
+    Glossary.model_validate(result.model_dump(by_alias=True))
+    return result, PatchReport(
+        added=tuple(added),
+        updated=tuple(updated),
+        unchanged=tuple(unchanged),
+        aliases_added=aliases_added,
+    )
 
 
 # --- touchpoint 1: ASR biasing ------------------------------------------------
@@ -151,6 +300,74 @@ def corrector(g: Glossary | None) -> Callable[[str], str]:
         return text
 
     return fix
+
+
+@dataclass(frozen=True)
+class AliasApplication:
+    source: str
+    alias: str
+    count: int
+
+
+class CorrectionTracker:
+    """Callable glossary corrector that also records whether the binding mattered."""
+
+    def __init__(self, glossary: Glossary | None):
+        self.glossary = glossary
+        self.matched_terms: set[str] = set()
+        self._applications: dict[tuple[str, str], int] = {}
+        self._forms: list[tuple[str, str]] = []
+        self._aliases: list[tuple[re.Pattern[str], str, str]] = []
+        if glossary is None:
+            return
+        for term in glossary.terms:
+            for form in (term.source, *term.aliases):
+                clean = form.strip()
+                if clean:
+                    self._forms.append((clean, term.source))
+            for alias in term.aliases:
+                clean = alias.strip()
+                if clean and clean.casefold() != term.source.casefold():
+                    self._aliases.append(
+                        (
+                            re.compile(_boundaried(clean), re.IGNORECASE),
+                            term.source,
+                            clean,
+                        )
+                    )
+        self._forms.sort(key=lambda pair: len(pair[0]), reverse=True)
+        self._aliases.sort(key=lambda item: len(item[2]), reverse=True)
+
+    def __call__(self, text: str) -> str:
+        for form, source in self._forms:
+            if contains_term(text, form):
+                self.matched_terms.add(source)
+        for pattern, source, alias in self._aliases:
+            text, count = pattern.subn(source, text)
+            if count:
+                key = (source, alias)
+                self._applications[key] = self._applications.get(key, 0) + count
+                self.matched_terms.add(source)
+        return text
+
+    @property
+    def alias_applications(self) -> list[AliasApplication]:
+        return [
+            AliasApplication(source=source, alias=alias, count=count)
+            for (source, alias), count in sorted(self._applications.items())
+        ]
+
+
+def matched_terms(glossary: Glossary | None, text: str) -> list[str]:
+    """Canonical terms whose source or aliases occur in one text span."""
+
+    if glossary is None:
+        return []
+    return [
+        term.source
+        for term in glossary.terms
+        if any(contains_term(text, form) for form in (term.source, *term.aliases))
+    ]
 
 
 # --- touchpoint 3 helper + suggest: known forms / candidate mining ------------
@@ -242,5 +459,7 @@ def suggest_candidates(
             candidates.append(Candidate(surface, count, avg, example[surface]))
 
     # Most suspicious first: lowest confidence, then most frequent.
-    candidates.sort(key=lambda c: (c.avg_prob if c.avg_prob is not None else 1.0, -c.count))
+    candidates.sort(
+        key=lambda c: (c.avg_prob if c.avg_prob is not None else 1.0, -c.count)
+    )
     return candidates[:limit]

@@ -275,6 +275,6 @@ def burn(
             duration_s=outcome.duration_s,
             elapsed_s=round(time.monotonic() - started, 2),
             ffmpeg=outcome.ffmpeg,
-            next="openbbq qa render",
+            next="openbbq delivery check",
         )
     )
