@@ -124,7 +124,55 @@ def test_risk_ranking_surfaces_real_failure_patterns() -> None:
 
     assert "name_omission" in by_id[1]
     assert "target_extra_latin" in by_id[2]
-    assert "budget_pressure" in by_id[3]
+    assert "shortened_translation" not in by_id.get(3, set())
+
+
+def test_fitting_budget_alone_is_not_a_translation_risk() -> None:
+    cues, worksheet = _documents(
+        _item(1, "A concise and faithful line.", "一句简洁忠实的译文。", max_chars=10)
+    )
+
+    assert auditlib.risk_items(cues, worksheet, None) == []
+
+
+def test_target_latin_allows_simple_source_singular_plural_variants() -> None:
+    cues, worksheet = _documents(
+        _item(1, "Agents can execute this task.", "Agent 可以执行这个任务。")
+    )
+
+    risks = auditlib.risk_items(cues, worksheet, None)
+
+    assert all("target_extra_latin" not in item.risk_codes for item in risks)
+
+
+def test_first_draft_extreme_shortening_is_a_risk_without_full_audit() -> None:
+    cues, worksheet = _documents(
+        _item(
+            1,
+            "This detailed procedure has several important conditions that users must always follow carefully.",
+            "好的",
+        )
+    )
+
+    risks = auditlib.risk_items(cues, worksheet, None)
+
+    assert risks[0].id == 1
+    assert "shortened_translation" in risks[0].risk_codes
+
+
+def test_three_near_duplicate_targets_are_surfaced_as_translation_risks() -> None:
+    cues, worksheet = _documents(
+        _item(1, "Open the settings page now.", "现在打开设置页面。"),
+        _item(2, "Restart the worker after saving.", "现在打开设置页。"),
+        _item(3, "Verify the deployment status.", "请现在打开设置页面。"),
+    )
+
+    risks = auditlib.risk_items(cues, worksheet, None)
+
+    assert {risk.id for risk in risks} == {1, 2, 3}
+    assert all(
+        "near_repeated_translation" in risk.risk_codes for risk in risks
+    )
 
 
 def test_full_coverage_adds_semantic_review_and_neighbor_context() -> None:

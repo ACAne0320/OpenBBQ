@@ -33,9 +33,10 @@ class Budget(OpenBBQModel):
 
 
 class Cue(OpenBBQModel):
-    """Source-side subtitle cue. Immutable, language-agnostic — the deterministic
-    product of ``segment``. Translation lives in a separate per-language worksheet
-    joined at export (DESIGN translate spec), never here.
+    """Source-side subtitle cue. Usually the deterministic product of ``segment``;
+    the agent facade may apply a validated cue-scoped ASR correction while
+    synchronizing every worksheet source copy. Translation lives in a separate
+    per-language worksheet joined at export, never here.
     """
 
     id: int  # 1-based (subtitle convention)

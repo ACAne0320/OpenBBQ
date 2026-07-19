@@ -4,8 +4,9 @@
 
 **OpenBBQ** 是一个专为智能体（Agent）设计的用于视频翻译和字幕制作的命令行工具。
 
-OpenBBQ 提供了一系列可组合的工具，涵盖视频下载、音频提取、ASR 转录、分段、翻译、校对、字幕导出以及烧录字幕等环节。
-不强制采用固定的处理流程，而是更希望 Agent 根据用户的不同目标，灵活制定最合适的工作流程。
+OpenBBQ 提供默认的 `agent init/next/apply/finish` facade，让不同 Agent 用一句提示词
+稳定执行同一套质量流程；同时保留视频下载、ASR、分段、翻译、校对、导出和烧录等
+细粒度命令，供专家调试与兼容使用。
 
 ## Why OpenBBQ?
 
@@ -43,6 +44,13 @@ openbbq doctor
 
 ## 使用
 
+推荐的 agent 入口：
+
+```bash
+openbbq --json agent init '<video-or-url>' --workspace workspaces/demo --to zh
+openbbq --json agent next --workspace workspaces/demo
+```
+
 本地文件流程、YouTube 登录、ASS 预设、输出文件和完整命令说明见
 [使用指南](docs/usage.zh-CN.md)。
 
@@ -58,7 +66,7 @@ Agent 安装和随包发布的 OpenBBQ skill 说明见
 - [ ] 更多 ASR 后端支持
 - [ ] 更多视频平台鉴权支持
 - [ ] Agent 自行探索值得翻译的视频
-- [ ] 自定义翻译 Prompt
+- [x] 按目标语言固化的可复现翻译 brief
 - [x] 面向人工翻译的可视化校对流程
 - [ ] 更多字幕编辑与发布工作流
 

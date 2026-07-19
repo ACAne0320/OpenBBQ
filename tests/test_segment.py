@@ -316,6 +316,28 @@ def test_build_cues_raises_on_missing_word_timestamps() -> None:
         raise AssertionError("expected OpenBBQError")
 
 
+def test_build_cues_rejects_sustained_collapsed_word_timestamps() -> None:
+    transcript = _transcript(
+        Segment(
+            id=0,
+            start=0,
+            end=2,
+            text="bad timing here now",
+            words=[
+                Word(word=word, start=2, end=2, prob=0.99)
+                for word in ("bad", "timing", "here", "now")
+            ],
+        )
+    )
+
+    try:
+        seg.build_cues(transcript, EN)
+    except OpenBBQError as err:
+        assert err.code == "invalid_word_timeline"
+    else:
+        raise AssertionError("expected OpenBBQError")
+
+
 # --- command shell ------------------------------------------------------------
 
 

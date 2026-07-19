@@ -10,6 +10,7 @@ here touches I/O.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
@@ -23,6 +24,8 @@ _IDENTITY: Callable[[str], str] = lambda s: s  # noqa: E731 — default "no glos
 _SENTENCE_END = ".!?。！？…"
 _SECONDARY = ",;:、；："
 _TRAILING_CLOSERS = "\"'”’」』）)】]}>"
+_MIN_COLLAPSED_WORDS = 3
+_MIN_BOUNDARY_PILEUP_WORDS = 5
 
 
 # --- language profiles --------------------------------------------------------
@@ -159,6 +162,48 @@ class SegmentOutcome:
     cues: list[Cue]
     over_cps: int  # cues exceeding max_cps (DESIGN §5 contract field)
     over_cap: int  # cues that couldn't be wrapped into the line budget
+
+
+def invalid_cue_ids(cues: list[Cue]) -> list[int]:
+    """Return cues whose timing cannot be rendered as a real subtitle span."""
+
+    return [
+        cue.id
+        for cue in cues
+        if not math.isfinite(cue.start)
+        or not math.isfinite(cue.end)
+        or cue.start < 0
+        or cue.end <= cue.start
+    ]
+
+
+def require_valid_cue_timeline(cues: list[Cue]) -> None:
+    invalid = invalid_cue_ids(cues)
+    if invalid:
+        raise OpenBBQError(
+            "invalid_cue_timeline",
+            ids=invalid[:20],
+            total=len(invalid),
+            fix="repair the ASR word timing and rerun openbbq segment",
+        )
+
+
+def _collapsed_segment_ids(transcript: Transcript) -> list[int]:
+    invalid: list[int] = []
+    for source_segment in transcript.segments:
+        words = source_segment.words or []
+        collapsed = sum(word.end <= word.start + 1e-6 for word in words)
+        boundary = sum(
+            abs(word.start - source_segment.end) <= 0.005
+            or abs(word.end - source_segment.end) <= 0.005
+            for word in words
+        )
+        if collapsed >= max(_MIN_COLLAPSED_WORDS, (len(words) + 4) // 5) or (
+            boundary
+            >= max(_MIN_BOUNDARY_PILEUP_WORDS, (len(words) + 3) // 4)
+        ):
+            invalid.append(source_segment.id)
+    return invalid
 
 
 def _duration(words: list[Word]) -> float:
@@ -348,6 +393,7 @@ def finalize(
         if not wrap_feasible(piece, profile):
             over_cap += 1
         cues.append(Cue(id=idx + 1, start=start, end=end, source=text))
+    require_valid_cue_timeline(cues)
     return SegmentOutcome(cues=cues, over_cps=over_cps, over_cap=over_cap)
 
 
@@ -361,6 +407,15 @@ def build_cues(
     ``correct`` (glossary fixer, default identity) is applied to each cue's
     reconstructed source text in ``finalize``.
     """
+    collapsed = _collapsed_segment_ids(transcript)
+    if collapsed:
+        raise OpenBBQError(
+            "invalid_word_timeline",
+            segment_ids=collapsed[:20],
+            total=len(collapsed),
+            fix="resolve the ASR timeline anomaly before segmenting",
+        )
+
     words: list[Word] = []
     for seg in transcript.segments:
         if not seg.words:

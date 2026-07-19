@@ -10,6 +10,8 @@ import hashlib
 import os
 import re
 import tempfile
+import fcntl
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -20,6 +22,7 @@ from pydantic import ValidationError
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
     AsrReview,
+    AgentSession,
     Cues,
     Manifest,
     QaReport,
@@ -124,6 +127,38 @@ def write_text_atomic(path: Path, content: str) -> None:
     finally:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
+
+
+def write_texts_atomic(documents: dict[Path, str]) -> None:
+    """Commit a small set of text documents with rollback on write failure.
+
+    Each replacement is itself atomic.  Keeping the previous contents lets a
+    cue + worksheet semantic update recover if a later replacement raises.
+    """
+
+    originals: dict[Path, str | None] = {}
+    for path in documents:
+        try:
+            originals[path] = path.read_text(encoding="utf-8") if path.exists() else None
+        except OSError as error:
+            raise OpenBBQError(
+                "atomic_write_failed",
+                path=str(path),
+                fix="restore the workspace files and retry the semantic batch",
+            ) from error
+    written: list[Path] = []
+    try:
+        for path, content in documents.items():
+            write_text_atomic(path, content)
+            written.append(path)
+    except OSError:
+        for path in reversed(written):
+            original = originals[path]
+            if original is None:
+                path.unlink(missing_ok=True)
+            else:
+                write_text_atomic(path, original)
+        raise
 
 
 def write_manifest(ws: Path, manifest: Manifest) -> None:
@@ -289,6 +324,64 @@ def write_translation_audit(
     return path
 
 
+def agent_session_path(workspace: Path, lang: str) -> Path:
+    return workspace / ".openbbq" / f"agent-session.{validate_lang(lang)}.json"
+
+
+def read_agent_session_optional(
+    workspace: Path, lang: str
+) -> AgentSession | None:
+    path = agent_session_path(workspace, lang)
+    if not path.is_file():
+        return None
+    try:
+        session = AgentSession.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as error:
+        raise OpenBBQError(
+            "invalid_agent_session",
+            path=str(path),
+            fix=f"restore the session or rerun openbbq agent init --to {lang}",
+        ) from error
+    if session.target_lang != lang:
+        raise OpenBBQError(
+            "invalid_agent_session",
+            path=str(path),
+            target_lang=session.target_lang,
+            expected=lang,
+        )
+    return session
+
+
+def write_agent_session(
+    workspace: Path, session: AgentSession
+) -> Path:
+    path = agent_session_path(workspace, session.target_lang)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_text_atomic(path, session.model_dump_json(indent=2) + "\n")
+    return path
+
+
+@contextmanager
+def agent_workspace_lock(workspace: Path):
+    """Short exclusive lock for agent next/apply/finish state transitions."""
+
+    lock_path = workspace / ".openbbq" / "agent.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with lock_path.open("a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except OSError as error:
+        raise OpenBBQError(
+            "agent_workspace_lock_failed",
+            workspace=str(workspace),
+            fix="wait for the other OpenBBQ agent command to finish and retry",
+        ) from error
+
+
 def qa_path(workspace: Path) -> Path:
     return workspace / _QA_PATH
 
@@ -418,6 +511,45 @@ def record_artifact_provenance(
     path = workspace / _PROVENANCE_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(path, json.dumps(raw, ensure_ascii=False, indent=2) + "\n")
+
+
+def refresh_artifact_provenance(
+    workspace: Path,
+    artifact: Path,
+    producer: Stage,
+) -> None:
+    """Refresh hashes after an intentional in-place semantic source edit.
+
+    The input path set remains unchanged; both the artifact and its inputs are
+    sampled together so a cue-scoped agent correction becomes the new verified
+    source product without pretending a re-segmentation occurred.
+    """
+
+    workspace = workspace.resolve()
+    key = _workspace_path_key(workspace, artifact)
+    raw = _read_provenance(workspace)
+    records = cast(dict[str, Any], raw["artifacts"])
+    record = records.get(key)
+    if not isinstance(record, dict) or record.get("producer") != producer.value:
+        raise OpenBBQError(
+            "artifact_unverified",
+            artifact=key,
+            producer=producer.value,
+            fix="rerun the producing stage before applying semantic source fixes",
+        )
+    inputs = record.get("inputs")
+    if not isinstance(inputs, dict):
+        raise OpenBBQError("invalid_provenance", artifact=key)
+    record["sha256"] = _sha256(artifact)
+    record["inputs"] = {
+        input_key: _sha256(_path_from_key(workspace, input_key))
+        for input_key in inputs
+    }
+    provenance_path = workspace / _PROVENANCE_PATH
+    write_text_atomic(
+        provenance_path,
+        json.dumps(raw, ensure_ascii=False, indent=2) + "\n",
+    )
 
 
 def require_fresh_artifact(

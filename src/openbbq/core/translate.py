@@ -4,10 +4,11 @@ and validate a filled one.
 Source/target split, joined at export (DESIGN translate spec): ``cues.json`` is
 the immutable source product; each target language gets a ``translation@1``
 worksheet the Agent owns. ``build_worksheet`` prepares it (budget per cue +
-glossary map), ``apply_targets`` merges an id→target batch into it (how the
+glossary map and translation brief), ``apply_targets`` merges an id→target batch into it (how the
 Agent fills at scale without ad hoc scripts), ``check`` validates a filled one
 (integrity hard-fails; status is reported). Pure domain logic — no cli/output;
-failures surface as OpenBBQError.
+failures surface as OpenBBQError. Legacy ``translation@1`` documents stay
+readable; the agent facade migrates them to ``translation@2`` in place.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from dataclasses import dataclass
 
 from openbbq.core import glossary as gl
 from openbbq.core import segment as seg
+from openbbq.core import translation_rules
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
     Budget,
@@ -71,13 +73,12 @@ def budget_for_cue(start: float, end: float, params: SegmentParams) -> Budget:
 
 
 def _glossary_refs(g: Glossary | None) -> list[GlossaryRef]:
-    """Terms that carry translation guidance (a target or keep) → the worksheet map."""
+    """All terms are useful context, including pending note-only entries."""
     if g is None:
         return []
     return [
         GlossaryRef(source=t.source, target=t.target, note=t.note, keep=t.keep)
         for t in g.terms
-        if t.target is not None or t.keep
     ]
 
 
@@ -89,6 +90,8 @@ def build_worksheet(
     max_cps: float | None = None,
     max_chars_per_line: int | None = None,
     max_lines: int | None = None,
+    title: str | None = None,
+    author: str | None = None,
 ) -> tuple[Translation, bool]:
     """Prepare a worksheet for ``target_lang``. Returns (doc, generic_profile)."""
     profile, generic = seg.resolve_profile(target_lang)
@@ -116,10 +119,18 @@ def build_worksheet(
         for c in cues.cues
     ]
     doc = Translation(
+        schema_="openbbq/translation@2",
         source_lang=cues.source_lang,
         target_lang=target_lang,
         params=params,
         glossary=_glossary_refs(glossary),
+        brief=translation_rules.build_brief(
+            cues.source_lang,
+            target_lang,
+            title=title,
+            author=author,
+            glossary_context=None if glossary is None else glossary.context,
+        ),
         items=items,
     )
     return doc, generic
@@ -550,11 +561,14 @@ def select_batch(
         )
         for index in sorted(included_indexes)
     ]
-    selected_sources = [item.source for _index, item in selected]
+    # Terms in neighbor cues are part of the semantic context too.  In
+    # particular a pending note-only term may explain the selected cue even
+    # when the literal spelling occurs just outside the selected range.
+    included_sources = [item.source for item in items]
     relevant_glossary = [
         ref
         for ref in worksheet.glossary
-        if any(gl.contains_term(source, ref.source) for source in selected_sources)
+        if any(gl.contains_term(source, ref.source) for source in included_sources)
     ]
     return BatchReport(
         selected_ids=[item.id for _index, item in selected],

@@ -11,7 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from openbbq.core import asr_review as asrlib
+from openbbq.core import agent_workflow
 from openbbq.core import export as exportlib
+from openbbq.core import segment as segmentlib
 from openbbq.core import translate as translatelib
 from openbbq.core import translation_audit as auditlib
 from openbbq.core import workspace as ws
@@ -155,6 +157,7 @@ def assess_delivery(
         issues.append(lang_issue)
 
     transcript: Transcript | None = None
+    use_legacy_translation_gate = False
     transcript_path = _artifact(
         path,
         manifest,
@@ -183,6 +186,12 @@ def assess_delivery(
                     fix="remove the invalid ASR review and rerun openbbq asr check",
                 )
             else:
+                caption_source = ws.read_reference_caption_optional(path)
+                reference_words = (
+                    asrlib.parse_reference_words(caption_source)
+                    if caption_source is not None
+                    else []
+                )
                 asr = asrlib.check(
                     transcript,
                     asr_review,
@@ -191,6 +200,7 @@ def assess_delivery(
                         for text in (manifest.source.title, manifest.source.author)
                         if manifest.source.type == "url" and text
                     ],
+                    reference_words=reference_words,
                 )
                 if asr.ready:
                     gates["asr"] = True
@@ -226,19 +236,33 @@ def assess_delivery(
                 fix="openbbq segment",
             )
         else:
-            try:
-                ws.require_fresh_artifact(path, cues_path, Stage.SEGMENT)
-            except OpenBBQError as error:
+            invalid_cues = segmentlib.invalid_cue_ids(cues.cues)
+            if invalid_cues:
                 issues.append(
                     DeliveryIssue(
-                        code=f"segment_{error.code}",
+                        code="invalid_cue_timeline",
                         gate="segment",
-                        detail="segmented source subtitles or their reviewed inputs changed",
+                        detail=(
+                            "segmented subtitles contain non-positive cue durations: "
+                            + ", ".join(str(cue_id) for cue_id in invalid_cues[:20])
+                        ),
                         fix="openbbq segment",
                     )
                 )
             else:
-                gates["segment"] = True
+                try:
+                    ws.require_fresh_artifact(path, cues_path, Stage.SEGMENT)
+                except OpenBBQError as error:
+                    issues.append(
+                        DeliveryIssue(
+                            code=f"segment_{error.code}",
+                            gate="segment",
+                            detail="segmented source subtitles or their reviewed inputs changed",
+                            fix="openbbq segment",
+                        )
+                    )
+                else:
+                    gates["segment"] = True
 
     translation: Translation | None = None
     if resolved_lang is not None:
@@ -265,7 +289,65 @@ def assess_delivery(
 
     if cues is not None and translation is not None and resolved_lang is not None:
         try:
-            translation_report = translatelib.check(cues, translation, resolved_lang)
+            agent_session = ws.read_agent_session_optional(path, resolved_lang)
+        except OpenBBQError as error:
+            _read_error(
+                issues,
+                gate="translation_audit",
+                error=error,
+                fix=f"openbbq agent next --workspace {path}",
+            )
+            agent_session = None
+            has_agent_session = True
+        else:
+            has_agent_session = agent_session is not None
+
+        if agent_session is not None:
+            try:
+                balanced = agent_workflow.balanced_gate(
+                    path,
+                    manifest,
+                    agent_session,
+                    cues,
+                    translation,
+                )
+            except OpenBBQError as error:
+                _read_error(
+                    issues,
+                    gate="translation_audit",
+                    error=error,
+                    fix=f"openbbq agent next --workspace {path}",
+                )
+            else:
+                if balanced.ready:
+                    gates["translation"] = True
+                    gates["translation_audit"] = True
+                else:
+                    issues.append(
+                        DeliveryIssue(
+                            code="agent_session_stale",
+                            gate="translation_audit",
+                            detail="balanced agent evidence is incomplete or stale: "
+                            + "; ".join(balanced.problems),
+                            fix=f"openbbq agent next --workspace {path}",
+                        )
+                    )
+
+        if has_agent_session:
+            # The balanced session is authoritative.  Never fall back to the
+            # weaker legacy all-cue audit when it exists but is stale.
+            use_legacy_translation_gate = False
+        else:
+            use_legacy_translation_gate = True
+
+    if (
+        cues is not None
+        and translation is not None
+        and resolved_lang is not None
+        and use_legacy_translation_gate
+    ):
+        try:
+            legacy_report = translatelib.check(cues, translation, resolved_lang)
         except OpenBBQError as error:
             _read_error(
                 issues,
@@ -274,14 +356,14 @@ def assess_delivery(
                 fix=f"openbbq translate init {resolved_lang} --force",
             )
         else:
-            if translation_report.ready:
+            if legacy_report.ready:
                 gates["translation"] = True
             else:
-                problem_ids = set(translation_report.missing)
-                problem_ids.update(translation_report.over_budget)
-                problem_ids.update(translation_report.zero_budget)
-                problem_ids.update(issue.id for issue in translation_report.term_issues)
-                problem_ids.update(issue.id for issue in translation_report.quality_issues)
+                problem_ids = set(legacy_report.missing)
+                problem_ids.update(legacy_report.over_budget)
+                problem_ids.update(legacy_report.zero_budget)
+                problem_ids.update(issue.id for issue in legacy_report.term_issues)
+                problem_ids.update(issue.id for issue in legacy_report.quality_issues)
                 issues.append(
                     DeliveryIssue(
                         code="translation_quality_failed",
@@ -408,9 +490,9 @@ def assess_delivery(
                 nonempty = burn_path.stat().st_size > 0
             except OSError:
                 nonempty = False
-            if nonempty:
+            if nonempty and gates["segment"]:
                 gates["qa_mechanical"] = True
-            else:
+            elif not nonempty:
                 issues.append(
                     DeliveryIssue(
                         code="invalid_burn_output",

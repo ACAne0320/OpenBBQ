@@ -17,6 +17,25 @@ The pending publisher creates the PyPI project on first publish; it does not res
 
 ## Publish a version
 
+For changes to the default agent workflow, do not release from CI alone. Before
+changing the version, run the same one-shot prompt in independent workspaces:
+
+> 帮我把这个视频制作成中英双语字幕视频。
+
+Use `https://www.youtube.com/watch?v=neK8ydl0Vlk` with both Pi +
+DeepSeek-v4-pro high and Codex + GPT-5.6 Luna medium. Record the session files
+and verify cue by cue:
+
+- source and target correctness/alignment are each at least 95%, with an overall
+  translation score of at least 80;
+- every semantic translation batch has at most 20 cues and one active lease;
+- each batch contains the target-language brief and glossary context;
+- the flow uses risk-only review, burns once, and ends at `delivery_ready: true`;
+- glossary publication succeeds or returns a non-blocking structured retry
+  warning.
+
+Only continue when CI and both harness runs pass.
+
 Update the version in `pyproject.toml` and `src/openbbq/__init__.py`, then sync the lockfile:
 
 ```bash

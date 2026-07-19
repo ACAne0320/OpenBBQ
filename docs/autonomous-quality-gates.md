@@ -1,166 +1,142 @@
-# Autonomous Subtitle Quality Loop v2
+# Autonomous Subtitle Quality Loop v3
 
 ## Objective
 
-Make the single-prompt workflow (for example, “turn this video into a bilingual
-subtitle video”) produce an honestly verified final artifact without relying on
-the agent to remember hidden cleanup or QA rules. The workflow must prevent
-unresolved ASR uncertainty and decoder anomalies, require semantic review of
-every translation with context, keep
-diagnostic checks read-only, preserve meaning when a subtitle needs more room,
-and prove which source video and subtitle were burned into the final MP4.
+A one-prompt request such as “turn this video into a bilingual subtitle video”
+should produce a verified artifact without asking an agent harness to remember a
+long command sequence. Pi, Codex, and other harnesses consume one authoritative
+state interface:
 
-## Context
+```text
+openbbq agent init <source> --workspace <ws> --to zh
+openbbq --json agent next --workspace <ws>
+openbbq agent apply --workspace <ws> <response.json>
+openbbq agent finish --workspace <ws>
+```
 
-OpenBBQ's persisted `transcript@1`, `translation@1`, and `manifest@1` models are
-strict compatibility contracts (`extra="forbid"`). New review state therefore
-lives in versioned files under `.openbbq/`; the canonical transcript, cues, and
-translation worksheet remain unchanged. Domain modules own review rules and
-hashing. CLI commands own workspace I/O and user-facing results. Pipeline
-commands consume verified state but do not duplicate review logic.
+Fine-grained ASR, glossary, translation, audit, export, and burn commands remain
+available as expert and legacy interfaces.
 
-## Requirements
+## State Contract
 
-### 1. ASR uncertainty gate
+`agent next` returns exactly one action:
 
-- Add bounded `openbbq asr check`, `asr batch`, and `asr apply` commands.
-- Surface every word occurrence below a conservative default probability
-  threshold (`0.5`) with a stable occurrence id, timestamp, segment context,
-  word probability, and neighboring word probabilities.
-- Store decisions in `.openbbq/asr-review.json`, tied to the exact transcript
-  content hash. A decision either accepts the transcription or supplies an
-  exact phrase replacement and a reason.
-- A replacement phrase must occur in the issue's source segment and include the
-  uncertain word. Corrections are applied boundary-safely while cues are built.
-- `segment` blocks when the current transcript has unresolved issues or a stale
-  ASR review. Transcripts without word probabilities remain compatible and have
-  no uncertainty issues.
-- Detect repeated long segment runs, implausible word rates, and high-confidence
-  named-entity conflicts with fetched title/author metadata. Decisions support
-  `keep_first` and `drop` in addition to accept/replace.
-- Preserve an available YouTube VTT as optional time-aligned evidence in ASR
-  batches. Metadata and captions are evidence for an explicit decision, never
-  an automatic correction.
+- `run_command`: exact argv for a mechanical step;
+- `select_glossary`: reuse, create, or explicitly disable a glossary;
+- `review_source`: at most 20 complete transcript segments plus detector hints,
+  neighbors, metadata, optional reference captions, and glossary context;
+- `translate`: at most 20 selected cues plus neighbors, glossary hits, and a
+  reproducible target-language brief;
+- `review_risks`: at most 20 genuinely risky translations;
+- `finish`: permission to export and burn once;
+- `done`: fresh deliverables and non-blocking glossary warnings.
 
-### 2. Full-coverage contextual translation audit
+Every semantic action has one persistent lease containing a batch ID, exact ID
+set, source and worksheet hashes, and policy hash. Repeated `next` reads are
+idempotent. `apply` rejects partial/extra IDs, stale inputs, or an incorrect
+policy. Short workspace locks serialize state transitions; long export/burn work
+uses a persisted process claim rather than holding the lock.
 
-- Add bounded `translate audit` and `translate audit-apply` commands.
-- Rank cues that merit extra semantic attention first, including ASR-reviewed
-  source text, near-budget translations, likely omissions, suspicious target
-  script/Latin residue, and punctuation or intent mismatches.
-- Every filled cue must be reviewed. Audit decisions are stored in
-  `.openbbq/translation-audit.<lang>.json` and tied to the current cue plus one
-  previous/next context hash, so changing one cue invalidates its own and
-  adjacent reviews.
-- `audit-apply` can accept the current translation or revise it, but always
-  requires a concise reason. Revisions use the same worksheet integrity and
-  budget checks as `translate apply`.
-- Final export blocks while any current cue remains unaudited. The audit
-  must not claim that deterministic heuristics prove semantic correctness.
+State is stored in `.openbbq/agent-session.<lang>.json`. The manifest schema is
+unchanged.
 
-### 3. Optional visual diagnostics
+## Source Quality
 
-- Keep the QA report as an optional diagnostic that separates rendered-frame
-  evidence from visual observation.
-- A model that cannot receive images skips visual QA. This is not a delivery
-  failure and does not reduce the assessed subtitle-content quality.
-- A visual attestation, when available, is tied to the current MP4 and rendered
-  frame hashes. Changing the video invalidates the attestation.
-- The bundled skill must not run visual QA in the default one-shot flow or infer
-  visual success from file existence alone.
-- Select up to seven risk frames by boundaries, midpoint, source/target length,
-  source CPS, and short duration when a user explicitly requests visual review.
-- A visual result is advisory and never automatically selects `fansub-compact`
-  or triggers export/burn rework.
+- Detector and contextual replacements are occurrence-scoped. A word decision
+  never changes the same common word in another segment or another occurrence.
+- Only a deliberately reusable glossary alias is global across segments.
+- Case-only canonicalization such as `codex → Codex` is valid and persists.
+- `review_source` covers every transcript segment and resolves every current
+  detector issue. Context and meaning are primary; probability and reference
+  captions are evidence only.
+- Inline-timed YouTube captions are used to detect and repair sustained ASR word
+  timestamp collapse and the following drift. Timeline anomalies cannot be
+  accepted; segmentation, export, and delivery independently reject zero- or
+  negative-duration cues.
+- Source batches include complete segment text but only timing/probability
+  records that need attention, plus an omitted-word count. Unchanged raw and
+  glossary variants are not duplicated in the payload.
+- One-off errors become source fixes. Reusable canonical terms, aliases,
+  target/keep guidance, and notes enter the workspace glossary overlay.
+- `segment` blocks until balanced source-review evidence is complete.
 
-### 4. Hard delivery gate
+## Glossary Overlay
 
-- `openbbq --json delivery check` is the sole final readiness decision. Any
-  failed gate returns `ready:false` and a non-zero process exit.
-- Aggregate ASR, fresh segmentation, deterministic translation checks,
-  full-context audit, exact bilingual ASS events, burn provenance, and a
-  non-empty burned artifact without duplicating the underlying domain rules.
-- `status` reports the same delivery result. A successful command or existing
-  MP4 alone never means delivery-ready.
+The task stores its base glossary name/hash, reusable patches, and evidence in
+`.openbbq/glossary-overlay.json`. Transcription, source review, segmentation,
+and worksheet creation see base + overlay immediately. The global library is
+not changed mid-task.
 
-### 5. Read-only translation checks
+After delivery succeeds, every non-conflicting entry is published. Existing
+global values are never overwritten. A conflict or permission failure leaves
+the overlay intact and returns an exact retry command; it does not invalidate a
+ready video.
 
-- `translate check` never writes `manifest.json` or invalidates later stages.
-- `export` re-runs the same deterministic gate immediately before consuming the
-  worksheet and records the translate stage as done before recording export.
-- Re-running `translate check` after burn preserves completed export and burn
-  states byte-for-byte.
+## Translation Policy
 
-### 6. Meaning-preserving target reflow
+New worksheets use `openbbq/translation@2`. `translation@1` remains readable and
+is migrated in place when an agent session reaches translation; existing targets
+are preserved.
 
-- `translate init` accepts target-side line-budget overrides. The bundled
-  bilingual 1080p workflow uses up to two target lines before asking the agent
-  to remove meaning.
-- ASS export deterministically wraps target text according to the worksheet's
-  snapshotted language profile and emits `\N`; source timing and source text do
-  not change.
-- A cue remains blocked when it exceeds the duration/CPS budget or cannot fit
-  the configured line capacity. Reflow does not silently truncate text.
+Every `translation@2` embeds a brief with source/target language, title, author,
+glossary domain context, ruleset, and fixed rules. `zh`, `zh-Hans`, and `zh-CN`
+use `zh-Hans@1`; Traditional Chinese variants and other languages use an
+explicit `generic@1` fallback.
 
-### 7. Burned-video provenance
+Batch context includes all selected/neighbor glossary hits, including pending
+note-only terms. Translation evidence is tied to cue source, target, budget,
+relevant glossary snapshot, and policy hash. Translation-time ASR discoveries
+use cue-scoped source fixes that update `cues.json` and worksheet source copies
+as one rollback-safe transaction.
 
-- Successful burn records the MP4 hash plus exact source-video and ASS hashes in
-  `.openbbq/artifacts.json` with producer `burn`.
-- QA/status can distinguish a current burned artifact from a modified output or
-  from an MP4 whose source video or ASS changed after burn.
-- Existing ASS provenance and the deliberate `--allow-stale` draft escape hatch
-  remain compatible.
-- Segment output records transcript, ASR decision, and glossary hashes so an
-  upstream correction cannot leave apparently fresh downstream subtitles.
+## Balanced Risk Review
 
-## Non-Goals
+The default workflow does not fabricate a full per-cue audit. Once all cues have
+valid translation evidence, it reviews only current risks:
 
-- Embedding a translation LLM, OCR model, or vision model inside OpenBBQ.
-- Automatically applying guessed replacements for uncertain speech without an explicit
-  agent decision.
-- Rewriting source cue timing during target-language reflow.
-- Changing the existing public JSON schemas or silently accepting unknown keys.
-- Requiring human interaction for the normal one-prompt agent workflow.
+- a source correction discovered during translation;
+- glossary inconsistency or likely entity omission;
+- over-budget/zero-budget targets, extreme shortening, or likely omission;
+- target-script residue, punctuation mismatch, source copy, and repeated target
+  failures.
 
-## Affected Surfaces
+Accepting a risk needs no artificial long rationale. A revision supplies a new
+target and short reason. Risk evidence is tied to the cue's own current content,
+so revising a neighbor does not create an endless re-review/reburn loop.
+Risk review can also submit a cue-scoped source fix and reusable glossary update
+when translation is where the remaining ASR mistake becomes clear; source,
+worksheet, audit, and overlay changes commit as one transaction.
 
-- CLI: `asr`, `qa`, and hard `delivery check` command groups; translation audit
-  coverage and target profile options.
-- Core: ASR review, translation audit, target wrapping, artifact freshness.
-- Workspace: versioned `.openbbq/` sidecar readers/writers only.
-- Pipeline: `segment`, `export`, and `burn` consume verified state.
-- Skills/docs: bounded resolution, audit, and honest QA command sequence.
+Legacy workflows without an agent session still require `coverage=all`. If an
+agent session exists but its evidence is stale, export and delivery block and
+point to `agent next`; they never silently fall back to the weaker path.
 
-## Edge Cases
+## Finish and Delivery
 
-- Missing probabilities, repeated uncertain words, punctuation attached to a
-  replacement, stale sidecars, multiple target languages, externally supplied
-  subtitles, audio-only sources, and legacy workspaces without review files.
-- Review writes must be atomic. Stale decisions must never be applied to a new
-  transcript or changed target silently.
-- A failed audit or QA must not corrupt a valid worksheet or completed output.
+`agent finish` requires fresh source, translation, and risk evidence. It exports
+`out/<lang>.ass`, chooses `fansub` for landscape or `mobile` for portrait, burns
+`out/<lang>-burned.mp4`, and runs the hard delivery check. A current export or
+burn is reused; retries never burn a fresh artifact again.
 
-## Test Plan
+Visual QA, sampled risk frames, text-position prediction, and
+`fansub-compact` are not part of the default workflow. Mechanical non-empty and
+provenance checks remain mandatory.
 
-- Unit-test issue extraction, stable ids, validation, phrase correction, risk
-  ranking, per-cue hashes, target wrapping, and provenance freshness.
-- CLI-test JSON contracts, bounded pagination, stale review behavior, and
-  explicit next-action hints.
-- Integration-test that unresolved ASR blocks segment, unaudited risk blocks
-  export, a post-burn `translate check` is byte-for-byte read-only, two-line ASS
-  preserves full target text, and modified MP4/source/ASS is detected.
-- Run the complete pytest, Ruff, and ty suites after each vertical slice.
+## Compatibility and Non-Goals
 
-## Implementation Plan
+- No translation provider or model is embedded in OpenBBQ.
+- Existing atomic commands and `translation@1` stay compatible.
+- The glossary keeps its single `target` field.
+- The first specialized translation policy is Simplified Chinese only.
+- Multi-video queues, parallel target languages, OCR/layout prediction, and
+  automatic visual rework are outside this version.
 
-1. Detect word and segment-level ASR failures with metadata/caption evidence.
-2. Require full-coverage, neighbor-bound semantic translation decisions.
-3. Keep risk-frame visual QA as an explicit, advisory diagnostic only.
-4. Aggregate all facts into a non-zero hard delivery gate and status summary.
-5. Keep deterministic checks read-only and every derived artifact hash-bound.
-6. Update bundled skills/docs and run static, unit, and real-workspace regressions.
+## Release Gate
 
-## Open Questions
-
-None. Defaults are deliberately conservative and remain overridable at the CLI
-without weakening final-delivery gates silently.
+CI must pass Ruff, ty, pytest, wheel/sdist builds, and isolated CLI smoke tests.
+Before release, the identical one-shot prompt and independent workspaces must be
+run with Pi + DeepSeek-v4-pro high and Codex + GPT-5.6 Luna medium on
+`https://www.youtube.com/watch?v=neK8ydl0Vlk`. Release requires at least 95%
+source correctness, 95% faithful cue alignment, an overall score of 80, batches
+of at most 20, one burn, `delivery_ready: true`, and a successful or explicitly
+retryable glossary publication result.

@@ -4,8 +4,10 @@
 
 **OpenBBQ** is a command-line tool for agent-driven video translation and subtitle production.
 
-OpenBBQ provides composable tools for video download, audio extraction, ASR transcription, segmentation, translation, review, subtitle export, and subtitle burning.
-It does not force one fixed pipeline. The goal is to let an agent choose the right workflow for each task.
+OpenBBQ provides a default `agent init/next/apply/finish` facade so different
+agents can follow the same quality workflow from one prompt. Fine-grained
+download, ASR, segmentation, translation, review, export, and burn commands
+remain available for expert debugging and compatibility.
 
 ## Why OpenBBQ?
 
@@ -43,6 +45,13 @@ openbbq doctor
 
 ## Usage
 
+Recommended agent entry point:
+
+```bash
+openbbq --json agent init '<video-or-url>' --workspace workspaces/demo --to zh
+openbbq --json agent next --workspace workspaces/demo
+```
+
 For local files, YouTube login, ASS presets, outputs, and command details, see
 the [Usage Guide](docs/usage.md).
 
@@ -58,7 +67,7 @@ For agent setup and the packaged OpenBBQ skill, see the
 - [ ] More ASR backends
 - [ ] More video-platform authentication support
 - [ ] Agent-led discovery of videos worth translating
-- [ ] Custom translation prompts
+- [x] Reproducible target-language translation briefs
 - [x] Visual translation review for manual translators
 - [ ] More subtitle editing and publishing workflows
 

@@ -9,9 +9,10 @@ import typer
 from rich.console import RenderableType
 from rich.table import Table
 
-from ...core import glossary as glossarylib
+from ...core import glossary_overlay
 from ...core import translate as translatelib
 from ...core import translation_audit as auditlib
+from ...core import translation_rules
 from ...core import workspace as ws
 from ...errors import OpenBBQError
 from ...schemas import (
@@ -23,6 +24,7 @@ from ...schemas import (
     StageState,
     StageStatus,
     Translation,
+    TranslationBrief,
 )
 from ..output import Output
 from ..results import Result
@@ -71,6 +73,9 @@ class TranslateInitResult(Result):
     max_cps: float
     max_chars_per_line: int
     max_lines: int
+    ruleset: str
+    generic_translation_rules: bool
+    policy_hash: str
     elapsed_s: float
 
     def render(self) -> str:
@@ -202,7 +207,7 @@ def init(
             fix="edit it, or pass --force to regenerate (discards filled targets)",
         )
 
-    gloss = glossarylib.load_optional(glossary or manifest.glossary)
+    gloss = glossary_overlay.merged(path, glossary or manifest.glossary)
     doc, generic = translatelib.build_worksheet(
         cues,
         gloss,
@@ -210,6 +215,8 @@ def init(
         max_cps=max_cps,
         max_chars_per_line=max_chars_per_line,
         max_lines=max_lines,
+        title=manifest.source.title,
+        author=manifest.source.author,
     )
     # no exclude_none: the Agent needs to see `"target": null` fields to fill them
     ws.write_text_atomic(wpath, doc.model_dump_json(indent=2))
@@ -232,6 +239,13 @@ def init(
             max_cps=doc.params.max_cps,
             max_chars_per_line=doc.params.max_chars_per_line,
             max_lines=doc.params.max_lines,
+            ruleset=(doc.brief.ruleset if doc.brief else "generic@1"),
+            generic_translation_rules=(
+                doc.brief.generic_translation_rules if doc.brief else True
+            ),
+            policy_hash=(
+                translation_rules.policy_hash(doc.brief) if doc.brief else ""
+            ),
             elapsed_s=round(time.monotonic() - started, 2),
             next=f"openbbq translate apply {lang} <targets.json>",
         )
@@ -361,6 +375,8 @@ class TranslateBatchResult(Result):
     selected_ids: list[int]
     items: list[translatelib.BatchItem]
     glossary: list[GlossaryRef]
+    brief: TranslationBrief
+    policy_hash: str
     next_from: int | None
     remaining: int
 
@@ -420,12 +436,17 @@ def batch(
             lang=resolved,
             fix=f"openbbq translate init {resolved}",
         )
+    worksheet = ws.read_translation(wpath)
     report = translatelib.select_batch(
-        ws.read_translation(wpath),
+        worksheet,
         start=start,
         limit=limit,
         only_missing=only_missing,
         context=context,
+    )
+    brief = worksheet.brief or translation_rules.build_brief(
+        worksheet.source_lang,
+        worksheet.target_lang,
     )
     output.emit(
         TranslateBatchResult(
@@ -433,6 +454,8 @@ def batch(
             selected_ids=report.selected_ids,
             items=report.items,
             glossary=report.glossary,
+            brief=brief,
+            policy_hash=translation_rules.policy_hash(brief),
             next_from=report.next_from,
             remaining=report.remaining,
             next=(

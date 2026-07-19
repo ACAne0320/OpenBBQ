@@ -1,4 +1,7 @@
-# OpenBBQ 单视频命令模板
+# OpenBBQ 专家与兼容流程
+
+本文件只用于认证、沙盒/GPU、失败恢复、旧 workspace 或显式手工原子命令流程。
+新建 one-shot 任务应使用 `openbbq agent init/next/apply/finish`，不要从这里拼装默认流程。
 
 ## YouTube 输入
 
