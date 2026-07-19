@@ -2,7 +2,40 @@
 
 [README](../README.zh-CN.md) · [English Usage](usage.md)
 
-这份文档说明本地视频和 YouTube URL 的完整流程。
+这份文档说明默认 agent 流程，以及供专家兼容使用的原子命令。
+
+## 推荐：单提示词 Agent 流程
+
+新任务使用 facade 初始化一次：
+
+```bash
+openbbq --json agent init 'https://www.youtube.com/watch?v=...' --workspace workspaces/demo --to zh
+```
+
+之后反复运行：
+
+```bash
+openbbq --json agent next --workspace workspaces/demo
+```
+
+- `run_command`：原样执行返回的 `argv`。
+- `select_glossary`、`review_source`、`translate`、`review_risks`：按返回的
+  `response_schema` 写 JSON，然后运行
+  `openbbq --json agent apply --workspace workspaces/demo response.json`。
+- `finish`：执行其 `argv`。默认只导出和烧录一次；横屏为 `fansub`，竖屏为
+  `mobile`，不运行视觉 QA 或 `fansub-compact`。
+- `done`：交付返回的字幕和视频路径。
+
+语义 action 使用持久化 lease；重复 `next` 会得到同一 batch。`apply` 必须包含精确的
+`batch_id`、`policy_hash` 和完整 ID 集合。翻译 batch 由 CLI 强制最多 20 条。
+`translation@2` worksheet 会固定目标语言规则、标题/作者、glossary context 和 pending
+term。默认 balanced 门禁只复查真正高风险译文；下文的 `coverage=all` 是旧 workspace
+和显式 thorough 模式的专家接口。
+如果风险复查才发现遗漏的 ASR 错词，`review_risks` 的同一次响应可以提交 cue-scoped
+`source_fixes` 和可复用的 `glossary_updates`。时间轴塌缩 detector 不允许直接 accept，
+必须修复或丢弃损坏 segment；零时长 cue 会被 segment/export/delivery 拒绝。
+
+下面各节保留原子命令，主要用于认证、沙盒/GPU、恢复、调试和旧流程。
 
 ## 检查环境
 

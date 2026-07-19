@@ -28,7 +28,7 @@ class AsrDecision(OpenBBQModel):
         self.replacement = (self.replacement or "").strip()
         if not self.replacement:
             raise ValueError("replace decisions require a replacement")
-        if self.find and self.find.casefold() == self.replacement.casefold():
+        if self.find and self.find == self.replacement:
             raise ValueError("replacement must differ from find")
         return self
 
@@ -55,7 +55,7 @@ class AsrAmendment(OpenBBQModel):
             raise ValueError("find must not be blank")
         if not self.replacement:
             raise ValueError("replacement must not be blank")
-        if self.find.casefold() == self.replacement.casefold():
+        if self.find == self.replacement:
             raise ValueError("replacement must differ from find")
         if not self.reason:
             raise ValueError("reason must not be blank")

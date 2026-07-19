@@ -284,3 +284,24 @@ def test_skill_show_can_choose_bilibili_cover_skill(
     assert code == 0
     assert data["path"].endswith("skills/bilibili-cover-safe-area/SKILL.md")
     assert data["content"] == skilllib.packaged_skill_content(name=name)
+
+
+def test_subtitle_skill_happy_path_uses_only_agent_facade_and_stays_bilingual() -> None:
+    chinese = skilllib.packaged_skill_content(skilllib.SkillLanguage.ZH_CN)
+    english = skilllib.packaged_skill_content()
+
+    for content in (chinese, english):
+        assert "agent init" in content
+        assert "agent next" in content
+        assert "agent apply" in content
+        assert "agent finish" in content
+        assert "review_source" in content
+        assert "review_risks" in content
+        assert "fansub-compact" in content
+    assert "`codex → Codex`" in chinese
+    chinese_happy_path = chinese.split("## 专家参考", 1)[0]
+    english_happy_path = english.split("## Expert References", 1)[0]
+    for content in (chinese_happy_path, english_happy_path):
+        assert "translate audit --coverage all" not in content
+        assert "glossary audit" not in content
+        assert "qa render" not in content

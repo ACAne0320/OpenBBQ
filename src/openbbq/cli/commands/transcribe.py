@@ -8,6 +8,7 @@ import typer
 from rich.progress import BarColumn, Progress as RichProgress, TextColumn, TimeElapsedColumn
 
 from ...core import glossary as glossarylib
+from ...core import glossary_overlay
 from ...core import media
 from ...core import workspace as ws
 from ...core.asr import Capability, get_backend
@@ -100,7 +101,8 @@ def transcribe(
 
     # Glossary biasing: canonical term sources go in as `bias` (backend-agnostic);
     # the prose `context` rides the initial_prompt alongside any explicit --prompt.
-    gloss = glossarylib.load_optional(glossary or manifest.glossary)
+    glossary_name = glossary or manifest.glossary
+    gloss = glossary_overlay.merged(path, glossary_name)
     bias = (
         glossarylib.bias_terms(gloss)
         if gloss is not None and Capability.BIASING in asr.capabilities

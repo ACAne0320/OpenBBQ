@@ -27,6 +27,12 @@ class BurnOutcome:
     ffmpeg: str
 
 
+@dataclass(frozen=True)
+class VideoDimensions:
+    width: int
+    height: int
+
+
 BurnProgressCallback = Callable[[BurnProgress], None]
 
 _HOMEBREW_FFMPEG_FULL = (
@@ -150,6 +156,43 @@ def media_duration(path: Path, *, ffmpeg: Path | None = None) -> float | None:
     except ValueError:
         return None
     return duration if duration > 0 else None
+
+
+def video_dimensions(path: Path) -> VideoDimensions | None:
+    """Read the first video stream dimensions; unknown media returns ``None``."""
+
+    ffprobe = shutil.which("ffprobe") or "ffprobe"
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=p=0:s=x",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    raw_width, separator, raw_height = proc.stdout.strip().partition("x")
+    if not separator:
+        return None
+    try:
+        width, height = int(raw_width), int(raw_height)
+    except ValueError:
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return VideoDimensions(width=width, height=height)
 
 
 def _escape_filter_filename(path: Path) -> str:

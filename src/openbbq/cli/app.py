@@ -7,6 +7,7 @@ import typer
 from .. import __version__
 from .commands.auth import app as auth_app
 from .commands.asr import app as asr_app
+from .commands.agent import app as agent_app
 from .commands.burn import burn
 from .commands.delivery import app as delivery_app
 from .commands.doctor import doctor
@@ -80,6 +81,7 @@ app.add_typer(models_app, name="models")
 app.add_typer(glossary_app, name="glossary")
 app.add_typer(auth_app, name="auth")
 app.add_typer(asr_app, name="asr")
+app.add_typer(agent_app, name="agent")
 app.add_typer(qa_app, name="qa")
 app.add_typer(delivery_app, name="delivery")
 app.add_typer(skill_app, name="skill")

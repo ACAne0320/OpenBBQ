@@ -177,6 +177,16 @@ def test_term_patch_upserts_aliases_without_erasing_unspecified_translation() ->
     assert updated.terms[0].aliases == ["Annie Matushak"]
 
 
+def test_term_patch_preserves_case_only_alias_for_canonicalization() -> None:
+    updated, _ = gl.upsert_terms(
+        Glossary(name="products"),
+        [Term(source="Codex", aliases=["codex"])],
+    )
+
+    assert updated.terms[0].aliases == ["codex"]
+    assert gl.corrector(updated)("codex") == "Codex"
+
+
 def test_term_patch_rejects_alias_owned_by_another_term() -> None:
     original = Glossary(
         name="agents",
@@ -223,6 +233,14 @@ def test_corrector_replaces_alias_case_insensitively() -> None:
     assert fix("and freerun smiled") == "and Frieren smiled"
 
 
+def test_corrector_applies_case_only_canonical_alias() -> None:
+    fix = gl.corrector(
+        Glossary(name="g", terms=[Term(source="Codex", aliases=["codex"])])
+    )
+
+    assert fix("codex and CODEX") == "Codex and Codex"
+
+
 def test_corrector_respects_word_boundary() -> None:
     fix = gl.corrector(Glossary(name="g", terms=[Term(source="ran", aliases=["run"])]))
     # "run" inside "Freerun"/"running" must not be touched; standalone is fixed
@@ -256,6 +274,17 @@ def test_correction_tracker_reports_binding_effect_and_alias_count() -> None:
     assert [
         (item.source, item.alias, item.count) for item in tracker.alias_applications
     ] == [("Andy Matuschak", "Annie Matushak", 2)]
+
+
+def test_correction_tracker_reports_case_only_alias_application() -> None:
+    tracker = gl.CorrectionTracker(
+        Glossary(name="g", terms=[Term(source="Codex", aliases=["codex"])])
+    )
+
+    assert tracker("codex") == "Codex"
+    assert [(item.source, item.alias, item.count) for item in tracker.alias_applications] == [
+        ("Codex", "codex", 1)
+    ]
 
 
 def test_correction_applies_in_build_cues() -> None:
@@ -453,7 +482,7 @@ def test_glossary_audit_returns_all_context_even_for_high_confidence_words(
     assert item["reference_caption"] == "Here is my hot take."
 
 
-def test_glossary_suggest_uses_resolved_asr_text(
+def test_glossary_suggest_keeps_unreviewed_occurrences_after_scoped_asr_fix(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     transcript = _transcript(
@@ -489,7 +518,8 @@ def test_glossary_suggest_uses_resolved_asr_text(
     suggest(_ctx(), workspace=str(path))
 
     candidates = cast(list[dict[str, object]], _payload(capsys)["candidates"])
-    assert all(item["surface"] not in {"Annie", "Matushak"} for item in candidates)
+    surfaces = {item["surface"] for item in candidates}
+    assert {"Annie", "Matushak"} <= surfaces
 
 
 def test_glossary_apply_atomically_updates_bound_library_and_invalidates_segment(

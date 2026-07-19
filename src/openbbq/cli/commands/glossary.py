@@ -282,10 +282,17 @@ def suggest(
         for text in (manifest.source.title, manifest.source.author)
         if manifest.source.type == "url" and text
     ]
+    caption_source = ws.read_reference_caption_optional(path)
+    reference_words = (
+        asr_reviewlib.parse_reference_words(caption_source)
+        if caption_source is not None
+        else []
+    )
     transcript = asr_reviewlib.resolved_transcript(
         transcript,
         review,
         reference_texts=reference_texts,
+        reference_words=reference_words,
     )
 
     gloss = glossarylib.load_optional(glossary or manifest.glossary)
@@ -352,17 +359,24 @@ def audit(
         for text in (manifest.source.title, manifest.source.author)
         if manifest.source.type == "url" and text
     ]
+    caption_source = ws.read_reference_caption_optional(path)
+    reference_words = (
+        asr_reviewlib.parse_reference_words(caption_source)
+        if caption_source is not None
+        else []
+    )
     report = asr_reviewlib.check(
         raw_transcript,
         review,
         reference_texts=reference_texts,
+        reference_words=reference_words,
     )
     resolved = asr_reviewlib.resolved_transcript(
         raw_transcript,
         review,
         reference_texts=reference_texts,
+        reference_words=reference_words,
     )
-    caption_source = ws.read_reference_caption_optional(path)
     captions = (
         asr_reviewlib.parse_reference_captions(caption_source)
         if caption_source is not None

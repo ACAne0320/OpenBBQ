@@ -18,6 +18,7 @@ from openbbq.cli.commands.translate import init as init_cmd
 from openbbq.cli.output import Output
 from openbbq.core import segment as seg
 from openbbq.core import translate as tr
+from openbbq.core import translation_rules
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
@@ -107,6 +108,38 @@ def test_build_worksheet_budget_and_snapshot() -> None:
     assert doc.items[0].budget.max_chars == expected
     assert doc.items[0].budget.seconds == 2.0
     assert doc.items[0].target is None and doc.items[0].source == "hello world"
+    assert doc.schema_ == "openbbq/translation@2"
+    assert doc.brief is not None
+    assert doc.brief.ruleset == "zh-Hans@1"
+    assert doc.brief.generic_translation_rules is False
+
+
+@pytest.mark.parametrize("lang", ["zh", "zh-Hans", "zh-CN"])
+def test_simplified_chinese_translation_rules_are_target_language_scoped(
+    lang: str,
+) -> None:
+    brief = translation_rules.build_brief(
+        source_lang="en",
+        target_lang=lang,
+        title="Demo",
+        author="Channel",
+        glossary_context="AI agents",
+    )
+
+    assert brief.ruleset == "zh-Hans@1"
+    assert brief.generic_translation_rules is False
+    assert brief.title == "Demo"
+    assert brief.author == "Channel"
+    assert brief.domain_context == "AI agents"
+    assert any("当前 cue" in rule for rule in brief.rules)
+
+
+@pytest.mark.parametrize("lang", ["zh-TW", "zh-Hant", "zh-HK", "fr"])
+def test_unsupported_target_language_rules_use_generic_fallback(lang: str) -> None:
+    brief = translation_rules.build_brief(source_lang="en", target_lang=lang)
+
+    assert brief.ruleset == "generic@1"
+    assert brief.generic_translation_rules is True
 
 
 def test_build_worksheet_target_line_override_increases_visual_capacity() -> None:
@@ -142,17 +175,20 @@ def test_build_worksheet_unknown_lang_is_generic() -> None:
     assert generic is True
 
 
-def test_build_worksheet_glossary_refs_only_guided_terms() -> None:
+def test_build_worksheet_includes_pending_glossary_terms_and_context() -> None:
     g = Glossary(
         name="g",
+        context="Fantasy series context",
         terms=[
             Term(source="Frieren", target="芙莉莲"),
-            Term(source="bare"),  # no target, no keep → skipped
+            Term(source="bare", note="pending official translation"),
             Term(source="Pey", keep=True),
         ],
     )
     doc, _ = tr.build_worksheet(_cues(Cue(id=1, start=0, end=1, source="x")), g, "zh")
-    assert [r.source for r in doc.glossary] == ["Frieren", "Pey"]
+    assert [r.source for r in doc.glossary] == ["Frieren", "bare", "Pey"]
+    assert doc.brief is not None
+    assert doc.brief.domain_context == "Fantasy series context"
 
 
 # --- parse_targets / apply_targets ----------------------------------------------
@@ -766,6 +802,10 @@ def test_translate_batch_returns_bounded_items_context_and_next_cursor(
     wpath = path / "translation.zh.json"
     doc = ws.read_translation(wpath)
     doc.items[1].target = "已有译文"
+    doc.glossary = [
+        GlossaryRef(source="source 2", note="neighbor pending term"),
+        GlossaryRef(source="source 5", target="术语五"),
+    ]
     ws.write_text_atomic(wpath, doc.model_dump_json())
 
     batch_cmd(
@@ -785,6 +825,14 @@ def test_translate_batch_returns_bounded_items_context_and_next_cursor(
     assert [item["selected"] for item in items] == [False, True, True, False]
     assert payload["next_from"] == 5
     assert payload["remaining"] == 2
+    assert [item["source"] for item in cast(list[dict[str, object]], payload["glossary"])] == [
+        "source 2",
+        "source 5",
+    ]
+    brief = cast(dict[str, object], payload["brief"])
+    assert brief["ruleset"] == "zh-Hans@1"
+    assert doc.brief is not None
+    assert payload["policy_hash"] == translation_rules.policy_hash(doc.brief)
 
 
 def test_check_command_is_read_only_after_full_worksheet(tmp_path) -> None:

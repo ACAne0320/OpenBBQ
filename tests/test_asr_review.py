@@ -321,7 +321,7 @@ def test_metadata_entity_replacement_corrects_text_without_collapsing_segment() 
 
     assert len(reviewed.segments) == 1
     assert reviewed.segments[0].start == 10
-    assert asr_review.corrector(review)(reviewed.segments[0].text) == (
+    assert asr_review.corrector(review, segment_id=4)(reviewed.segments[0].text) == (
         "Today I am talking with Geoffrey Litt about software."
     )
 
@@ -358,6 +358,123 @@ def test_reference_caption_evidence_unescapes_and_compacts_rolling_text() -> Non
     assert asr_review.reference_caption_text(captions, start=2.0, end=3.0) == (
         ">> Thanks for coming to the design engineering track at AI."
     )
+
+
+def test_reference_word_parser_preserves_inline_youtube_timestamps() -> None:
+    words = asr_review.parse_reference_words(
+        """WEBVTT
+
+00:00:00.000 --> 00:00:04.000
+Hello<00:00:01.000><c> world</c><00:00:02.000><c> again.</c>
+"""
+    )
+
+    assert [(word.word, word.start, word.end) for word in words] == [
+        ("Hello", 0.0, 1.0),
+        ("world", 1.0, 2.0),
+        ("again.", 2.0, 4.0),
+    ]
+
+
+def test_collapsed_timestamps_and_following_drift_require_timed_replacement() -> None:
+    reference = """WEBVTT
+
+00:00:00.000 --> 00:00:04.000
+Hello<00:00:01.000><c> world</c><00:00:02.000><c> again</c><00:00:03.000><c> now.</c>
+
+00:00:04.000 --> 00:00:08.000
+This<00:00:05.000><c> timing</c><00:00:06.000><c> is</c><00:00:07.000><c> correct.</c>
+
+00:00:08.000 --> 00:00:12.000
+We<00:00:09.000><c> have</c><00:00:10.000><c> recovered</c><00:00:11.000><c> now.</c>
+"""
+    reference_words = asr_review.parse_reference_words(reference)
+    transcript = _transcript(
+        Segment(
+            id=0,
+            start=0,
+            end=4,
+            text="Hello bad timestamps pile up",
+            words=[
+                Word(word="Hello", start=0, end=1, prob=0.99),
+                Word(word="bad", start=4, end=4, prob=0.99),
+                Word(word="timestamps", start=4, end=4, prob=0.99),
+                Word(word="pile", start=4, end=4, prob=0.99),
+                Word(word="up", start=4, end=4, prob=0.99),
+            ],
+        ),
+        _timed_segment(1, 4, 8, "Unrelated decoder text here", ["Unrelated", "decoder", "text", "here"]),
+        _timed_segment(2, 8, 12, "We have recovered now.", ["We", "have", "recovered", "now."]),
+    )
+
+    anomalies = asr_review.extract_anomalies(
+        transcript,
+        reference_words=reference_words,
+    )
+
+    assert [issue.code for issue in anomalies] == [
+        "collapsed_word_timestamps",
+        "reference_timeline_mismatch",
+    ]
+    review = asr_review.merge_decisions(
+        transcript,
+        None,
+        {
+            issue.id: AsrDecision(
+                action="replace",
+                replacement=issue.replacement,
+                reason="The timed reference caption restores this corrupted window.",
+            )
+            for issue in anomalies
+        },
+        reference_words=reference_words,
+    )
+    resolved = asr_review.resolved_transcript(
+        transcript,
+        review,
+        reference_words=reference_words,
+    )
+
+    assert [segment.text for segment in resolved.segments] == [
+        "Hello world again now.",
+        "This timing is correct.",
+        "We have recovered now.",
+    ]
+    assert all(
+        word.end > word.start
+        for segment in resolved.segments[:2]
+        for word in segment.words or []
+    )
+
+
+def test_collapsed_timestamp_anomaly_cannot_be_accepted() -> None:
+    transcript = _transcript(
+        Segment(
+            id=0,
+            start=0,
+            end=2,
+            text="bad timing here now",
+            words=[
+                Word(word=word, start=2, end=2, prob=0.99)
+                for word in ("bad", "timing", "here", "now")
+            ],
+        )
+    )
+    issue = asr_review.extract_anomalies(transcript)[0]
+
+    with pytest.raises(OpenBBQError) as error:
+        asr_review.merge_decisions(
+            transcript,
+            None,
+            {
+                issue.id: AsrDecision(
+                    action="accept",
+                    reason="Text alone looks plausible.",
+                )
+            },
+        )
+
+    assert error.value.code == "asr_decision_invalid"
 
 
 def test_accept_decision_resolves_current_issue() -> None:
@@ -407,10 +524,117 @@ def test_replace_decision_corrects_full_phrase_boundary_safely() -> None:
         },
     )
 
-    fix = asr_review.corrector(review)
+    fix = asr_review.corrector(review, segment_id=206)
 
     assert fix("Thank you to Sean Hongxiu.") == "Thank you to Xiaohongshu."
     assert fix("Sean HongxiuExtra") == "Sean HongxiuExtra"
+
+
+def test_replace_decision_is_scoped_to_its_issue_segment() -> None:
+    transcript = _transcript(
+        _segment(9, "It works on Mac.", [("It", 0.99), ("works", 0.99), ("on", 0.3)]),
+        _segment(10, "Turn it on again.", [("Turn", 0.99), ("it", 0.99), ("on", 0.99)]),
+    )
+    review = asr_review.merge_decisions(
+        transcript,
+        None,
+        {
+            "s9:w2": AsrDecision(
+                action="replace",
+                find="on",
+                replacement="and",
+                reason="The detector issue is limited to this occurrence.",
+            )
+        },
+    )
+
+    resolved = asr_review.resolved_transcript(transcript, review)
+
+    assert [segment.text for segment in resolved.segments] == [
+        "It works and Mac.",
+        "Turn it on again.",
+    ]
+
+
+def test_replace_decision_is_scoped_to_the_declared_word_occurrence() -> None:
+    transcript = _transcript(
+        _segment(
+            9,
+            "on and on",
+            [("on", 0.3), ("and", 0.99), ("on", 0.99)],
+        )
+    )
+    review = asr_review.merge_decisions(
+        transcript,
+        None,
+        {
+            "s9:w0": AsrDecision(
+                action="replace",
+                find="on",
+                replacement="and",
+                reason="Only the first low-confidence occurrence is wrong.",
+            )
+        },
+    )
+
+    resolved = asr_review.resolved_transcript(transcript, review)
+
+    assert resolved.segments[0].text == "and and on"
+
+
+def test_contextual_amendment_rejects_an_ambiguous_repeated_phrase() -> None:
+    transcript = _transcript(
+        _segment(
+            9,
+            "hot tick and hot tick",
+            [("hot", 0.99), ("tick", 0.99), ("and", 0.99), ("hot", 0.99), ("tick", 0.99)],
+        )
+    )
+    amendment = asr_review.parse_amendments(
+        json.dumps(
+            {
+                "amendments": [
+                    {
+                        "segment_id": 9,
+                        "find": "hot tick",
+                        "replacement": "hot take",
+                        "reason": "Only one contextual occurrence is intended.",
+                    }
+                ]
+            }
+        )
+    )
+
+    with pytest.raises(OpenBBQError) as error:
+        asr_review.merge_amendments(transcript, None, amendment)
+
+    assert error.value.code == "asr_amendment_ambiguous_occurrence"
+
+
+def test_case_only_asr_canonicalization_is_valid() -> None:
+    decision = AsrDecision(
+        action="replace",
+        find="codex",
+        replacement="Codex",
+        reason="Use the product's canonical capitalization.",
+    )
+    amendment = asr_review.parse_amendments(
+        json.dumps(
+            {
+                "amendments": [
+                    {
+                        "segment_id": 1,
+                        "find": "Claude code",
+                        "replacement": "Claude Code",
+                        "reason": "Use the product's canonical capitalization.",
+                    }
+                ]
+            }
+        )
+    )[0]
+
+    assert decision.replacement == "Codex"
+    assert amendment.replacement == "Claude Code"
 
 
 def test_contextual_amendment_corrects_high_confidence_error_without_issue_id() -> None:
@@ -449,7 +673,7 @@ def test_contextual_amendment_corrects_high_confidence_error_without_issue_id() 
 
     assert ids[0].startswith("m:s12:")
     assert asr_review.check(transcript, review).ready is True
-    assert asr_review.corrector(review)(transcript.segments[0].text) == (
+    assert asr_review.corrector(review, segment_id=12)(transcript.segments[0].text) == (
         "That is my hot take about agents."
     )
     assert asr_review.resolved_transcript(transcript, review).segments[0].text == (
@@ -520,7 +744,7 @@ def test_contextual_amendment_can_be_revised_without_leaving_conflicting_rules()
 
     assert revised_ids == first_ids
     assert len(review.decisions) == 1
-    assert asr_review.corrector(review)(transcript.segments[0].text) == (
+    assert asr_review.corrector(review, segment_id=3)(transcript.segments[0].text) == (
         "She mentioned Annie Murphy."
     )
 
@@ -551,8 +775,11 @@ def test_replace_must_cover_uncertain_word_and_exist_in_segment() -> None:
 
 def test_conflicting_replacements_for_same_phrase_are_rejected() -> None:
     transcript = _transcript(
-        _segment(0, "Hi, Komono!", [("Hi,", 0.99), ("Komono!", 0.3)]),
-        _segment(1, "Hi, Komono!", [("Hi,", 0.99), ("Komono!", 0.2)]),
+        _segment(
+            0,
+            "Komono met Komono.",
+            [("Komono", 0.3), ("met", 0.99), ("Komono.", 0.2)],
+        ),
     )
 
     with pytest.raises(OpenBBQError) as raised:
@@ -560,13 +787,13 @@ def test_conflicting_replacements_for_same_phrase_are_rejected() -> None:
             transcript,
             None,
             {
-                "s0:w1": AsrDecision(
+                "s0:w0": AsrDecision(
                     action="replace",
                     find="Komono",
                     replacement="Kemono",
                     reason="First interpretation.",
                 ),
-                "s1:w1": AsrDecision(
+                "s0:w2": AsrDecision(
                     action="replace",
                     find="Komono",
                     replacement="Komano",

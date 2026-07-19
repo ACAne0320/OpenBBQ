@@ -7,7 +7,9 @@ from typing import Annotated
 import typer
 
 from ...core import asr_review as asr_reviewlib
+from ...core import agent_workflow
 from ...core import glossary as glossarylib
+from ...core import glossary_overlay
 from ...core import segment as seg
 from ...core import workspace as ws
 from ...schemas import Cues, OpenBBQModel, SegmentParams, Stage, StageState, StageStatus
@@ -112,10 +114,17 @@ def segment(
         for text in (manifest.source.title, manifest.source.author)
         if manifest.source.type == "url" and text
     ]
+    caption_source = ws.read_reference_caption_optional(path)
+    reference_words = (
+        asr_reviewlib.parse_reference_words(caption_source)
+        if caption_source is not None
+        else []
+    )
     asr_report = asr_reviewlib.check(
         transcript,
         asr_review,
         reference_texts=reference_texts,
+        reference_words=reference_words,
     )
     if not asr_report.ready:
         raise OpenBBQError(
@@ -124,6 +133,22 @@ def segment(
             unresolved=asr_report.unresolved_ids[:20],
             fix="run `openbbq asr batch --limit 20`, then `openbbq asr apply <decisions.json>`",
         )
+    for target_lang in agent_workflow.session_languages(path):
+        agent_session = ws.read_agent_session_optional(path, target_lang)
+        if agent_session is None or agent_session.mode != "balanced":
+            continue
+        source_gate = agent_workflow.source_review_gate(
+            path,
+            manifest,
+            agent_session,
+        )
+        if not source_gate.ready:
+            raise OpenBBQError(
+                "agent_source_review_incomplete",
+                pending_segments=list(source_gate.pending_segment_ids[:20]),
+                unresolved_issues=list(source_gate.unresolved_issue_ids[:20]),
+                fix=f"run `openbbq agent next --workspace {path}`",
+            )
 
     source_lang = lang or transcript.language
     profile, generic = seg.resolve_profile(source_lang)
@@ -139,15 +164,15 @@ def segment(
     )
 
     glossary_name = glossary or manifest.glossary
-    gloss = glossarylib.load_optional(glossary_name)
+    gloss = glossary_overlay.merged(path, glossary_name)
     glossary_tracker = glossarylib.CorrectionTracker(gloss)
-    correct = asr_reviewlib.corrector(asr_review, glossary_tracker)
-    reviewed_transcript = asr_reviewlib.apply_segment_decisions(
+    reviewed_transcript = asr_reviewlib.resolved_transcript(
         transcript,
         asr_review,
         reference_texts=reference_texts,
+        reference_words=reference_words,
     )
-    outcome = seg.build_cues(reviewed_transcript, profile, correct)
+    outcome = seg.build_cues(reviewed_transcript, profile, glossary_tracker)
 
     doc = Cues(
         source_lang=source_lang,
@@ -168,10 +193,17 @@ def segment(
     asr_review_path = ws.asr_review_path(path)
     if asr_review_path.is_file():
         provenance_inputs.append(asr_review_path)
-    if glossary or manifest.glossary:
-        provenance_inputs.append(
-            glossarylib.glossary_path(glossary or manifest.glossary or "")
-        )
+    overlay = glossary_overlay.read_optional(path)
+    if overlay is not None and gloss is not None:
+        # Freeze the effective base+overlay used by segmentation.  Publishing
+        # the global glossary after delivery must not make this task's cues
+        # stale retroactively.
+        snapshot = path / ".openbbq" / "segment-glossary.json"
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        ws.write_text_atomic(snapshot, gloss.model_dump_json(indent=2) + "\n")
+        provenance_inputs.append(snapshot)
+    elif glossary or manifest.glossary:
+        provenance_inputs.append(glossarylib.glossary_path(glossary_name or ""))
     ws.record_artifact_provenance(
         path,
         cues_path,

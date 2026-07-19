@@ -11,6 +11,7 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Literal
 
 from pydantic import ValidationError
@@ -102,7 +103,7 @@ _RISK_WEIGHTS = {
     "shortened_translation": 75,
     "target_extra_latin": 70,
     "punctuation_mismatch": 60,
-    "budget_pressure": 50,
+    "near_repeated_translation": 55,
     "semantic_review": 10,
 }
 MAX_DECISION_BATCH = 20
@@ -272,17 +273,51 @@ def _has_name_omission(worksheet: Translation, item: TranslationItem) -> bool:
     )
 
 
+def _is_abnormally_shortened(
+    worksheet: Translation,
+    item: TranslationItem,
+) -> bool:
+    """Conservative first-draft omission signal.
+
+    Chinese can be much denser than English, so only extreme compression on a
+    reasonably long source is surfaced.  This is a review hint, never a proof
+    that the target is wrong.
+    """
+
+    if worksheet.target_lang.split("-", 1)[0].casefold() != "zh":
+        return False
+    source_words = _LATIN_WORD_RE.findall(item.source)
+    if len(source_words) < 9:
+        return False
+    target_chars = translatelib.count_target_chars(worksheet, item.target or "")
+    return target_chars <= max(2, int(len(source_words) * 0.35))
+
+
 def _has_extra_latin(worksheet: Translation, item: TranslationItem) -> bool:
     base = worksheet.target_lang.split("-", 1)[0].casefold()
     if base not in {"zh", "ja", "ko"}:
         return False
-    source_words = {word.casefold() for word in _LATIN_WORD_RE.findall(item.source)}
-    allowed = set(source_words)
+    def forms(word: str) -> set[str]:
+        key = word.casefold()
+        variants = {key}
+        if len(key) >= 4 and key.endswith("s") and not key.endswith("ss"):
+            variants.add(key[:-1])
+        elif len(key) >= 3:
+            variants.add(key + "s")
+        return variants
+
+    allowed = {
+        form
+        for word in _LATIN_WORD_RE.findall(item.source)
+        for form in forms(word)
+    }
     for ref in worksheet.glossary:
         if ref.keep:
-            allowed.update(word.casefold() for word in _LATIN_WORD_RE.findall(ref.source))
+            for word in _LATIN_WORD_RE.findall(ref.source):
+                allowed.update(forms(word))
         elif ref.target:
-            allowed.update(word.casefold() for word in _LATIN_WORD_RE.findall(ref.target))
+            for word in _LATIN_WORD_RE.findall(ref.target):
+                allowed.update(forms(word))
     return any(
         len(word) >= 2 and word.casefold() not in allowed
         for word in _LATIN_WORD_RE.findall(item.target or "")
@@ -293,6 +328,75 @@ def _punctuation_mismatch(source: str, target: str) -> bool:
     if "?" in source and not any(mark in target for mark in ("?", "？")):
         return True
     return "!" in source and not any(mark in target for mark in ("!", "！"))
+
+
+def _near_repeated_target_ids(worksheet: Translation) -> set[int]:
+    """Return conservative clusters of near-identical targets.
+
+    A pair can be legitimate in conversational subtitles, so this only
+    surfaces clusters of at least three distinct source cues. Exact duplicates
+    remain covered by the existing deterministic translation check.
+    """
+
+    candidates = [
+        (
+            item.id,
+            "".join(
+                character
+                for character in (item.target or "").casefold()
+                if character.isalnum()
+            ),
+            "".join(
+                character
+                for character in item.source.casefold()
+                if character.isalnum()
+            ),
+        )
+        for item in worksheet.items
+        if translatelib.is_filled(item.target)
+    ]
+    parents = list(range(len(candidates)))
+
+    def root(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root, right_root = root(left), root(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    for left in range(len(candidates)):
+        _left_id, left_target, left_source = candidates[left]
+        if len(left_target) < 6:
+            continue
+        for right in range(left + 1, len(candidates)):
+            _right_id, right_target, right_source = candidates[right]
+            if (
+                len(right_target) < 6
+                or left_target == right_target
+                or left_source == right_source
+            ):
+                continue
+            length_ratio = min(len(left_target), len(right_target)) / max(
+                len(left_target), len(right_target)
+            )
+            if length_ratio < 0.75:
+                continue
+            if SequenceMatcher(None, left_target, right_target).ratio() >= 0.88:
+                union(left, right)
+
+    groups: dict[int, list[int]] = {}
+    for index, (item_id, _target, _source) in enumerate(candidates):
+        groups.setdefault(root(index), []).append(item_id)
+    return {
+        item_id
+        for group in groups.values()
+        if len(group) >= 3
+        for item_id in group
+    }
 
 
 def risk_items(
@@ -306,6 +410,7 @@ def risk_items(
     quality_by_id: dict[int, list[str]] = {}
     for issue in translatelib.check(cues, worksheet, worksheet.target_lang).quality_issues:
         quality_by_id.setdefault(issue.id, []).append(issue.code)
+    near_repeated_ids = _near_repeated_target_ids(worksheet)
     results: list[RiskItem] = []
     for index, item in enumerate(worksheet.items):
         if not translatelib.is_filled(item.target):
@@ -319,12 +424,14 @@ def risk_items(
             codes.add("quality_gate")
         if _has_name_omission(worksheet, item):
             codes.add("name_omission")
+        if _is_abnormally_shortened(worksheet, item):
+            codes.add("shortened_translation")
         if _has_extra_latin(worksheet, item):
             codes.add("target_extra_latin")
         if _punctuation_mismatch(item.source, target):
             codes.add("punctuation_mismatch")
-        if item.budget.max_chars > 0 and used / item.budget.max_chars >= 0.95:
-            codes.add("budget_pressure")
+        if item.id in near_repeated_ids:
+            codes.add("near_repeated_translation")
         if audit is not None:
             flag = audit.flags.get(item.id)
             if flag is not None and flag.content_hash == item_hash(item):

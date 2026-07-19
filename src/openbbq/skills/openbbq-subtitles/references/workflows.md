@@ -1,4 +1,9 @@
-# OpenBBQ Single-Video Command Templates
+# OpenBBQ Expert and Compatibility Workflow
+
+Use this reference only for authentication, sandbox/GPU constraints, recovery,
+legacy workspaces, or an explicitly requested manual atomic-command workflow.
+New one-shot tasks should use `openbbq agent init/next/apply/finish` instead of
+assembling their default flow from this document.
 
 ## YouTube Input
 

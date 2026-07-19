@@ -196,7 +196,12 @@ def _load(workspace: str | None):
         if caption_source is not None
         else []
     )
-    return path, transcript, review, reference_texts, captions
+    reference_words = (
+        reviewlib.parse_reference_words(caption_source)
+        if caption_source is not None
+        else []
+    )
+    return path, transcript, review, reference_texts, captions, reference_words
 
 
 def _write_review_and_invalidate(path: Path, review: AsrReview) -> Path:
@@ -226,13 +231,16 @@ def check(
 ) -> None:
     """Report whether every ASR word issue and segment anomaly has a decision."""
     output: Output = ctx.obj
-    path, transcript, review, reference_texts, captions = _load(workspace)
+    path, transcript, review, reference_texts, captions, reference_words = _load(
+        workspace
+    )
     workspace_arg = shlex.quote(str(path))
     report = reviewlib.check(
         transcript,
         review,
         max_prob=max_prob,
         reference_texts=reference_texts,
+        reference_words=reference_words,
     )
     output.emit(
         AsrCheckResult(
@@ -289,13 +297,16 @@ def batch(
             fix=f"use --offset >= 0 and --limit from 1 to {reviewlib.MAX_DECISION_BATCH}",
         )
     output: Output = ctx.obj
-    path, transcript, review, reference_texts, captions = _load(workspace)
+    path, transcript, review, reference_texts, captions, reference_words = _load(
+        workspace
+    )
     workspace_arg = shlex.quote(str(path))
     report = reviewlib.check(
         transcript,
         review,
         max_prob=max_prob,
         reference_texts=reference_texts,
+        reference_words=reference_words,
     )
     resolved = set(report.resolved_ids)
     candidates = [
@@ -354,7 +365,7 @@ def apply(
 ) -> None:
     """Merge explicit accept/replace/drop/keep_first ASR decisions."""
     output: Output = ctx.obj
-    path, transcript, review, reference_texts, _ = _load(workspace)
+    path, transcript, review, reference_texts, _, reference_words = _load(workspace)
     decisions_path = Path(decisions).expanduser()
     try:
         raw = decisions_path.read_text(encoding="utf-8")
@@ -371,6 +382,7 @@ def apply(
         parsed,
         max_prob=max_prob,
         reference_texts=reference_texts,
+        reference_words=reference_words,
     )
     artifact = _write_review_and_invalidate(path, merged)
     workspace_arg = shlex.quote(str(path))
@@ -379,6 +391,7 @@ def apply(
         merged,
         max_prob=max_prob,
         reference_texts=reference_texts,
+        reference_words=reference_words,
     )
     output.emit(
         AsrApplyResult(
@@ -413,7 +426,7 @@ def amend(
     """Apply agent-found phrase corrections without a detector issue id."""
 
     output: Output = ctx.obj
-    path, transcript, review, reference_texts, _ = _load(workspace)
+    path, transcript, review, reference_texts, _, reference_words = _load(workspace)
     amendments_path = Path(amendments).expanduser()
     try:
         raw = amendments_path.read_text(encoding="utf-8")
@@ -436,6 +449,7 @@ def amend(
         merged,
         max_prob=merged.max_prob,
         reference_texts=reference_texts,
+        reference_words=reference_words,
     )
     output.emit(
         AsrAmendResult(

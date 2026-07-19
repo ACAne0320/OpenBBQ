@@ -322,6 +322,24 @@ def test_delivery_detects_segment_stale_after_transcript_change(tmp_path: Path) 
     }
 
 
+def test_delivery_rejects_zero_duration_cues_even_with_nonempty_burn(
+    tmp_path: Path,
+) -> None:
+    path = _workspace(tmp_path)
+    cues_path = path / "cues.json"
+    cues = ws.read_cues(cues_path)
+    cues.cues[0].end = cues.cues[0].start
+    cues_path.write_text(cues.model_dump_json(), encoding="utf-8")
+    ws.refresh_artifact_provenance(path, cues_path, Stage.SEGMENT)
+
+    assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
+
+    assert assessment.ready is False
+    assert assessment.gates["segment"] is False
+    assert assessment.gates["qa_mechanical"] is False
+    assert "invalid_cue_timeline" in {issue.code for issue in assessment.issues}
+
+
 @pytest.mark.parametrize(
     ("relative_path", "expected_code"),
     [

@@ -190,7 +190,7 @@ def upsert_terms(
         if index is None:
             aliases = list(
                 dict.fromkeys(
-                    alias for alias in patch.aliases if alias.casefold() != key
+                    alias for alias in patch.aliases if alias != patch.source
                 )
             )
             term = patch.model_copy(update={"aliases": aliases})
@@ -203,13 +203,12 @@ def upsert_terms(
         current = terms[index]
         before = current.model_dump()
         aliases = list(current.aliases)
-        known_aliases = {alias.casefold() for alias in aliases}
+        known_aliases = set(aliases)
         for alias in patch.aliases:
-            alias_key = alias.casefold()
-            if alias_key == key or alias_key in known_aliases:
+            if alias == current.source or alias in known_aliases:
                 continue
             aliases.append(alias)
-            known_aliases.add(alias_key)
+            known_aliases.add(alias)
             aliases_added += 1
         changes: dict[str, object] = {"aliases": aliases}
         if "target" in patch.model_fields_set:
@@ -278,7 +277,10 @@ def correction_map(g: Glossary) -> list[tuple[re.Pattern[str], str]]:
     for t in g.terms:
         for alias in t.aliases:
             a = alias.strip()
-            if a and a.lower() != t.source.lower():
+            # Case-only aliases are meaningful canonicalization rules (for
+            # example ``codex`` -> ``Codex``).  The replacement regex is
+            # case-insensitive, but the output always uses canonical casing.
+            if a and a != t.source:
                 pairs.append((a, t.source))
     pairs.sort(key=lambda p: len(p[0]), reverse=True)
     return [(re.compile(_boundaried(a), re.IGNORECASE), src) for a, src in pairs]
@@ -327,7 +329,7 @@ class CorrectionTracker:
                     self._forms.append((clean, term.source))
             for alias in term.aliases:
                 clean = alias.strip()
-                if clean and clean.casefold() != term.source.casefold():
+                if clean and clean != term.source:
                     self._aliases.append(
                         (
                             re.compile(_boundaried(clean), re.IGNORECASE),

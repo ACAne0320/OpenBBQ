@@ -2,7 +2,46 @@
 
 [README](../README.md) · [中文说明](usage.zh-CN.md)
 
-This guide shows the full workflow for local video files and YouTube URLs.
+This guide covers the default agent facade and the atomic commands retained for
+expert compatibility.
+
+## Recommended: One-Prompt Agent Flow
+
+Initialize a new task once:
+
+```bash
+openbbq --json agent init 'https://www.youtube.com/watch?v=...' --workspace workspaces/demo --to zh
+```
+
+Then repeatedly run:
+
+```bash
+openbbq --json agent next --workspace workspaces/demo
+```
+
+- For `run_command`, execute the returned `argv` exactly.
+- For `select_glossary`, `review_source`, `translate`, or `review_risks`, write
+  JSON matching `response_schema`, then run
+  `openbbq --json agent apply --workspace workspaces/demo response.json`.
+- For `finish`, execute its `argv`. It exports and burns once, chooses `fansub`
+  for landscape or `mobile` for portrait, and does no visual QA or
+  `fansub-compact` pass.
+- Deliver the returned subtitle and video paths only at `done`.
+
+Semantic actions use persistent leases, so repeated `next` calls return the
+same batch. `apply` requires the exact `batch_id`, `policy_hash`, and complete ID
+set. The CLI enforces translation batches of at most 20 cues. A
+`translation@2` worksheet fixes the target-language rules, title/author,
+glossary context, and pending terms. The default balanced gate reviews only
+real translation risks; the `coverage=all` commands below remain expert
+interfaces for legacy workspaces and explicit thorough mode.
+If a missed ASR error becomes clear only during risk review, the same
+`review_risks` response may submit cue-scoped `source_fixes` and reusable
+`glossary_updates`. Timeline-collapse detector issues cannot be accepted, and
+segment/export/delivery reject zero-duration cues.
+
+The remaining sections document atomic commands for authentication,
+sandbox/GPU constraints, recovery, debugging, and legacy workflows.
 
 ## Check The Environment
 
