@@ -305,3 +305,6 @@ def test_subtitle_skill_happy_path_uses_only_agent_facade_and_stays_bilingual() 
         assert "translate audit --coverage all" not in content
         assert "glossary audit" not in content
         assert "qa render" not in content
+        assert "outside_required" in content
+        assert "must_continue" in content
+        assert "cpu_fallback" in content

@@ -216,6 +216,11 @@ def test_source_review_lease_is_idempotent_and_covers_at_most_20_segments(
     assert first["segments"][0]["words_omitted"] == 3
     assert first["segments"][0]["raw_source"] is None
     assert first["segments"][0]["after_glossary"] is None
+    assert "previous" not in first["segments"][0]
+    assert "next" not in first["segments"][0]
+    assert first["neighbor_context"] == [
+        {"id": 20, "source": "ordinary source 20"}
+    ]
     _apply(
         path,
         {
@@ -278,7 +283,70 @@ def test_new_session_selects_glossary_then_returns_exact_mechanical_argv(
             str(path),
         ],
         "reason": "normalize source audio",
+        "execution": {
+            "sandbox": "inside_allowed",
+            "accelerator": "none",
+            "cpu_fallback": "not_applicable",
+            "reason_code": "workspace_local_operation",
+        },
+        "terminal": False,
+        "must_continue": True,
     }
+
+
+def test_fetch_and_transcribe_commands_declare_host_execution_policy(
+    tmp_path: Path,
+) -> None:
+    url_path, url_manifest = ws.init_workspace(
+        "https://www.youtube.com/watch?v=test",
+        workspace=str(tmp_path / "url-work"),
+    )
+    url_session = agent_workflow.create_session(
+        url_path,
+        "zh",
+        glossary_selected=True,
+    )
+
+    fetch = agent_workflow.next_action(url_path, url_manifest, url_session)
+
+    assert fetch["action"] == "run_command"
+    assert fetch["execution"] == {
+        "sandbox": "outside_required",
+        "accelerator": "none",
+        "cpu_fallback": "not_applicable",
+        "reason_code": "host_network_and_auth_state",
+    }
+    assert fetch["must_continue"] is True
+    assert fetch["terminal"] is False
+
+    video = tmp_path / "source.mp4"
+    video.write_bytes(b"video")
+    path, manifest = ws.init_workspace(
+        str(video), workspace=str(tmp_path / "local-work")
+    )
+    agent_workflow.create_session(path, "zh", glossary_selected=True)
+    audio = path / "media" / "audio.16k.wav"
+    audio.parent.mkdir(parents=True)
+    audio.write_bytes(b"audio")
+    ws.record_stage(
+        path,
+        manifest,
+        Stage.EXTRACT_AUDIO,
+        StageState(status=StageStatus.DONE, artifact="media/audio.16k.wav"),
+    )
+
+    transcribe = _next(path)
+
+    assert transcribe["action"] == "run_command"
+    assert "--gpu" in transcribe["argv"]
+    assert transcribe["execution"] == {
+        "sandbox": "outside_required",
+        "accelerator": "gpu",
+        "cpu_fallback": "only_after_outside_gpu_failure",
+        "reason_code": "native_gpu_and_model_cache",
+    }
+    assert transcribe["must_continue"] is True
+    assert transcribe["terminal"] is False
 
 
 def test_source_review_rejects_partial_segment_or_issue_sets(tmp_path: Path) -> None:
@@ -433,7 +501,331 @@ def test_translate_requires_exact_ids_policy_and_syncs_cue_scoped_source_fix(
     )
     finish = _next(path)
     assert finish["action"] == "finish"
+    assert finish["execution"] == {
+        "sandbox": "outside_required",
+        "accelerator": "none",
+        "cpu_fallback": "not_applicable",
+        "reason_code": "media_encode_and_glossary_publish",
+    }
+    assert finish["terminal"] is False
+    assert finish["must_continue"] is True
     assert _next(path) == finish
+
+
+def test_cue_source_fix_rejects_new_adjacent_source_overlap(
+    tmp_path: Path,
+) -> None:
+    sources = ["I rename", "I rename this to demo"]
+    path, _ = _workspace(tmp_path, sources)
+    _review_all_sources(path)
+    _install_cues_and_worksheet(path, sources)
+    action = _next(path)
+
+    with pytest.raises(OpenBBQError) as error:
+        _apply(
+            path,
+            {
+                "batch_id": action["batch_id"],
+                "policy_hash": action["policy_hash"],
+                "translations": {
+                    "1": "我重命名它",
+                    "2": "我把它重命名为 demo",
+                },
+                "source_fixes": [
+                    {
+                        "cue_id": 1,
+                        "find": "rename",
+                        "replacement": "rename this",
+                        "evidence": "The speaker says the object pronoun here.",
+                    }
+                ],
+                "glossary_updates": [],
+            },
+        )
+
+    assert error.value.code == "source_fix_requires_review"
+    assert error.value.context["cue_ids"] == [1, 2]
+    assert error.value.context["overlap"] == "I rename this"
+
+
+def test_existing_adjacent_source_overlap_is_selected_for_risk_review(
+    tmp_path: Path,
+) -> None:
+    sources = ["I rename this", "I rename this to demo"]
+    path, _ = _workspace(tmp_path, sources)
+    _review_all_sources(path)
+    _install_cues_and_worksheet(path, sources)
+    translate = _next(path)
+    _apply(
+        path,
+        {
+            "batch_id": translate["batch_id"],
+            "policy_hash": translate["policy_hash"],
+            "translations": {
+                "1": "我重命名它",
+                "2": "我把它重命名为 demo",
+            },
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+
+    risk = _next(path)
+
+    assert risk["action"] == "review_risks"
+    by_id = {item["id"]: item for item in risk["items"]}
+    assert set(by_id) == {1, 2}
+    assert all(
+        "adjacent_source_overlap" in item["risk_codes"]
+        for item in by_id.values()
+    )
+
+
+def test_repeated_phrase_at_different_adjacent_positions_is_reviewed(
+    tmp_path: Path,
+) -> None:
+    sources = [
+        "Maybe in this first tab, I rename this as the tab.",
+        "I rename this and this is for research. Okay.",
+    ]
+    path, _ = _workspace(tmp_path, sources)
+    _review_all_sources(path)
+    _install_cues_and_worksheet(path, sources)
+    translate = _next(path)
+    _apply(
+        path,
+        {
+            "batch_id": translate["batch_id"],
+            "policy_hash": translate["policy_hash"],
+            "translations": {
+                "1": "也许第一个标签页可以这样命名。",
+                "2": "我把它重命名为研究。好。",
+            },
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+
+    risk = _next(path)
+
+    assert risk["action"] == "review_risks"
+    by_id = {item["id"]: item for item in risk["items"]}
+    assert set(by_id) == {1, 2}
+    assert all(
+        "adjacent_source_overlap" in item["risk_codes"]
+        for item in by_id.values()
+    )
+
+
+def test_matching_product_name_prefix_is_not_treated_as_adjacent_duplication(
+    tmp_path: Path,
+) -> None:
+    sources = [
+        "Claude Code is useful.",
+        "Claude Code is also fast.",
+    ]
+    path, _ = _workspace(tmp_path, sources)
+    _review_all_sources(path)
+    _install_cues_and_worksheet(path, sources)
+    translate = _next(path)
+    _apply(
+        path,
+        {
+            "batch_id": translate["batch_id"],
+            "policy_hash": translate["policy_hash"],
+            "translations": {
+                "1": "Claude Code 很实用。",
+                "2": "Claude Code 也很快。",
+            },
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+
+    assert _next(path)["action"] == "finish"
+
+
+def test_repeated_rhetorical_phrase_is_not_treated_as_adjacent_duplication(
+    tmp_path: Path,
+) -> None:
+    sources = [
+        "when you have a ton of terminals with a ton of agents",
+        "doing a ton of different things.",
+    ]
+    path, _ = _workspace(tmp_path, sources)
+    _review_all_sources(path)
+    _install_cues_and_worksheet(path, sources)
+    translate = _next(path)
+    _apply(
+        path,
+        {
+            "batch_id": translate["batch_id"],
+            "policy_hash": translate["policy_hash"],
+            "translations": {
+                "1": "当你开着一堆终端、运行一堆代理，",
+                "2": "做各种不同的事。",
+            },
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+
+    assert _next(path)["action"] == "finish"
+
+
+def test_accepted_metadata_conflict_is_rechecked_during_translation_risk_review(
+    tmp_path: Path,
+) -> None:
+    path, _ = _workspace(tmp_path, ["Fable Code can run this workflow."])
+    manifest = ws.read_manifest(path)
+    manifest.source.type = "url"
+    manifest.source.title = "Claude Code workflow"
+    manifest.stages[Stage.FETCH] = StageState(
+        status=StageStatus.DONE,
+        artifact=manifest.source.ref,
+    )
+    ws.write_manifest(path, manifest)
+    source_review = _next(path)
+    issue = next(
+        item
+        for item in source_review["detector_issues"]
+        if item["code"] == "metadata_entity_conflict"
+    )
+    _apply(
+        path,
+        {
+            "batch_id": source_review["batch_id"],
+            "reviewed_segment_ids": source_review["selected_segment_ids"],
+            "issue_decisions": {
+                issue["id"]: {
+                    "action": "accept",
+                    "reason": "The first review believes Fable is intentional.",
+                }
+            },
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+    _install_cues_and_worksheet(
+        path,
+        ["Fable Code can run this workflow."],
+    )
+    translate = _next(path)
+    _apply(
+        path,
+        {
+            "batch_id": translate["batch_id"],
+            "policy_hash": translate["policy_hash"],
+            "translations": {"1": "Fable Code 可以运行这个工作流。"},
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+
+    risk = _next(path)
+
+    assert risk["action"] == "review_risks"
+    assert "source_context_conflict" in risk["items"][0]["risk_codes"]
+
+
+def test_selected_glossary_canonical_entity_surfaces_as_asr_reference(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path / ".openbbq"))
+    glossarylib.save(
+        Glossary(
+            name="products",
+            context="AI coding tools",
+            terms=[Term(source="Claude Code", keep=True)],
+        )
+    )
+    path, _ = _workspace(tmp_path, ["Fable Code can run this workflow."])
+    manifest = ws.read_manifest(path)
+    manifest.glossary = "products"
+    ws.write_manifest(path, manifest)
+    glossary_overlay.initialize(path, base_name="products")
+
+    source_review = _next(path)
+
+    issue = next(
+        item
+        for item in source_review["detector_issues"]
+        if item["code"] == "metadata_entity_conflict"
+    )
+    assert issue["find"] == "Fable Code"
+    assert issue["replacement"] == "Claude Code"
+    assert issue["reference_text"] == "Claude Code"
+    assert source_review["glossary"]["terms"] == [
+        {
+            "source": "Claude Code",
+            "aliases": [],
+            "keep": True,
+        }
+    ]
+
+
+def test_timed_reference_repair_is_rechecked_during_translation_risk_review(
+    tmp_path: Path,
+) -> None:
+    path, _ = _workspace(tmp_path, ["bad timing here now"])
+    transcript = ws.read_transcript(path / "transcript.json")
+    words = transcript.segments[0].words
+    assert words is not None
+    for word in words:
+        word.start = transcript.segments[0].end
+        word.end = transcript.segments[0].end
+    ws.write_text_atomic(
+        path / "transcript.json",
+        transcript.model_dump_json(indent=2),
+    )
+    ws.write_reference_caption(
+        path,
+        """WEBVTT
+
+00:00:00.000 --> 00:00:01.500
+Use<00:00:00.300><c> Claude</c><00:00:00.600><c> Code</c><00:00:00.900><c> now.</c>
+""",
+    )
+    source_review = _next(path)
+    issue = next(
+        item
+        for item in source_review["detector_issues"]
+        if item["code"] == "collapsed_word_timestamps"
+    )
+    _apply(
+        path,
+        {
+            "batch_id": source_review["batch_id"],
+            "reviewed_segment_ids": source_review["selected_segment_ids"],
+            "issue_decisions": {
+                issue["id"]: {
+                    "action": "replace",
+                    "replacement": issue["replacement"],
+                    "reason": "The timed reference restores the damaged segment.",
+                }
+            },
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+    _install_cues_and_worksheet(path, ["Use Claude Code now."])
+    translate = _next(path)
+    _apply(
+        path,
+        {
+            "batch_id": translate["batch_id"],
+            "policy_hash": translate["policy_hash"],
+            "translations": {"1": "现在使用 Claude Code。"},
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+
+    risk = _next(path)
+
+    assert risk["action"] == "review_risks"
+    assert "timeline_repaired" in risk["items"][0]["risk_codes"]
 
 
 def test_balanced_risks_do_not_repeat_accepted_low_confidence_source_review(
@@ -529,6 +921,66 @@ def test_risk_review_can_fix_source_and_learn_reusable_glossary_alias(
     assert _next(path)["action"] == "finish"
 
 
+def test_glossary_inconsistency_risk_requires_target_revision(
+    tmp_path: Path,
+) -> None:
+    path, _ = _workspace(tmp_path, ["Codex can do this"])
+    _review_all_sources(path)
+    glossary_overlay.apply_updates(
+        path,
+        [
+            agent_workflow.AgentGlossaryUpdate(
+                source="Codex",
+                target="Codex",
+                reusable=True,
+                evidence="Official product name must remain in the target.",
+            )
+        ],
+    )
+    _install_cues_and_worksheet(path, ["Codex can do this"])
+    translate = _next(path)
+    _apply(
+        path,
+        {
+            "batch_id": translate["batch_id"],
+            "policy_hash": translate["policy_hash"],
+            "translations": {"1": "可以这样做"},
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+    risk = _next(path)
+    assert "glossary_inconsistent" in risk["items"][0]["risk_codes"]
+
+    with pytest.raises(OpenBBQError) as error:
+        _apply(
+            path,
+            {
+                "batch_id": risk["batch_id"],
+                "policy_hash": risk["policy_hash"],
+                "decisions": {"1": {"action": "accept"}},
+            },
+        )
+
+    assert error.value.code == "agent_risk_requires_revision"
+    assert error.value.context["ids"] == [1]
+    _apply(
+        path,
+        {
+            "batch_id": risk["batch_id"],
+            "policy_hash": risk["policy_hash"],
+            "decisions": {
+                "1": {
+                    "action": "revise",
+                    "target": "Codex 可以这样做",
+                    "reason": "Restore the required product name.",
+                }
+            },
+        },
+    )
+    assert _next(path)["action"] == "finish"
+
+
 def test_translation_discovered_alias_requires_a_current_cue_source_fix(
     tmp_path: Path,
 ) -> None:
@@ -569,6 +1021,12 @@ def test_agent_translation_batches_are_cli_enforced_to_20(tmp_path: Path) -> Non
     first = _next(path)
     assert first["action"] == "translate"
     assert first["selected_ids"] == list(range(1, 21))
+    assert [item["id"] for item in first["items"]] == list(range(1, 21))
+    assert all("selected" not in item for item in first["items"])
+    assert all("target" not in item for item in first["items"])
+    assert first["neighbor_context"] == [
+        {"id": 21, "source": "ordinary source 20"}
+    ]
     _apply(
         path,
         {
@@ -586,6 +1044,13 @@ def test_agent_translation_batches_are_cli_enforced_to_20(tmp_path: Path) -> Non
     second = _next(path)
     assert second["action"] == "translate"
     assert second["selected_ids"] == [21]
+    assert second["neighbor_context"] == [
+        {
+            "id": 20,
+            "source": "ordinary source 19",
+            "target": "第20条内容",
+        }
+    ]
 
 
 def test_translation_lease_becomes_stale_after_external_worksheet_change(

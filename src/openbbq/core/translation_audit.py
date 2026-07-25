@@ -97,7 +97,10 @@ _ENTITY_STOP = _SENTENCE_START_STOP | {
 }
 _RISK_WEIGHTS = {
     "asr_uncertain": 100,
+    "source_repetition": 98,
+    "source_token_anomaly": 97,
     "quality_gate": 95,
+    "technical_literal_omission": 92,
     "name_omission": 85,
     "budget_rewrite": 80,
     "shortened_translation": 75,
@@ -107,6 +110,16 @@ _RISK_WEIGHTS = {
     "semantic_review": 10,
 }
 MAX_DECISION_BATCH = 20
+_UPPER_SOURCE_TOKEN_RE = re.compile(r"\b[A-Z]{4,8}\b")
+_ISOLATED_KEY_SEQUENCE_RE = re.compile(
+    r"\b(?i:to|press|type|hit)\s+[A-Z]\b",
+)
+_TECHNICAL_LITERAL_RE = re.compile(
+    r"https?://[^\s]+"
+    r"|(?<!\w)--[A-Za-z][A-Za-z0-9-]*"
+    r"|(?:Ctrl|Cmd|Command|Alt|Option|Shift)(?:[+-][A-Za-z0-9]+)+",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -330,6 +343,27 @@ def _punctuation_mismatch(source: str, target: str) -> bool:
     return "!" in source and not any(mark in target for mark in ("!", "！"))
 
 
+def _has_source_repetition(source: str) -> bool:
+    words = [word.casefold() for word in _LATIN_WORD_RE.findall(source)]
+    return any(left == right for left, right in zip(words, words[1:], strict=False))
+
+
+def _has_source_token_anomaly(source: str) -> bool:
+    return (
+        _UPPER_SOURCE_TOKEN_RE.search(source) is not None
+        or _ISOLATED_KEY_SEQUENCE_RE.search(source) is not None
+    )
+
+
+def _missing_technical_literal(source: str, target: str) -> bool:
+    target_fold = target.casefold()
+    literals = {
+        match.group(0).rstrip(".,;:!?").casefold()
+        for match in _TECHNICAL_LITERAL_RE.finditer(source)
+    }
+    return any(literal and literal not in target_fold for literal in literals)
+
+
 def _near_repeated_target_ids(worksheet: Translation) -> set[int]:
     """Return conservative clusters of near-identical targets.
 
@@ -420,6 +454,12 @@ def risk_items(
         codes: set[str] = set()
         if item.id in uncertain_ids:
             codes.add("asr_uncertain")
+        if _has_source_repetition(item.source):
+            codes.add("source_repetition")
+        if _has_source_token_anomaly(item.source):
+            codes.add("source_token_anomaly")
+        if _missing_technical_literal(item.source, target):
+            codes.add("technical_literal_omission")
         if quality_by_id.get(item.id):
             codes.add("quality_gate")
         if _has_name_omission(worksheet, item):

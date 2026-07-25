@@ -17,8 +17,15 @@ openbbq --json agent next --workspace '<ws>'
 
 循环处理 `agent next`：
 
-1. `run_command`：原样执行返回的 `argv`，完成后再次运行 `agent next`。不要自行增加、
-   删除或重排流程命令。
+1. `run_command`：原样执行返回的 `argv`，并服从机器可读的 `execution`：
+   - `sandbox: outside_required` 表示必须使用宿主机/沙箱外执行；需要 approval 时直接申请，
+     不能先在受限沙箱内运行后再擅自降级。
+   - `accelerator: gpu` 表示保留 argv 中的 `--gpu`。只有沙箱外 GPU 确实执行失败，且
+     `cpu_fallback: only_after_outside_gpu_failure` 时，才允许把该次命令改为 `--cpu`
+     重试；必须记录原始 GPU 错误。
+   - `inside_allowed` 可在当前沙箱运行。不要自行增加、删除或重排其他参数。
+
+   命令完成后立即再次运行 `agent next`。
 2. `select_glossary`、`review_source`、`translate`、`review_risks`：按 action 给出的
    `response_schema` 写一个 JSON 文件，再提交：
 
@@ -28,12 +35,15 @@ openbbq --json agent next --workspace '<ws>'
 
    随后再次运行 `agent next`。必须原样返回 `batch_id`、`policy_hash`，并提交完整、精确的
    当前 ID 集合；不能拆批、漏项或加入其他 ID。
-3. `finish`：执行 action 返回的 `argv`。`agent finish` 会一次性导出双语 ASS、烧录视频、
-   运行 delivery check，并在交付成功后发布无冲突的 glossary 学习结果。
+3. `finish`：按同样规则服从 `execution` 并执行 action 返回的 `argv`；当前默认要求
+   `outside_required`。`agent finish` 会一次性导出双语 ASS、烧录视频、运行 delivery
+   check，并在交付成功后发布无冲突的 glossary 学习结果。
 4. `done`：只有此时才向用户交付返回的字幕和视频路径，同时说明结构化 warning。
 
 不要同时推进多个 action。重复 `agent next` 会返回同一个活动 lease；语义批次未成功
-`apply` 前不要继续。
+`apply` 前不要继续。任何 action 或 apply 结果只要返回 `must_continue: true` 或
+`terminal: false`，当前任务就还没有完成，必须在同一轮继续调用 `agent next`；不能把
+“已翻译 N/总数”当成阶段性交付。只有 `done` 的 `terminal: true` 才能结束。
 
 ## 语义 action 的判断原则
 
@@ -66,6 +76,8 @@ openbbq --json agent next --workspace '<ws>'
 
 - 只复查返回的高风险 cue。对照 source、target 和邻接上下文，可直接 `accept`；只有
   `revise` 需要新译文和简短原因。
+- `glossary_inconsistent` 表示强制术语在当前 cue 的译文中缺失，不能直接 `accept`；
+  修订译文以保留术语，或在原文实体本身错误时同时提交 `source_fix`。
 - 如果到风险复查才发现 ASR 错词，在同一次响应中提交 cue-scoped `source_fixes`，并按
   修正后的 source 判断是否需要 `revise`；可安全复用的错词同时写入 `glossary_updates`。
 - 不要伪造全量 audit，也不要因为一次修订自行重新导出或烧录；提交后继续 `agent next`。
@@ -81,6 +93,10 @@ openbbq --json agent next --workspace '<ws>'
 - 不写一次性脚本编辑字幕数据。
 - `fetch`、`transcribe` 和 `burn` 是长任务，不要设置不合理的短 timeout；运行中可轮询
   status，但不能创建第二个 workspace 或并行 lease。
+- `fetch` 使用宿主机网络和 YouTube auth 状态，GPU `transcribe` 使用宿主机模型缓存和
+  原生加速，`finish` 还可能发布全局 glossary；这些 action 返回
+  `sandbox: outside_required` 时必须在沙箱外执行。不要仅因沙箱内 Metal/CUDA 不可用就
+  改用 CPU。
 - glossary overlay 在任务中只写 workspace；全局冲突或权限错误是非阻塞 warning，不能
   覆盖旧条目，也不能因此否定已通过的成片交付。
 

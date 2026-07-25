@@ -130,11 +130,37 @@ def _workspace_argv(workspace: Path, *parts: str) -> list[str]:
     return ["openbbq", "--json", *parts, "--workspace", str(workspace)]
 
 
+def _execution_policy(command: str) -> dict[str, str]:
+    if command == "fetch":
+        return {
+            "sandbox": "outside_required",
+            "accelerator": "none",
+            "cpu_fallback": "not_applicable",
+            "reason_code": "host_network_and_auth_state",
+        }
+    if command == "transcribe":
+        return {
+            "sandbox": "outside_required",
+            "accelerator": "gpu",
+            "cpu_fallback": "only_after_outside_gpu_failure",
+            "reason_code": "native_gpu_and_model_cache",
+        }
+    return {
+        "sandbox": "inside_allowed",
+        "accelerator": "none",
+        "cpu_fallback": "not_applicable",
+        "reason_code": "workspace_local_operation",
+    }
+
+
 def _run_command(workspace: Path, reason: str, *parts: str) -> dict[str, Any]:
     return {
         "action": "run_command",
         "argv": _workspace_argv(workspace, *parts),
         "reason": reason,
+        "execution": _execution_policy(parts[0]),
+        "terminal": False,
+        "must_continue": True,
     }
 
 
@@ -149,9 +175,22 @@ def _stage_done(workspace: Path, manifest: Manifest, stage: Stage) -> bool:
 
 
 def _reference_texts(manifest: Manifest) -> list[str]:
-    if manifest.source.type != "url":
-        return []
-    return [text for text in (manifest.source.title, manifest.source.author) if text]
+    references = (
+        [text for text in (manifest.source.title, manifest.source.author) if text]
+        if manifest.source.type == "url"
+        else []
+    )
+    # A selected, previously published glossary is durable evidence from
+    # related videos. Feed its canonical spellings to the semantic ASR
+    # detector, while deliberately excluding the task-local overlay so terms
+    # learned during translation cannot rewind an already-reviewed transcript.
+    if manifest.glossary is not None:
+        candidate = glossarylib.glossary_path(manifest.glossary)
+        if candidate.is_file():
+            references.extend(
+                term.source for term in glossarylib.load(manifest.glossary).terms
+            )
+    return list(dict.fromkeys(references))
 
 
 def _transcript_context(workspace: Path, manifest: Manifest):
@@ -334,14 +373,20 @@ def _relevant_glossary_payload(
     workspace: Path,
     manifest: Manifest,
     texts: list[str],
+    *,
+    canonical_references: set[str] | None = None,
 ) -> dict[str, Any]:
     glossary = glossary_overlay.merged(workspace, manifest.glossary)
     if glossary is None:
         return {"name": None, "context": None, "terms": []}
+    reference_keys = {
+        value.casefold() for value in (canonical_references or set())
+    }
     terms = [
         term.model_dump(mode="json", exclude_none=True)
         for term in glossary.terms
-        if any(
+        if term.source.casefold() in reference_keys
+        or any(
             glossarylib.contains_term(text, form)
             for text in texts
             for form in (term.source, *term.aliases)
@@ -406,7 +451,13 @@ def _new_lease(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     batch_id = str(uuid.uuid4())
-    payload = {**payload, "action": action, "batch_id": batch_id}
+    payload = {
+        **payload,
+        "action": action,
+        "batch_id": batch_id,
+        "terminal": False,
+        "must_continue": True,
+    }
     session.active_lease = AgentLease(
         action=action,
         batch_id=batch_id,
@@ -535,31 +586,208 @@ def _translation_state_hash(
 def _translation_batch_payload(
     worksheet: Translation,
     selected_ids: list[int],
-) -> tuple[list[dict[str, Any]], list[GlossaryRef]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[GlossaryRef]]:
     indexes = {item.id: index for index, item in enumerate(worksheet.items)}
     selected_indexes = {indexes[item_id] for item_id in selected_ids}
-    included: set[int] = set()
+    neighbor_indexes: set[int] = set()
     for index in selected_indexes:
-        included.update(
-            range(max(0, index - 1), min(len(worksheet.items), index + 2))
-        )
-    items = [
-        {
-            "id": worksheet.items[index].id,
-            "source": worksheet.items[index].source,
-            "target": worksheet.items[index].target,
-            "budget": worksheet.items[index].budget.model_dump(mode="json"),
-            "selected": index in selected_indexes,
+        neighbor_indexes.update({index - 1, index + 1})
+    neighbor_indexes = {
+        index
+        for index in neighbor_indexes
+        if 0 <= index < len(worksheet.items) and index not in selected_indexes
+    }
+    items: list[dict[str, Any]] = []
+    for index in sorted(selected_indexes):
+        item = worksheet.items[index]
+        payload = {
+            "id": item.id,
+            "source": item.source,
+            "budget": item.budget.model_dump(mode="json"),
         }
-        for index in sorted(included)
-    ]
-    texts = [worksheet.items[index].source for index in sorted(included)]
+        if item.target is not None:
+            payload["target"] = item.target
+        items.append(payload)
+    neighbors: list[dict[str, Any]] = []
+    for index in sorted(neighbor_indexes):
+        item = worksheet.items[index]
+        payload = {"id": item.id, "source": item.source}
+        if item.target is not None:
+            payload["target"] = item.target
+        neighbors.append(payload)
+    included_indexes = selected_indexes | neighbor_indexes
+    texts = [worksheet.items[index].source for index in sorted(included_indexes)]
     refs = [
         ref
         for ref in worksheet.glossary
         if any(glossarylib.contains_term(text, ref.source) for text in texts)
     ]
-    return items, refs
+    return items, neighbors, refs
+
+
+_SOURCE_TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*")
+_MIN_ADJACENT_SOURCE_OVERLAP = 3
+_MIN_SHARED_PHRASE_COVERAGE = 0.3
+_SOURCE_SUBJECT_PRONOUNS = {"he", "i", "it", "she", "they", "we", "you"}
+_SOURCE_FUNCTION_WORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "been",
+    "but",
+    "by",
+    "for",
+    "from",
+    "he",
+    "her",
+    "his",
+    "i",
+    "if",
+    "in",
+    "is",
+    "it",
+    "its",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
+    "our",
+    "she",
+    "so",
+    "that",
+    "the",
+    "their",
+    "them",
+    "they",
+    "this",
+    "to",
+    "was",
+    "we",
+    "were",
+    "with",
+    "you",
+    "your",
+}
+
+
+def _adjacent_source_overlap(left: str, right: str) -> tuple[int, str]:
+    left_tokens = _SOURCE_TOKEN_RE.findall(left)
+    right_tokens = _SOURCE_TOKEN_RE.findall(right)
+    left_keys = [token.casefold() for token in left_tokens]
+    right_keys = [token.casefold() for token in right_tokens]
+    for size in range(min(len(left_keys), len(right_keys)), 0, -1):
+        if left_keys[-size:] == right_keys[:size]:
+            return size, " ".join(right_tokens[:size])
+    return 0, ""
+
+
+def _adjacent_source_shared_phrase(left: str, right: str) -> tuple[int, str]:
+    """Find a likely duplicated phrase away from a strict cue boundary.
+
+    This is intentionally lexical and conservative rather than an embedding
+    similarity guess. A phrase must be at least three words, begin with a
+    personal subject, contain a content word, cover a meaningful share of the
+    shorter cue, and occur at different positions. These constraints keep
+    clause-like duplicates such as ``I rename this`` while ignoring normal
+    rhetorical or entity repetition such as ``a ton of`` and
+    ``inside of Claude Code``.
+    """
+
+    left_tokens = _SOURCE_TOKEN_RE.findall(left)
+    right_tokens = _SOURCE_TOKEN_RE.findall(right)
+    left_keys = [token.casefold() for token in left_tokens]
+    right_keys = [token.casefold() for token in right_tokens]
+    shorter = min(len(left_keys), len(right_keys))
+    for size in range(shorter, _MIN_ADJACENT_SOURCE_OVERLAP - 1, -1):
+        if size / shorter < _MIN_SHARED_PHRASE_COVERAGE:
+            continue
+        right_positions: dict[tuple[str, ...], list[int]] = {}
+        for right_index in range(len(right_keys) - size + 1):
+            phrase = tuple(right_keys[right_index : right_index + size])
+            right_positions.setdefault(phrase, []).append(right_index)
+        for left_index in range(len(left_keys) - size + 1):
+            phrase = tuple(left_keys[left_index : left_index + size])
+            positions = right_positions.get(phrase, [])
+            if not positions:
+                continue
+            if phrase[0] not in _SOURCE_SUBJECT_PRONOUNS or not any(
+                len(token) >= 3 and token not in _SOURCE_FUNCTION_WORDS
+                for token in phrase
+            ):
+                continue
+            for right_index in positions:
+                if left_index == right_index:
+                    continue
+                return size, " ".join(left_tokens[left_index : left_index + size])
+    return 0, ""
+
+
+def _reject_new_adjacent_source_overlap(
+    before: Cues,
+    after: Cues,
+    fixed_ids: set[int],
+) -> None:
+    if not fixed_ids:
+        return
+    for index in range(len(after.cues) - 1):
+        left = after.cues[index]
+        right = after.cues[index + 1]
+        if not fixed_ids.intersection({left.id, right.id}):
+            continue
+        old_size, _ = _adjacent_source_overlap(
+            before.cues[index].source,
+            before.cues[index + 1].source,
+        )
+        new_size, phrase = _adjacent_source_overlap(left.source, right.source)
+        if new_size >= _MIN_ADJACENT_SOURCE_OVERLAP and new_size > old_size:
+            raise OpenBBQError(
+                "source_fix_requires_review",
+                cue_ids=[left.id, right.id],
+                overlap=phrase,
+                detail="the cue-scoped fix introduces a repeated phrase across adjacent cues",
+                fix="use a narrower occurrence fix or review both neighboring cues together",
+            )
+
+
+def _reviewed_source_risk_additions(
+    workspace: Path,
+    manifest: Manifest,
+    cues: Cues,
+) -> dict[int, set[str]]:
+    transcript, review, reference_texts, reference_words = _transcript_context(
+        workspace,
+        manifest,
+    )
+    if review is None or review.transcript_hash != asrlib.transcript_hash(transcript):
+        return {}
+    additions: dict[int, set[str]] = {}
+    for issue in asrlib.extract_anomalies(
+        transcript,
+        reference_texts=reference_texts,
+        reference_words=reference_words,
+    ):
+        decision = review.decisions.get(issue.id)
+        if decision is None:
+            continue
+        code: str | None = None
+        if issue.code in {
+            "collapsed_word_timestamps",
+            "reference_timeline_mismatch",
+        } and decision.action == "replace":
+            code = "timeline_repaired"
+        elif issue.code == "metadata_entity_conflict" and decision.action == "accept":
+            code = "source_context_conflict"
+        if code is None:
+            continue
+        for cue in cues.cues:
+            if issue.start < cue.end and issue.end > cue.start:
+                additions.setdefault(cue.id, set()).add(code)
+    return additions
 
 
 def _risk_items(
@@ -591,10 +819,30 @@ def _risk_items(
         additions.setdefault(issue.id, set()).add("glossary_inconsistent")
     for cue_id in session.source_fixed_cue_ids:
         additions.setdefault(cue_id, set()).add("source_changed")
+    for cue_id, codes in _reviewed_source_risk_additions(
+        workspace,
+        manifest,
+        cues,
+    ).items():
+        additions.setdefault(cue_id, set()).update(codes)
+    for index in range(len(worksheet.items) - 1):
+        left = worksheet.items[index]
+        right = worksheet.items[index + 1]
+        overlap, _phrase = _adjacent_source_overlap(left.source, right.source)
+        shared, _shared_phrase = _adjacent_source_shared_phrase(
+            left.source, right.source
+        )
+        if max(overlap, shared) < _MIN_ADJACENT_SOURCE_OVERLAP:
+            continue
+        additions.setdefault(left.id, set()).add("adjacent_source_overlap")
+        additions.setdefault(right.id, set()).add("adjacent_source_overlap")
     indexes = {item.id: index for index, item in enumerate(worksheet.items)}
     weights = {
         "zero_budget": 120,
         "source_changed": 110,
+        "timeline_repaired": 109,
+        "adjacent_source_overlap": 108,
+        "source_context_conflict": 107,
         "glossary_inconsistent": 105,
         "over_budget": 90,
     }
@@ -906,7 +1154,12 @@ def next_action(
     if not _stage_done(workspace, manifest, Stage.EXTRACT_AUDIO):
         return _run_command(workspace, "normalize source audio", "extract-audio")
     if not _stage_done(workspace, manifest, Stage.TRANSCRIBE):
-        return _run_command(workspace, "transcribe with the selected glossary context", "transcribe")
+        return _run_command(
+            workspace,
+            "transcribe with the selected glossary context",
+            "transcribe",
+            "--gpu",
+        )
 
     views, transcript, review, reference_texts, reference_words = _source_views(
         workspace, manifest
@@ -934,9 +1187,21 @@ def next_action(
             and set(_issue_segment_ids(issue)).intersection(selected_ids)
         ]
         by_index = {view.id: index for index, view in enumerate(views)}
+        selected_indexes = {by_index[view.id] for view in selected}
+        neighbor_indexes: set[int] = set()
+        for index in selected_indexes:
+            neighbor_indexes.update({index - 1, index + 1})
+        neighbor_indexes = {
+            index
+            for index in neighbor_indexes
+            if 0 <= index < len(views) and index not in selected_indexes
+        }
+        neighbor_context = [
+            {"id": views[index].id, "source": views[index].after_glossary}
+            for index in sorted(neighbor_indexes)
+        ]
         selected_payload: list[dict[str, Any]] = []
         for view in selected:
-            index = by_index[view.id]
             selected_payload.append(
                 {
                     "id": view.id,
@@ -950,12 +1215,6 @@ def next_action(
                         else None
                     ),
                     "dropped": view.dropped,
-                    "previous": views[index - 1].after_glossary if index > 0 else None,
-                    "next": (
-                        views[index + 1].after_glossary
-                        if index + 1 < len(views)
-                        else None
-                    ),
                     "words": view.words,
                     "word_count": view.word_count,
                     "words_omitted": view.words_omitted,
@@ -986,11 +1245,22 @@ def next_action(
                     "author": manifest.source.author,
                 },
                 "segments": selected_payload,
+                "neighbor_context": neighbor_context,
                 "detector_issues": [_issue_payload(issue) for issue in issues],
                 "glossary": _relevant_glossary_payload(
                     workspace,
                     manifest,
-                    [view.after_glossary for view in selected],
+                    [
+                        views[index].after_glossary
+                        for index in sorted(selected_indexes | neighbor_indexes)
+                    ],
+                    canonical_references={
+                        getattr(issue, "replacement")
+                        for issue in issues
+                        if getattr(issue, "code", None)
+                        == "metadata_entity_conflict"
+                        and getattr(issue, "replacement", None) is not None
+                    },
                 ),
                 "response_schema": {
                     "batch_id": "exact batch_id",
@@ -1081,7 +1351,9 @@ def next_action(
     ]
     if missing_evidence:
         selected_ids = missing_evidence[:MAX_SEMANTIC_BATCH]
-        items, refs = _translation_batch_payload(worksheet, selected_ids)
+        items, neighbor_context, refs = _translation_batch_payload(
+            worksheet, selected_ids
+        )
         state_hash = _translation_state_hash(
             workspace, manifest, cues, worksheet, policy
         )
@@ -1098,6 +1370,7 @@ def next_action(
                 "brief": brief.model_dump(mode="json", exclude_none=True),
                 "selected_ids": selected_ids,
                 "items": items,
+                "neighbor_context": neighbor_context,
                 "glossary": [
                     ref.model_dump(mode="json", exclude_none=True) for ref in refs
                 ],
@@ -1141,8 +1414,8 @@ def next_action(
     if pending_risks:
         selected = pending_risks[:MAX_SEMANTIC_BATCH]
         selected_ids = [risk.id for risk in selected]
-        _risk_context_items, risk_refs = _translation_batch_payload(
-            worksheet, selected_ids
+        _risk_context_items, _risk_neighbor_context, risk_refs = (
+            _translation_batch_payload(worksheet, selected_ids)
         )
         state_hash = _translation_state_hash(
             workspace, manifest, cues, worksheet, policy
@@ -1197,7 +1470,9 @@ def next_action(
                     "policy_hash": policy,
                     "decisions": {
                         str(item_id): {
-                            "action": "accept | revise",
+                            "action": (
+                                "accept | revise; glossary_inconsistent requires revise"
+                            ),
                             "target": "required only for revise",
                             "reason": "required only for revise; short is enough",
                         }
@@ -1247,6 +1522,8 @@ def next_action(
             "video": str(workspace / finished.video),
             "glossary_published": finished.glossary_published,
             "warnings": [warning.model_dump(mode="json") for warning in session.warnings],
+            "terminal": True,
+            "must_continue": False,
         }
     session.finished = None
     inputs_hash = semantic_inputs_hash(
@@ -1264,6 +1541,12 @@ def next_action(
             "argv": _workspace_argv(
                 workspace, "agent", "finish", "--to", session.target_lang
             ),
+            "execution": {
+                "sandbox": "outside_required",
+                "accelerator": "none",
+                "cpu_fallback": "not_applicable",
+                "reason_code": "media_encode_and_glossary_publish",
+            },
             "outputs": {
                 "subtitle": f"out/{session.target_lang}.ass",
                 "video": f"out/{session.target_lang}-burned.mp4",
@@ -1642,6 +1925,7 @@ def _apply_translate(
         corrected = _replace_occurrence(cue.source, fix)
         cue.source = corrected
         item_by_id[fix.cue_id].source = corrected
+    _reject_new_adjacent_source_overlap(cues, candidate_cues, fix_ids)
     original_by_id = {item.id: item for item in worksheet.items}
     for update in response.glossary_updates:
         if not update.reusable:
@@ -1788,6 +2072,21 @@ def _apply_risks(
             "agent_lease_stale",
             fix=f"rerun openbbq agent next --workspace {workspace}",
         )
+    risks_by_id = {risk.id: risk for risk in risks}
+    unresolved_glossary_ids = sorted(
+        cue_id
+        for cue_id, decision in response.decisions.items()
+        if decision.action == "accept"
+        and cue_id not in fix_ids
+        and "glossary_inconsistent" in risks_by_id[cue_id].risk_codes
+    )
+    if unresolved_glossary_ids:
+        raise OpenBBQError(
+            "agent_risk_requires_revision",
+            ids=unresolved_glossary_ids,
+            risk_code="glossary_inconsistent",
+            fix="revise each target to preserve the required glossary term, or submit a source_fix when the source entity is wrong",
+        )
     candidate_cues = cues.model_copy(deep=True)
     candidate_worksheet = worksheet.model_copy(deep=True)
     cue_by_id = {cue.id: cue for cue in candidate_cues.cues}
@@ -1799,6 +2098,7 @@ def _apply_risks(
         corrected = _replace_occurrence(cue.source, fix)
         cue.source = corrected
         item_by_id[fix.cue_id].source = corrected
+    _reject_new_adjacent_source_overlap(cues, candidate_cues, fix_ids)
 
     original_by_id = {item.id: item for item in worksheet.items}
     for update in response.glossary_updates:

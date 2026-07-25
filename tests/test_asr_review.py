@@ -277,6 +277,91 @@ def test_metadata_entity_conflict_catches_high_confidence_name_misspelling() -> 
     assert anomalies[0].reference_text == "A conversation with Geoffrey Litt"
 
 
+def test_metadata_entity_conflict_surfaces_distant_but_structurally_matching_name() -> None:
+    transcript = _transcript(
+        _timed_segment(
+            4,
+            10,
+            15,
+            "Fable Code can run this workflow.",
+            ["Fable", "Code", "can", "run", "this", "workflow"],
+        )
+    )
+
+    anomalies = asr_review.extract_anomalies(
+        transcript,
+        reference_texts=["Claude Code workflow"],
+    )
+
+    assert len(anomalies) == 1
+    assert anomalies[0].code == "metadata_entity_conflict"
+    assert anomalies[0].find == "Fable Code"
+    assert anomalies[0].replacement == "Claude Code"
+
+
+def test_metadata_entity_conflict_surfaces_unknown_singleton_near_known_entity() -> None:
+    transcript = _transcript(
+        _timed_segment(
+            3,
+            5,
+            9,
+            "Claude Code created the initial plan.",
+            ["Claude", "Code", "created", "the", "initial", "plan"],
+        ),
+        _timed_segment(
+            4,
+            10,
+            15,
+            "Claude sent the plan to Codex, then Fable came up with it.",
+            [
+                "Claude",
+                "sent",
+                "the",
+                "plan",
+                "to",
+                "Codex",
+                "then",
+                "Fable",
+                "came",
+                "up",
+                "with",
+                "it",
+            ],
+        )
+    )
+
+    anomalies = asr_review.extract_anomalies(
+        transcript,
+        reference_texts=["Claude Code", "Codex"],
+    )
+
+    assert len(anomalies) == 1
+    assert anomalies[0].code == "metadata_entity_conflict"
+    assert anomalies[0].find == "Fable"
+    assert anomalies[0].replacement == "Claude"
+    assert anomalies[0].reference_text == "Claude Code"
+
+
+def test_metadata_entity_singleton_requires_canonical_name_in_same_segment() -> None:
+    transcript = _transcript(
+        _timed_segment(
+            4,
+            10,
+            15,
+            "Fable came up with the plan.",
+            ["Fable", "came", "up", "with", "the", "plan"],
+        )
+    )
+
+    assert (
+        asr_review.extract_anomalies(
+            transcript,
+            reference_texts=["Claude Code", "Codex"],
+        )
+        == []
+    )
+
+
 def test_metadata_entity_replacement_corrects_text_without_collapsing_segment() -> None:
     transcript = _transcript(
         _timed_segment(
@@ -445,6 +530,69 @@ We<00:00:09.000><c> have</c><00:00:10.000><c> recovered</c><00:00:11.000><c> now
         for segment in resolved.segments[:2]
         for word in segment.words or []
     )
+
+
+def test_adjacent_timed_reference_replacements_deduplicate_shared_boundary_word() -> None:
+    reference = """WEBVTT
+
+00:00:00.000 --> 00:00:04.500
+Start<00:00:01.000><c> by</c><00:00:03.500><c> controlling</c>
+
+00:00:03.500 --> 00:00:08.000
+controlling<00:00:04.500><c> the</c><00:00:05.500><c> worker</c><00:00:06.500><c> now.</c>
+"""
+    reference_words = asr_review.parse_reference_words(reference)
+    transcript = _transcript(
+        Segment(
+            id=0,
+            start=0,
+            end=4,
+            text="bad decoder output here",
+            words=[
+                Word(word=word, start=4, end=4, prob=0.99)
+                for word in ("bad", "decoder", "output", "here")
+            ],
+        ),
+        Segment(
+            id=1,
+            start=4,
+            end=8,
+            text="more broken output here",
+            words=[
+                Word(word=word, start=8, end=8, prob=0.99)
+                for word in ("more", "broken", "output", "here")
+            ],
+        ),
+    )
+    anomalies = asr_review.extract_anomalies(
+        transcript,
+        reference_words=reference_words,
+    )
+    review = asr_review.merge_decisions(
+        transcript,
+        None,
+        {
+            issue.id: AsrDecision(
+                action="replace",
+                replacement=issue.replacement,
+                reason="Use the timed reference to repair the collapsed window.",
+            )
+            for issue in anomalies
+        },
+        reference_words=reference_words,
+    )
+
+    resolved = asr_review.resolved_transcript(
+        transcript,
+        review,
+        reference_words=reference_words,
+    )
+
+    assert [segment.text for segment in resolved.segments] == [
+        "Start by controlling",
+        "the worker now.",
+    ]
+    assert resolved.segments[1].start == 4.5
 
 
 def test_collapsed_timestamp_anomaly_cannot_be_accepted() -> None:

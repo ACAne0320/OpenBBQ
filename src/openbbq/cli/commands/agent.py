@@ -92,6 +92,8 @@ def init(
                 "action": "initialized",
                 "workspace": str(path),
                 "target_lang": to,
+                "terminal": False,
+                "must_continue": True,
                 "next_argv": [
                     "openbbq",
                     "--json",
@@ -174,6 +176,8 @@ def apply(
         AgentResult(
             data={
                 **data,
+                "terminal": False,
+                "must_continue": True,
                 "next_argv": [
                     "openbbq",
                     "--json",
@@ -361,6 +365,8 @@ def finish(
                 "action": "done",
                 "workspace": str(path),
                 "target_lang": lang,
+                "terminal": True,
+                "must_continue": False,
                 "subtitle": str(subtitle),
                 "video": str(video),
                 "preset": preset.value,
