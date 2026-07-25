@@ -175,6 +175,36 @@ def test_three_near_duplicate_targets_are_surfaced_as_translation_risks() -> Non
     )
 
 
+def test_suspicious_source_repetition_and_unknown_acronym_are_risks() -> None:
+    cues, worksheet = _documents(
+        _item(1, "It is stuck. stuck. again.", "它又卡住了。"),
+        _item(2, "Run SSHN to connect.", "运行 SSHN 建立连接。"),
+        _item(3, "Then wait to B before continuing.", "然后等待 B 再继续。"),
+    )
+
+    risks = auditlib.risk_items(cues, worksheet, None)
+    by_id = {item.id: set(item.risk_codes) for item in risks}
+
+    assert "source_repetition" in by_id[1]
+    assert "source_token_anomaly" in by_id[2]
+    assert "source_token_anomaly" in by_id[3]
+
+
+def test_missing_technical_literal_is_a_translation_risk() -> None:
+    cues, worksheet = _documents(
+        _item(
+            1,
+            "Press Ctrl+K and rerun with --verbose.",
+            "按下快捷键，然后以详细模式重新运行。",
+        )
+    )
+
+    risks = auditlib.risk_items(cues, worksheet, None)
+
+    assert risks[0].id == 1
+    assert "technical_literal_omission" in risks[0].risk_codes
+
+
 def test_full_coverage_adds_semantic_review_and_neighbor_context() -> None:
     cues, worksheet = _documents(
         _item(1, "This is not the first time.", "这不是第一次。"),

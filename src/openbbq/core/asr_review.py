@@ -347,6 +347,18 @@ def _metadata_entity_anomalies(
 ) -> list[Anomaly]:
     anomalies: list[Anomaly] = []
     seen: set[tuple[int, str, str]] = set()
+    transcript_entity_counts: dict[str, int] = {}
+    for segment in transcript.segments:
+        for token in _WORD_SPAN_RE.finditer(segment.text):
+            if token.group(0)[0].isupper():
+                key = token.group(0).casefold()
+                transcript_entity_counts[key] = transcript_entity_counts.get(key, 0) + 1
+    known_reference_tokens = {
+        token.group(0).casefold()
+        for reference in reference_texts
+        for token in _WORD_SPAN_RE.finditer(reference)
+        if token.group(0)[0].isupper()
+    }
     for reference in reference_texts:
         expected_tokens = list(_WORD_SPAN_RE.finditer(reference))
         for expected_first, expected_last in zip(
@@ -380,7 +392,12 @@ def _metadata_entity_anomalies(
                         observed_first_text.casefold(),
                         first_text.casefold(),
                     ).ratio()
-                    if not 0.6 <= similarity < 0.95:
+                    # A shared proper-noun suffix from the title (for example
+                    # ``Fable Code`` vs ``Claude Code``) is useful review
+                    # evidence even when the first token is not phonetically
+                    # close. This remains a semantic issue, never an automatic
+                    # replacement.
+                    if not 0.3 <= similarity < 0.95:
                         continue
                     find = segment.text[observed_first.start() : observed_last.end()]
                     replacement = reference[
@@ -412,6 +429,71 @@ def _metadata_entity_anomalies(
                             reference_text=reference,
                         )
                     )
+
+        # A canonical multiword product can also be referred to by its first
+        # token alone (``Claude Code`` -> ``Claude``). Surface a rare,
+        # similarly shaped capitalized token only when the canonical short
+        # form already occurs repeatedly in this transcript. This catches an
+        # isolated ``Fable`` beside many real ``Claude`` mentions without
+        # treating recurring project names such as ``Chase`` as misspellings.
+        if (
+            not 2 <= len(expected_tokens) <= 4
+            or not all(token.group(0)[0].isupper() for token in expected_tokens)
+        ):
+            continue
+        canonical = expected_tokens[0].group(0)
+        canonical_key = canonical.casefold()
+        if transcript_entity_counts.get(canonical_key, 0) < 2:
+            continue
+        for segment_index, segment in enumerate(transcript.segments):
+            observed_tokens = list(_WORD_SPAN_RE.finditer(segment.text))
+            if canonical_key not in {
+                observed.group(0).casefold() for observed in observed_tokens
+            }:
+                continue
+            for observed in observed_tokens:
+                observed_text = observed.group(0)
+                observed_key = observed_text.casefold()
+                if (
+                    len(observed_text) < 4
+                    or not observed_text[0].isupper()
+                    or observed_key in known_reference_tokens
+                    or transcript_entity_counts.get(observed_key, 0) != 1
+                ):
+                    continue
+                similarity = SequenceMatcher(
+                    None,
+                    observed_key,
+                    canonical_key,
+                ).ratio()
+                if not 0.3 <= similarity < 0.95:
+                    continue
+                key = (segment.id, observed_key, canonical_key)
+                if key in seen:
+                    continue
+                seen.add(key)
+                previous, next_text = _anomaly_context(
+                    transcript, segment_index, segment_index
+                )
+                digest = hashlib.sha256(
+                    f"{segment.id}|{observed_key}|{canonical_key}".encode()
+                ).hexdigest()[:10]
+                anomalies.append(
+                    Anomaly(
+                        id=f"a:metadata:{segment.id}:{digest}",
+                        code="metadata_entity_conflict",
+                        severity="severe",
+                        segment_ids=(segment.id,),
+                        start=segment.start,
+                        end=segment.end,
+                        text=segment.text,
+                        previous_text=previous,
+                        next_text=next_text,
+                        find=observed_text,
+                        replacement=canonical,
+                        reference_text=reference,
+                    )
+                )
     return anomalies
 
 
@@ -1145,41 +1227,17 @@ def _replacement_segment(issue: Anomaly, replacement: str) -> Segment:
         for word in issue.reference_words
         for token in _normalized_words(word.word)
     ):
-        source_start = issue.reference_words[0].start
-        source_end = issue.reference_words[-1].end
-        source_duration = source_end - source_start
-        target_duration = max(issue.end - issue.start, 0.001)
-        if source_duration > 0:
-            scale = target_duration / source_duration
-            fitted_words = [
-                word.model_copy(
-                    update={
-                        "start": issue.start
-                        + (word.start - source_start) * scale,
-                        "end": issue.start + (word.end - source_start) * scale,
-                        "prob": 1.0,
-                    },
-                    deep=True,
-                )
-                for word in issue.reference_words
-            ]
-        else:
-            step = target_duration / len(issue.reference_words)
-            fitted_words = [
-                word.model_copy(
-                    update={
-                        "start": issue.start + index * step,
-                        "end": issue.start + (index + 1) * step,
-                        "prob": 1.0,
-                    },
-                    deep=True,
-                )
-                for index, word in enumerate(issue.reference_words)
-            ]
+        # These timestamps came from the timed reference itself. Preserve them
+        # rather than scaling each overlapping ASR window independently; the
+        # latter turns one boundary word into two differently timed copies.
+        fitted_words = [
+            word.model_copy(update={"prob": 1.0}, deep=True)
+            for word in issue.reference_words
+        ]
         return Segment(
             id=issue.segment_ids[0],
-            start=issue.start,
-            end=issue.end,
+            start=fitted_words[0].start,
+            end=fitted_words[-1].end,
             text=replacement,
             words=fitted_words,
         )
@@ -1201,6 +1259,66 @@ def _replacement_segment(issue: Anomaly, replacement: str) -> Segment:
         text=replacement,
         words=words,
     )
+
+
+def _same_timed_reference_word(left: Word, right: Word) -> bool:
+    return (
+        _normalized_words(left.word) == _normalized_words(right.word)
+        and abs(left.start - right.start) <= 0.005
+        and abs(left.end - right.end) <= 0.005
+    )
+
+
+def _deduplicate_replacement_boundaries(
+    segments: list[Segment],
+    replacement_ids: set[int],
+) -> list[Segment]:
+    """Drop a shared timed-reference prefix from the later replacement.
+
+    A reference word that straddles two ASR segment windows legitimately
+    appears in both replacement candidates. Its identical word timestamps make
+    it safe to remove from the later replacement without guessing from text.
+    Ordinary repeated speech and non-reference segments are left untouched.
+    """
+
+    deduplicated: list[Segment] = []
+    for segment in segments:
+        current = segment
+        if (
+            deduplicated
+            and deduplicated[-1].id in replacement_ids
+            and current.id in replacement_ids
+            and deduplicated[-1].words
+            and current.words
+        ):
+            previous_words = deduplicated[-1].words or []
+            current_words = current.words or []
+            overlap = 0
+            for size in range(min(len(previous_words), len(current_words)), 0, -1):
+                if all(
+                    _same_timed_reference_word(left, right)
+                    for left, right in zip(
+                        previous_words[-size:],
+                        current_words[:size],
+                        strict=True,
+                    )
+                ):
+                    overlap = size
+                    break
+            if overlap:
+                remaining = current_words[overlap:]
+                if not remaining:
+                    continue
+                current = current.model_copy(
+                    update={
+                        "start": remaining[0].start,
+                        "text": " ".join(word.word for word in remaining),
+                        "words": remaining,
+                    },
+                    deep=True,
+                )
+        deduplicated.append(current)
+    return deduplicated
 
 
 def apply_segment_decisions(
@@ -1246,7 +1364,14 @@ def apply_segment_decisions(
             continue
         if segment.id not in drop_ids:
             segments.append(segment)
-    return transcript.model_copy(update={"segments": segments})
+    return transcript.model_copy(
+        update={
+            "segments": _deduplicate_replacement_boundaries(
+                segments,
+                set(replacements),
+            )
+        }
+    )
 
 
 def corrector(

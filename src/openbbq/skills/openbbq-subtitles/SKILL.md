@@ -27,8 +27,19 @@ openbbq --json agent next --workspace '<ws>'
 
 Loop on `agent next`:
 
-1. `run_command`: execute the returned `argv` exactly, then call `agent next`
-   again. Do not add, remove, or reorder workflow commands.
+1. `run_command`: execute the returned `argv` exactly and obey its
+   machine-readable `execution` policy:
+   - `sandbox: outside_required` means host/outside-sandbox execution is
+     required. Request approval when needed; do not first run in a restricted
+     sandbox and silently downgrade.
+   - `accelerator: gpu` means keep the argv's `--gpu`. Only after the
+     outside-sandbox GPU command actually fails, and only when
+     `cpu_fallback: only_after_outside_gpu_failure`, may that command be retried
+     with `--cpu`; preserve the original GPU error.
+   - `inside_allowed` may run in the current sandbox. Do not add, remove, or
+     reorder any other arguments.
+
+   Call `agent next` again immediately after the command completes.
 2. `select_glossary`, `review_source`, `translate`, or `review_risks`: write one
    JSON file matching the action's `response_schema`, then submit it:
 
@@ -38,15 +49,19 @@ Loop on `agent next`:
 
    Call `agent next` again. Echo `batch_id` and `policy_hash` exactly and submit
    the complete, exact current ID set. Never split, omit, or add IDs.
-3. `finish`: execute its returned `argv`. `agent finish` exports bilingual ASS,
-   burns once, runs the delivery check, and publishes non-conflicting glossary
-   learning after successful delivery.
+3. `finish`: obey `execution` in the same way and execute its returned `argv`;
+   the default currently requires `outside_required`. `agent finish` exports
+   bilingual ASS, burns once, runs the delivery check, and publishes
+   non-conflicting glossary learning after successful delivery.
 4. `done`: only now deliver the returned subtitle and video paths, including any
    structured warnings.
 
 Never advance multiple actions concurrently. Repeated `agent next` calls return
 the same active lease; do not continue until the semantic batch applies
-successfully.
+successfully. Whenever an action or apply result says `must_continue: true` or
+`terminal: false`, the current task is unfinished and must keep looping in the
+same turn. Progress such as “translated N/total” is not a deliverable. Only
+`done` with `terminal: true` may end the task.
 
 ## Semantic Decisions
 
@@ -88,6 +103,9 @@ successfully.
 - Review only the returned high-risk cues against source, target, and neighbors.
   `accept` needs no fabricated long rationale; `revise` needs a new target and a
   short reason.
+- `glossary_inconsistent` means a required term is missing from the current
+  cue's target and cannot be accepted. Revise the target to preserve it, or
+  include a `source_fix` when the source entity itself is wrong.
 - If risk review is where an ASR mistake becomes clear, submit a cue-scoped
   `source_fix` in the same response and judge the target against the corrected
   source. Add a reusable `glossary_update` when the correction generalizes.
@@ -108,6 +126,11 @@ successfully.
 - `fetch`, `transcribe`, and `burn` are long-running. Do not impose an
   unreasonable short timeout. Status polling is fine; creating a second
   workspace or parallel lease is not.
+- `fetch` needs host network and YouTube auth state, GPU `transcribe` needs the
+  host model cache and native acceleration, and `finish` may publish the global
+  glossary. When those actions return `sandbox: outside_required`, run them
+  outside the sandbox. Do not switch to CPU merely because Metal/CUDA is
+  unavailable inside the sandbox.
 - The glossary overlay stays in the workspace during the task. A global conflict
   or permission failure is a non-blocking warning: never overwrite an existing
   entry or reject an otherwise ready video.
