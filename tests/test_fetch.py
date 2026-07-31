@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.style import Style
 
 import openbbq.cli.commands.fetch as fetchcmd
+from openbbq.cli.commands.fetch import fetch
 from openbbq.cli.output import Output
 from openbbq.core import fetch as fetchlib
 from openbbq.core import workspace as ws
@@ -31,6 +32,40 @@ def _manifest() -> Manifest:
         source=Source(type="url", ref="https://www.youtube.com/watch?v=test"),
         stages={},
     )
+
+
+def _ctx() -> typer.Context:
+    return cast(typer.Context, SimpleNamespace(obj=Output(json_mode=True)))
+
+
+def test_fetch_command_reuses_completed_stage_instead_of_downloading_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, _manifest_doc = ws.init_workspace(
+        "https://www.youtube.com/watch?v=test",
+        workspace=str(tmp_path / "ws"),
+    )
+    calls = 0
+
+    def fake_fetch(*args, **kwargs) -> fetchlib.FetchResult:
+        nonlocal calls
+        calls += 1
+        artifact = path / "media" / "video.webm"
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_bytes(b"media")
+        return fetchlib.FetchResult(
+            artifact="media/video.webm",
+            title="Demo",
+            author="Creator",
+        )
+
+    monkeypatch.setattr(fetchlib, "auto_auth_site", lambda _url: None)
+    monkeypatch.setattr(fetchlib, "fetch_media", fake_fetch)
+
+    fetch(_ctx(), workspace=str(path))
+    fetch(_ctx(), workspace=str(path))
+
+    assert calls == 1
 
 
 def test_fetch_defaults_to_anonymous_ytdlp(tmp_path, monkeypatch) -> None:

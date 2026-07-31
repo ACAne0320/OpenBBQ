@@ -26,6 +26,7 @@ from ...core import workspace as ws
 from ...schemas import Manifest, Progress, Stage, StageState, StageStatus
 from ..output import Output
 from ..results import Result
+from ..stage_execution import run_stage_once
 
 
 class FetchResult(Result):
@@ -192,6 +193,7 @@ def _progress_recorder(
     return record
 
 
+@run_stage_once(Stage.FETCH)
 def fetch(
     ctx: typer.Context,
     workspace: Annotated[

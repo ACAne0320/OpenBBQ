@@ -1,21 +1,23 @@
-"""Read-only aggregation of the independent delivery quality gates.
+"""Read-only aggregation of the hard artifact-delivery contracts.
 
-The individual domains remain authoritative for ASR, translation, provenance,
-and QA.  This module only coordinates their workspace inputs so ``status`` and
-``delivery check`` cannot disagree about whether a video is ready to ship.
+This module checks only structural ASR safety, worksheet/evidence integrity,
+provenance, and the existence of a fresh bilingual subtitle and non-empty
+burned video.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from openbbq.core import asr_review as asrlib
 from openbbq.core import agent_workflow
 from openbbq.core import export as exportlib
+from openbbq.core import media as medialib
+from openbbq.core import review as reviewlib
 from openbbq.core import segment as segmentlib
 from openbbq.core import translate as translatelib
-from openbbq.core import translation_audit as auditlib
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import Cues, Manifest, Stage, Transcript, Translation
@@ -42,17 +44,28 @@ class DeliveryAssessment:
     lang: str | None
     gates: dict[str, bool]
     issues: tuple[DeliveryIssue, ...]
+    human_reviewed: bool = False
 
     @property
     def ready(self) -> bool:
         return not self.issues and all(self.gates.values())
 
     @property
+    def artifact_ready(self) -> bool:
+        return self.ready
+
+    @property
+    def quality(self) -> Literal["draft", "human-reviewed"]:
+        return "human-reviewed" if self.human_reviewed else "draft"
+
+    @property
     def next(self) -> str | None:
         return self.issues[0].fix if self.issues else None
 
 
-def _resolved_lang(path: Path, lang: str | None) -> tuple[str | None, DeliveryIssue | None]:
+def _resolved_lang(
+    path: Path, lang: str | None
+) -> tuple[str | None, DeliveryIssue | None]:
     if lang is not None:
         try:
             return ws.validate_lang(lang), None
@@ -129,6 +142,89 @@ def _read_error(
     )
 
 
+def _translation_evidence(
+    path: Path,
+    manifest: Manifest,
+    cues: Cues,
+    translation: Translation,
+    lang: str,
+) -> tuple[bool, bool, DeliveryIssue | None]:
+    """Return (ready, human-reviewed, issue) for the two legal evidence paths."""
+
+    review_path = reviewlib.review_path(path, lang)
+    if review_path.is_file():
+        try:
+            reviewlib.require_complete_review(path, cues, translation, lang)
+        except OpenBBQError as error:
+            return (
+                False,
+                False,
+                DeliveryIssue(
+                    code=error.code,
+                    gate="translation_evidence",
+                    detail="human review is incomplete or stale",
+                    fix=error.fix or f"openbbq review --workspace {path} --to {lang}",
+                ),
+            )
+        return True, True, None
+
+    try:
+        session = ws.read_agent_session_optional(path, lang)
+    except OpenBBQError as error:
+        return (
+            False,
+            False,
+            DeliveryIssue(
+                code=error.code,
+                gate="translation_evidence",
+                detail="agent translation evidence is invalid",
+                fix=error.fix or f"openbbq agent init --workspace {path}",
+            ),
+        )
+    if session is None:
+        return (
+            False,
+            False,
+            DeliveryIssue(
+                code="translation_evidence_missing",
+                gate="translation_evidence",
+                detail="translation has neither complete human review nor current agent evidence",
+                fix=f"openbbq agent next --workspace {path}",
+            ),
+        )
+
+    try:
+        stale_ids = agent_workflow.stale_translation_evidence_ids(
+            path, manifest, session, translation
+        )
+    except OpenBBQError as error:
+        return (
+            False,
+            False,
+            DeliveryIssue(
+                code=error.code,
+                gate="translation_evidence",
+                detail="agent translation evidence is invalid",
+                fix=error.fix or f"openbbq agent next --workspace {path}",
+            ),
+        )
+    if stale_ids:
+        return (
+            False,
+            False,
+            DeliveryIssue(
+                code="agent_session_stale",
+                gate="translation_evidence",
+                detail=(
+                    "draft agent evidence is incomplete or stale: "
+                    f"{list(stale_ids[:20])}"
+                ),
+                fix=f"openbbq agent next --workspace {path}",
+            ),
+        )
+    return True, False, None
+
+
 def assess_delivery(
     path: Path,
     manifest: Manifest,
@@ -147,17 +243,15 @@ def assess_delivery(
         "asr": False,
         "segment": False,
         "translation": False,
-        "translation_audit": False,
+        "translation_evidence": False,
         "export": False,
         "burn": False,
-        "qa_mechanical": False,
     }
     resolved_lang, lang_issue = _resolved_lang(path, lang)
     if lang_issue is not None:
         issues.append(lang_issue)
 
     transcript: Transcript | None = None
-    use_legacy_translation_gate = False
     transcript_path = _artifact(
         path,
         manifest,
@@ -195,14 +289,10 @@ def assess_delivery(
                 asr = asrlib.check(
                     transcript,
                     asr_review,
-                    reference_texts=[
-                        text
-                        for text in (manifest.source.title, manifest.source.author)
-                        if manifest.source.type == "url" and text
-                    ],
                     reference_words=reference_words,
                 )
-                if asr.ready:
+                blocking = asrlib.blocking_unresolved_ids(asr)
+                if not blocking:
                     gates["asr"] = True
                 else:
                     issues.append(
@@ -210,10 +300,10 @@ def assess_delivery(
                             code="asr_review_incomplete",
                             gate="asr",
                             detail=(
-                                f"{len(asr.unresolved_ids)} unresolved ASR issue(s): "
-                                + ", ".join(asr.unresolved_ids[:10])
+                                f"{len(blocking)} unresolved structural ASR issue(s): "
+                                + ", ".join(blocking[:10])
                             ),
-                            fix="openbbq asr batch --limit 20",
+                            fix=f"openbbq agent next --workspace {path}",
                         )
                     )
 
@@ -237,6 +327,18 @@ def assess_delivery(
             )
         else:
             invalid_cues = segmentlib.invalid_cue_ids(cues.cues)
+            media_end: float | None = None
+            try:
+                source_media = ws.media_input(manifest, path)
+            except OpenBBQError:
+                source_media = None
+            if source_media is not None:
+                media_end = medialib.media_duration(source_media)
+            beyond_media = (
+                []
+                if media_end is None
+                else [cue.id for cue in cues.cues if cue.end > media_end + 0.5]
+            )
             if invalid_cues:
                 issues.append(
                     DeliveryIssue(
@@ -249,7 +351,20 @@ def assess_delivery(
                         fix="openbbq segment",
                     )
                 )
-            else:
+            if beyond_media:
+                issues.append(
+                    DeliveryIssue(
+                        code="cues_exceed_media_duration",
+                        gate="segment",
+                        detail=(
+                            f"source media ends at {media_end:.3f}s but subtitle cue(s) "
+                            "extend past it: "
+                            + ", ".join(str(cue_id) for cue_id in beyond_media[:20])
+                        ),
+                        fix="openbbq extract-audio, then continue with openbbq agent next",
+                    )
+                )
+            if not invalid_cues and not beyond_media:
                 try:
                     ws.require_fresh_artifact(path, cues_path, Stage.SEGMENT)
                 except OpenBBQError as error:
@@ -265,6 +380,7 @@ def assess_delivery(
                     gates["segment"] = True
 
     translation: Translation | None = None
+    human_reviewed = False
     if resolved_lang is not None:
         translation_path = ws.worksheet_path(path, resolved_lang)
         if not translation_path.is_file():
@@ -289,65 +405,7 @@ def assess_delivery(
 
     if cues is not None and translation is not None and resolved_lang is not None:
         try:
-            agent_session = ws.read_agent_session_optional(path, resolved_lang)
-        except OpenBBQError as error:
-            _read_error(
-                issues,
-                gate="translation_audit",
-                error=error,
-                fix=f"openbbq agent next --workspace {path}",
-            )
-            agent_session = None
-            has_agent_session = True
-        else:
-            has_agent_session = agent_session is not None
-
-        if agent_session is not None:
-            try:
-                balanced = agent_workflow.balanced_gate(
-                    path,
-                    manifest,
-                    agent_session,
-                    cues,
-                    translation,
-                )
-            except OpenBBQError as error:
-                _read_error(
-                    issues,
-                    gate="translation_audit",
-                    error=error,
-                    fix=f"openbbq agent next --workspace {path}",
-                )
-            else:
-                if balanced.ready:
-                    gates["translation"] = True
-                    gates["translation_audit"] = True
-                else:
-                    issues.append(
-                        DeliveryIssue(
-                            code="agent_session_stale",
-                            gate="translation_audit",
-                            detail="balanced agent evidence is incomplete or stale: "
-                            + "; ".join(balanced.problems),
-                            fix=f"openbbq agent next --workspace {path}",
-                        )
-                    )
-
-        if has_agent_session:
-            # The balanced session is authoritative.  Never fall back to the
-            # weaker legacy all-cue audit when it exists but is stale.
-            use_legacy_translation_gate = False
-        else:
-            use_legacy_translation_gate = True
-
-    if (
-        cues is not None
-        and translation is not None
-        and resolved_lang is not None
-        and use_legacy_translation_gate
-    ):
-        try:
-            legacy_report = translatelib.check(cues, translation, resolved_lang)
+            report = translatelib.check(cues, translation, resolved_lang)
         except OpenBBQError as error:
             _read_error(
                 issues,
@@ -356,64 +414,27 @@ def assess_delivery(
                 fix=f"openbbq translate init {resolved_lang} --force",
             )
         else:
-            if legacy_report.ready:
-                gates["translation"] = True
-            else:
-                problem_ids = set(legacy_report.missing)
-                problem_ids.update(legacy_report.over_budget)
-                problem_ids.update(legacy_report.zero_budget)
-                problem_ids.update(issue.id for issue in legacy_report.term_issues)
-                problem_ids.update(issue.id for issue in legacy_report.quality_issues)
+            if report.missing:
                 issues.append(
                     DeliveryIssue(
-                        code="translation_quality_failed",
+                        code="translation_incomplete",
                         gate="translation",
-                        detail="deterministic translation checks failed for cue(s): "
-                        + ", ".join(str(item) for item in sorted(problem_ids)[:15]),
-                        fix=f"openbbq translate check {resolved_lang}",
+                        detail=f"missing target text for cue(s): {report.missing[:20]}",
+                        fix=f"openbbq agent next --workspace {path}",
                     )
                 )
-
-        try:
-            audit = ws.read_translation_audit_optional(path, resolved_lang)
-            audit_items = auditlib.audit_items(
-                cues,
-                translation,
-                audit,
-                uncertain_ids=auditlib.uncertain_cue_ids(cues, transcript),
-                coverage="all",
-            )
-            pending = auditlib.pending_items(
-                audit_items,
-                translation,
-                audit,
-                require_context=True,
-            )
-        except OpenBBQError as error:
-            _read_error(
-                issues,
-                gate="translation_audit",
-                error=error,
-                fix=f"openbbq translate audit {resolved_lang} --coverage all",
-            )
-        else:
-            if not pending:
-                gates["translation_audit"] = True
             else:
-                issues.append(
-                    DeliveryIssue(
-                        code="translation_audit_incomplete",
-                        gate="translation_audit",
-                        detail=(
-                            f"{len(pending)} cue(s) need contextual semantic review: "
-                            + ", ".join(str(item.id) for item in pending[:15])
-                        ),
-                        fix=(
-                            f"openbbq translate audit {resolved_lang} "
-                            "--coverage all --limit 20"
-                        ),
-                    )
+                gates["translation"] = True
+                evidence_ready, human_reviewed, evidence_issue = _translation_evidence(
+                    path,
+                    manifest,
+                    cues,
+                    translation,
+                    resolved_lang,
                 )
+                gates["translation_evidence"] = evidence_ready
+                if evidence_issue is not None:
+                    issues.append(evidence_issue)
 
     export_path = _artifact(
         path,
@@ -439,7 +460,11 @@ def assess_delivery(
                 )
             )
         else:
-            if cues is None or translation is None or export_path.suffix.lower() != ".ass":
+            if (
+                cues is None
+                or translation is None
+                or export_path.suffix.lower() != ".ass"
+            ):
                 bilingual = False
             else:
                 try:
@@ -485,18 +510,17 @@ def assess_delivery(
                 )
             )
         else:
-            gates["burn"] = True
             try:
                 nonempty = burn_path.stat().st_size > 0
             except OSError:
                 nonempty = False
-            if nonempty and gates["segment"]:
-                gates["qa_mechanical"] = True
-            elif not nonempty:
+            if nonempty:
+                gates["burn"] = True
+            else:
                 issues.append(
                     DeliveryIssue(
                         code="invalid_burn_output",
-                        gate="qa_mechanical",
+                        gate="burn",
                         detail="burned video is empty or unreadable",
                         fix="openbbq burn",
                     )
@@ -506,4 +530,5 @@ def assess_delivery(
         lang=resolved_lang,
         gates=gates,
         issues=tuple(issues),
+        human_reviewed=human_reviewed,
     )

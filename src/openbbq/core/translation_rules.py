@@ -15,24 +15,17 @@ from openbbq.schemas.translation import TranslationBrief
 _ZH_HANS_TARGETS = {"zh", "zh-hans", "zh-cn"}
 
 _ZH_HANS_RULES = [
-    "输出自然、简洁的简体中文，并使用中文标点。",
-    "准确保留否定、程度、数字、实体、因果关系和操作步骤。",
-    "相邻 cue 只用于消歧；译文必须与当前 cue 对齐，不得把内容漂移到其他 ID。",
-    "严格遵守 glossary 的 target、keep、note 和官方大小写。",
-    "命令、代码、路径、flag、URL、快捷键、产品名和模型名保持准确，除非 glossary 明确指定译名。",
-    "可以压缩无语义 filler，但不得删除态度、条件或关键信息。",
-    "含义和 cue 对齐优先于字符预算；无法安全压缩时标记风险，不得静默漏译。",
-    "疑似 ASR 错误必须提交 source_fix，不能依据错误原文强行猜译。",
+    "输出忠实、自然、简洁的简体中文并使用中文标点；保留否定、数字、实体、条件和关键关系。",
+    "每个 ID 只翻译当前 source；相邻 cue 仅用于理解上下文，不得在 ID 之间移动内容。",
+    "glossary 只在语境明确匹配时使用；命令、代码、路径、flag、URL、产品名和模型名保持精确，除非 glossary 明确指定译名。",
+    "明显的 ASR 错误用当前 cue 的 source_fix 提交；不确定时按当前原文翻译并给出 warning。字符预算仅供参考，不得为满足预算漏译含义。",
 ]
 
 _GENERIC_RULES = [
-    "Translate naturally and concisely into the target language, using its normal punctuation.",
-    "Preserve negation, degree, numbers, entities, causality, and procedural steps.",
-    "Use neighboring cues only for disambiguation; keep each translation aligned to the current cue ID.",
-    "Follow every glossary target, keep instruction, note, and official casing.",
-    "Keep commands, code, paths, flags, URLs, shortcuts, product names, and model names exact unless the glossary says otherwise.",
-    "Meaning and cue alignment outrank the character budget; report a risk instead of silently omitting meaning.",
-    "Return a source_fix for suspected ASR errors instead of guessing a translation from bad source text.",
+    "Translate faithfully, naturally, and concisely into the target language; preserve negation, numbers, entities, conditions, and key relationships.",
+    "Translate only the current source for each ID; use neighboring cues only as context and never move content between IDs.",
+    "Use glossary entries only when the context clearly matches; keep commands, code, paths, flags, URLs, product names, and model names exact unless the glossary explicitly provides a translation.",
+    "Submit a cue-scoped source_fix for an obvious ASR error; when uncertain, translate the current source and return a warning. Treat the character budget as guidance, never as a reason to omit meaning.",
 ]
 
 

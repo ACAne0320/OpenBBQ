@@ -53,8 +53,6 @@ class AsrAmendment(OpenBBQModel):
         self.reason = self.reason.strip()
         if not self.find:
             raise ValueError("find must not be blank")
-        if not self.replacement:
-            raise ValueError("replacement must not be blank")
         if self.find == self.replacement:
             raise ValueError("replacement must differ from find")
         if not self.reason:

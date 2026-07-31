@@ -245,9 +245,7 @@ def test_skill_install_target_cannot_be_combined_with_agent(
 def test_skill_show_returns_packaged_content(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    code, stdout, _stderr = _run_cli(
-        ["--json", "skill", "show"], monkeypatch, capsys
-    )
+    code, stdout, _stderr = _run_cli(["--json", "skill", "show"], monkeypatch, capsys)
 
     data = _single_json(stdout)
     assert code == 0
@@ -286,7 +284,7 @@ def test_skill_show_can_choose_bilibili_cover_skill(
     assert data["content"] == skilllib.packaged_skill_content(name=name)
 
 
-def test_subtitle_skill_happy_path_uses_only_agent_facade_and_stays_bilingual() -> None:
+def test_subtitle_skill_documents_draft_happy_path_in_both_languages() -> None:
     chinese = skilllib.packaged_skill_content(skilllib.SkillLanguage.ZH_CN)
     english = skilllib.packaged_skill_content()
 
@@ -295,16 +293,28 @@ def test_subtitle_skill_happy_path_uses_only_agent_facade_and_stays_bilingual() 
         assert "agent next" in content
         assert "agent apply" in content
         assert "agent finish" in content
+        assert "`translate`" in content
         assert "review_source" in content
-        assert "review_risks" in content
+        assert "structural" in content or "结构性" in content
+        assert "`quality`" in content
+        assert "`human_reviewed`" in content
+        assert "openbbq review --workspace" in content
+        assert "Aegisub" in content
         assert "fansub-compact" in content
-    assert "`codex → Codex`" in chinese
-    chinese_happy_path = chinese.split("## 专家参考", 1)[0]
-    english_happy_path = english.split("## Expert References", 1)[0]
-    for content in (chinese_happy_path, english_happy_path):
-        assert "translate audit --coverage all" not in content
         assert "glossary audit" not in content
         assert "qa render" not in content
         assert "outside_required" in content
         assert "must_continue" in content
         assert "cpu_fallback" in content
+
+
+def test_subtitle_skill_keeps_finish_single_pass_and_translation_id_contract() -> None:
+    for content in (
+        skilllib.packaged_skill_content(skilllib.SkillLanguage.ZH_CN),
+        skilllib.packaged_skill_content(),
+    ):
+        assert "selected_id" in content
+        assert "batch_id" in content
+        assert "policy_hash" in content
+        assert "response_schema" in content
+        assert "once" in content or "一次" in content

@@ -10,6 +10,7 @@ import typer
 
 import openbbq.cli.commands.transcribe as transcribecmd
 from openbbq.cli.commands.transcribe import transcribe
+from openbbq.cli.commands.extract_audio import extract_audio
 from openbbq.cli.output import Output
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
@@ -113,3 +114,23 @@ def test_transcribe_keyboard_interrupt_records_failed(
     failed = ws.read_manifest(path).stages[Stage.TRANSCRIBE]
     assert failed.status is StageStatus.FAILED
     assert failed.error == "interrupted"
+
+
+def test_extract_audio_rejects_duration_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path, _manifest_doc = _workspace(tmp_path)
+
+    def fake_extract(_source: Path, output: Path) -> None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"wav")
+
+    monkeypatch.setattr(transcribecmd.media, "extract_audio", fake_extract)
+    monkeypatch.setattr(transcribecmd.media, "media_duration", lambda _path: 100.0)
+    monkeypatch.setattr(transcribecmd.media, "wav_duration", lambda _path: 130.0)
+
+    with pytest.raises(OpenBBQError) as raised:
+        extract_audio(_ctx(), workspace=str(path))
+
+    assert raised.value.code == "media_duration_mismatch"
+    assert ws.read_manifest(path).stages[Stage.EXTRACT_AUDIO].status is StageStatus.FAILED

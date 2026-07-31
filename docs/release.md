@@ -18,21 +18,35 @@ The pending publisher creates the PyPI project on first publish; it does not res
 ## Publish a version
 
 For changes to the default agent workflow, do not release from CI alone. Before
-changing the version, run the same one-shot prompt in independent workspaces:
+changing the version, run the same simple one-shot prompt in independent
+workspaces:
 
 > 帮我把这个视频制作成中英双语字幕视频。
 
-Use `https://www.youtube.com/watch?v=neK8ydl0Vlk` with both Pi +
-DeepSeek-v4-pro high and Codex + GPT-5.6 Luna medium. Record the session files
-and verify cue by cue:
+Use a stable regression video such as
+`https://www.youtube.com/watch?v=neK8ydl0Vlk` with the supported Pi and Codex
+harness/model matrix. Record the session files and inspect both the workflow and
+the resulting draft:
 
-- source and target correctness/alignment are each at least 95%, with an overall
-  translation score of at least 80;
-- every semantic translation batch has at most 20 cues and one active lease;
-- each batch contains the target-language brief and glossary context;
-- the flow uses risk-only review, burns once, and ends at `delivery_ready: true`;
-- glossary publication succeeds or returns a non-blocking structured retry
-  warning.
+- the subtitle is a useful 70–80 point draft, with no systematic
+  mistranslation, absurd translation, or repeated cue drift;
+- source/target files, IDs, timing, leases, hashes, and final artifact
+  provenance are structurally complete and valid;
+- every translation batch has at most 20 cues and only one lease is active;
+- each batch contains the target-language brief and relevant glossary context;
+- ordinary low-confidence findings, display budgets, and glossary consistency
+  remain advisory instead of triggering a full source review or full-coverage
+  AI audit;
+- the flow exports and burns once, then ends with `artifact_ready: true`,
+  `quality: "draft"`, and `human_reviewed: false`;
+- task glossary learning publishes safely (and reuses the stable
+  author-and-target glossary on later matching videos) or returns a
+  non-blocking structured retry warning;
+- command ordering and terminal behavior are consistent across harnesses.
+
+Do not treat per-cue 95% semantic accuracy as an automated release promise.
+Professional assurance comes from `openbbq review` (or an external subtitle
+editor) and project-specific human evaluation.
 
 Only continue when CI and both harness runs pass.
 
@@ -45,8 +59,8 @@ uv lock
 After the release commit is on `main`, create and push a matching tag:
 
 ```bash
-git tag -a v0.0.1 -m v0.0.1
-git push origin v0.0.1
+git tag -a vX.Y.Z -m vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 Tags beginning with `v` trigger `.github/workflows/publish.yml`.

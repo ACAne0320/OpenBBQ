@@ -112,8 +112,10 @@ HF_ENDPOINT=https://hf-mirror.com openbbq models pull large-v3-turbo
 
 Models are stored in OpenBBQ's global cache and reused across workspaces. They are not written into the video project directory.
 
-If a native ASR backend fails or crashes with `--gpu` in a restricted sandbox,
-rerun `transcribe` outside the sandbox or retry with `--cpu`.
+GPU transcription must run outside the restricted sandbox. If that host/GPU
+attempt genuinely fails and the reported execution policy permits fallback,
+retry with `--cpu`; do not treat a sandbox GPU failure as evidence that the GPU
+path itself is unavailable.
 
 ## Finish
 

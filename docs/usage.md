@@ -2,46 +2,92 @@
 
 [README](../README.md) · [中文说明](usage.zh-CN.md)
 
-This guide covers the default agent facade and the atomic commands retained for
-expert compatibility.
+OpenBBQ has two complementary paths:
+
+- the default agent facade produces a structurally valid, editable AI subtitle
+  draft from one prompt;
+- expert commands and `openbbq review` support diagnosis and professional human
+  finishing.
+
+The expected automatic result is a useful 70–80 point draft. It is not a claim
+that every cue has been professionally verified.
 
 ## Recommended: One-Prompt Agent Flow
 
-Initialize a new task once:
+With the packaged skill installed, the user-facing quickstart is just:
+
+> Make this video into a bilingual Chinese-English subtitled video:
+> https://www.youtube.com/watch?v=...
+
+The agent owns the workflow below. The user does not need to name its internal
+steps in the prompt.
+
+Initialize once, optionally naming an existing glossary that is known to match
+the video:
 
 ```bash
-openbbq --json agent init 'https://www.youtube.com/watch?v=...' --workspace workspaces/demo --to zh
+openbbq --json agent init 'https://www.youtube.com/watch?v=...' \
+  --workspace workspaces/demo --to zh [--glossary <name>]
 ```
 
-Then repeatedly run:
+Then repeatedly request the authoritative next action:
 
 ```bash
 openbbq --json agent next --workspace workspaces/demo
 ```
 
-- For `run_command`, execute the returned `argv` exactly.
-- For `select_glossary`, `review_source`, `translate`, or `review_risks`, write
-  JSON matching `response_schema`, then run
-  `openbbq --json agent apply --workspace workspaces/demo response.json`.
-- For `finish`, execute its `argv`. It exports and burns once, chooses `fansub`
-  for landscape or `mobile` for portrait, and does no visual QA or
-  `fansub-compact` pass.
-- Deliver the returned subtitle and video paths only at `done`.
+Handle the returned action as follows:
 
-Semantic actions use persistent leases, so repeated `next` calls return the
-same batch. `apply` requires the exact `batch_id`, `policy_hash`, and complete ID
-set. The CLI enforces translation batches of at most 20 cues. A
-`translation@2` worksheet fixes the target-language rules, title/author,
-glossary context, and pending terms. The default balanced gate reviews only
-real translation risks; the `coverage=all` commands below remain expert
-interfaces for legacy workspaces and explicit thorough mode.
-If a missed ASR error becomes clear only during risk review, the same
-`review_risks` response may submit cue-scoped `source_fixes` and reusable
-`glossary_updates`. Timeline-collapse detector issues cannot be accepted, and
-segment/export/delivery reject zero-duration cues.
+- `run_command`: execute the returned `argv` exactly;
+- `review_source`: only when a structural ASR problem blocks segmentation,
+  submit the complete bounded response to `agent apply`;
+- `translate`: translate every selected ID and submit the response to
+  `agent apply`;
+- `finish`: execute its `argv`;
+- `done`: deliver the returned subtitle and video paths.
 
-The remaining sections document atomic commands for authentication,
-sandbox/GPU constraints, recovery, debugging, and legacy workflows.
+For semantic actions:
+
+```bash
+openbbq --json agent apply --workspace workspaces/demo response.json
+```
+
+A normal run is:
+
+```text
+fetch → extract → transcribe → validate/segment
+      → translate (≤20 cues per batch) → finish → done
+```
+
+There is no model-driven glossary-selection dialogue, risk-review queue, or
+full-coverage AI audit. An explicit `--glossary` wins; otherwise a URL task
+binds a stable author-and-target glossary after fetch discovers the author.
+Repeated `next` calls return the same active lease.
+`apply` requires the exact `batch_id`, `policy_hash`, and complete ID set, and
+rejects stale source or worksheet content.
+
+Translation may also submit:
+
+- cue-scoped `source_fixes` for obvious ASR mistakes;
+- reusable `glossary_updates`;
+- a concise warning when the model is uncertain.
+
+Ordinary low-confidence ASR words, display budgets, and glossary consistency
+are advisory. Hard gates are limited to valid schemas and timing, complete IDs,
+non-empty source/target content, current hashes, atomic updates, fresh
+provenance, and non-empty final artifacts.
+
+`finish` exports and burns once, using `fansub` for landscape or `mobile` for
+portrait. It does not run visual QA or choose `fansub-compact`. A normal `done`
+response includes:
+
+```json
+{
+  "artifact_ready": true,
+  "quality": "draft",
+  "human_reviewed": false
+}
+```
 
 ## Check The Environment
 
@@ -52,19 +98,19 @@ uv sync --extra whispercpp --dev
 uv run pytest
 ```
 
-Runtime checks:
+Runtime setup:
 
 ```bash
 openbbq doctor
+openbbq models list
 openbbq models pull large-v3-turbo
 ```
 
-For subtitle burning, `doctor` should find FFmpeg with `ass` and `subtitles`
-filters.
+Subtitle burning requires FFmpeg with the `ass` and `subtitles` filters.
 
-## YouTube Workflow
+## Sources, Authentication, And GPU
 
-Quote URLs in shells such as zsh:
+Quote URLs in shells such as zsh. The equivalent atomic YouTube flow is:
 
 ```bash
 openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
@@ -74,22 +120,7 @@ openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language
 openbbq segment --workspace workspaces/demo
 ```
 
-If YouTube asks for login or bot verification:
-
-```bash
-openbbq auth browser-login youtube
-openbbq fetch --workspace workspaces/demo --max-height 1080
-```
-
-The browser auth profile is stored under `OPENBBQ_HOME`, defaulting to
-`~/.openbbq`. That location must be writable. In restricted sandboxes, run
-browser auth and `fetch` in a normal user environment, or set `OPENBBQ_HOME` to
-a writable path. For public videos where saved auth causes a 403, retry with
-`openbbq fetch --workspace workspaces/demo --no-auth`.
-
-## Local File Workflow
-
-For a local video, skip `fetch`:
+For a local file, skip `fetch`:
 
 ```bash
 openbbq init --workspace workspaces/demo /path/to/video.mp4
@@ -98,176 +129,143 @@ openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language
 openbbq segment --workspace workspaces/demo
 ```
 
-## ASR And GPU
+If YouTube requests login or human verification:
 
-`--gpu` is the default fast path when the selected ASR backend supports it. If a
-native backend crashes or fails inside a restricted sandbox, rerun `transcribe`
-outside the sandbox or retry with `--cpu`.
+```bash
+openbbq auth browser-login youtube
+openbbq fetch --workspace workspaces/demo --max-height 1080
+```
 
-Before segmentation, resolve every low-confidence word and segment anomaly
-(decoder repetition, impossible word rate, or title/author entity conflict):
+Browser state is stored under `OPENBBQ_HOME`, which defaults to `~/.openbbq`.
+Run browser authentication and network fetches in a normal user environment
+when a restricted sandbox cannot access that state. For a public video where
+saved authentication causes a 403, retry with `--no-auth`.
+
+GPU is the default ASR path when supported. Native GPU/model-cache work should
+run outside a restricted sandbox. Use CPU only after the outside-sandbox GPU
+attempt actually fails:
+
+```bash
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --cpu
+```
+
+## Glossaries
+
+Use an existing glossary explicitly when its scope is known:
+
+```bash
+openbbq glossary list
+openbbq glossary show <name>
+openbbq --json agent init '<source>' --workspace workspaces/demo --to zh --glossary <name>
+```
+
+The explicit glossary always wins. Without one, a URL task waits for fetched
+metadata, then derives a stable `author-<slug>-<target>-<hash>` glossary from
+the author and target language. Later videos by the same author and target
+language resolve to the same glossary, without relying on model judgment.
+Local-file tasks without an explicit glossary keep only their task overlay.
+
+During translation, OpenBBQ provides the bound glossary context and relevant
+selected or neighboring terms. Reusable discoveries go to the task-local
+`.openbbq/glossary-overlay.json`. Base glossary plus overlay are used during
+the task; the global library is updated only after successful delivery.
+
+Publication is conflict-safe and never overwrites an existing owner or value.
+A conflict or permission error leaves the overlay intact and returns a
+non-blocking retry warning.
+
+## Expert ASR Diagnostics
+
+The following commands are optional expert tools, not steps in the default
+one-shot flow:
 
 ```bash
 openbbq --json asr check --workspace workspaces/demo
 openbbq --json asr batch --workspace workspaces/demo --limit 20 --only-unresolved
 openbbq asr apply --workspace workspaces/demo asr-decisions.json
-```
-
-Use accept/replace for words and entities, and keep_first/drop for repeated
-segments. Every decision requires a reason; phrase replacements also include
-the exact `find` phrase and `replacement`. When fetch preserved a YouTube VTT,
-the batch includes overlapping reference text. Repeat until `asr check` returns
-`ready: true`; `segment` blocks unresolved or stale decisions. This gate only
-closes detector-found issues. It does not certify high-confidence words.
-
-After the detector gate, audit every transcript segment with semantic context:
-
-```bash
+openbbq asr amend --workspace workspaces/demo asr-amendments.json
 openbbq --json glossary suggest --workspace workspaces/demo
 openbbq --json glossary audit --workspace workspaces/demo --offset 0 --limit 20
-```
-
-Follow `next_offset` until `remaining` is zero. Audit items include previous and
-next text, word probabilities, resolved/raw source, reference captions when
-available, and glossary matches. The Agent decides from context; probability and
-reference text are advisory evidence.
-
-For a one-off error with no detector issue id, apply a bounded contextual patch:
-
-```json
-{"amendments":[{"segment_id":12,"find":"hot tick","replacement":"hot take","reason":"The surrounding sentence uses the idiom hot take."}]}
-```
-
-```bash
-openbbq asr amend --workspace workspaces/demo asr-amendments.json
-```
-
-For reusable names and ASR variants, atomically update the bound glossary:
-
-```json
-{"terms":[{"source":"Andy Matuschak","aliases":["Annie Matushak"],"note":"researcher; confirmed ASR variant"}]}
-```
-
-```bash
 openbbq glossary apply --workspace workspaces/demo glossary-terms.json
-openbbq --json segment --workspace workspaces/demo
 ```
 
-Segment output reports `glossary_matched_terms`,
-`glossary_aliases_applied`, and `glossary_no_effect`. A bound glossary with no
-matches is not treated as proof that terminology was maintained.
+Use them to diagnose a known ASR problem, migrate an old workspace, or run a
+human-directed thorough pass. Low confidence alone does not require a
+replacement, and a full transcript audit is not a default delivery gate.
+Occurrence fixes must stay bounded; only a deliberately reusable glossary alias
+may affect later matching text.
 
-## Translate
+## Expert Translation Commands
 
-Create a Chinese translation worksheet:
+The facade normally creates and manages the translation worksheet. The
+equivalent atomic commands remain available:
 
 ```bash
 openbbq translate init zh --workspace workspaces/demo --max-lines 2
-```
-
-Read long worksheets in bounded batches so an Agent does not load the whole
-video into context:
-
-```bash
 openbbq --json translate batch zh --workspace workspaces/demo --from 1 --limit 20 --only-missing
-```
-
-Write a JSON object mapping selected cue ids to translated text and merge it:
-
-```bash
-echo '{"1": "第一句译文", "2": "第二句译文"}' > targets.json
 openbbq translate apply zh --workspace workspaces/demo targets.json
-```
-
-Validate it:
-
-```bash
 openbbq translate check zh --workspace workspaces/demo
 ```
 
-The translation is complete only when `ready` is `true`. Resolve `missing`,
-`over_budget`, `zero_budget`, `term_issues`, and `quality_issues`; export blocks
-these warnings unless `--allow-quality-warnings` explicitly marks a draft.
-`translate check` is read-only and never invalidates completed export/burn
-stages. Bilingual ASS uses the worksheet's target line budget and inserts
-deterministic `\N` wrapping without truncating target text.
+`translate check` reports missing/empty targets as errors and may report budget
+or glossary findings as warnings. Warnings help an editor prioritize work; they
+do not certify meaning and do not create a mandatory default review loop.
 
-Review the full-coverage semantic queue in bounded pages (risk first, with
-neighbor context):
+## Professional Review And Editing
 
-```bash
-openbbq --json translate audit zh --workspace workspaces/demo --coverage all --limit 20
-openbbq translate audit-apply zh --workspace workspaces/demo translation-audit.json
-```
-
-Each accept/revise decision requires a reason, and revisions include `target`.
-Every cue requires an accept/revise decision. Editing one cue invalidates its
-own and adjacent context reviews. Export blocks current unaudited items unless a deliberate draft uses
-`--allow-quality-warnings`.
-
-## Visual Review And Subtitle Editing
-
-Install the optional local review UI, then open one target language:
+Install the optional local review UI and open the generated workspace:
 
 ```bash
 uv tool install 'openbbq[review]' --force
 openbbq review --workspace workspaces/demo --to zh
 ```
 
-The browser keeps the video or audio, waveform, cue timeline, source text,
-translation, timing, and review status in one workspace. Text edits autosave to
-`cues.json` and `translation.<lang>.json`; split, merge, insert, delete,
-undo/redo, and cue-level reviewed/flagged states are supported. SRT/ASS files
-remain derived artifacts and are regenerated explicitly with `export`.
+The browser combines video or audio, waveform, cue timeline, source,
+translation, timing, and review state. It supports source/target edits,
+split/merge/insert/delete, undo/redo, and cue-level reviewed/flagged states.
+Changes autosave to the canonical workspace data.
 
-Once a `review.<lang>.json` exists, the matching target/bilingual export is
-blocked until every cue is reviewed. Use `--allow-unreviewed` only when you
-intentionally need a draft export.
+Human edits are authoritative. The automatic workflow does not overwrite them.
+After editing, regenerate derived SRT/ASS and the burned video deliberately.
+The ASS can also be imported into Aegisub or another editing application.
 
-## Export And Burn
+When every current cue has been confirmed, OpenBBQ may report:
 
-Export bilingual ASS:
-
-```bash
-openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --output out/zh.ass
+```json
+{
+  "quality": "human-reviewed",
+  "human_reviewed": true
+}
 ```
 
-Burn subtitles into the video:
+That state records completed human review; it does not come from an automatic
+semantic score.
+
+## Export, Burn, And Delivery
+
+Atomic export and burn commands remain useful after manual edits:
 
 ```bash
+openbbq export --workspace workspaces/demo --to zh --mode bilingual \
+  --format ass --output out/zh.ass
 openbbq burn --workspace workspaces/demo
+openbbq --json delivery check --workspace workspaces/demo --to zh
 ```
 
-Burning can take minutes. In JSON or non-TTY mode, stdout remains a single final
-JSON object; progress is written to the workspace manifest. Poll it from another
-terminal:
+Export records content hashes. Burn rejects a changed or untracked workspace
+ASS and records the source-video, ASS, and final MP4 hashes. Delivery checks
+schema validity, complete non-empty content, valid timing, artifact freshness,
+and provenance. Semantic warnings do not claim or deny professional accuracy.
+
+Long operations write progress to the workspace manifest:
 
 ```bash
 openbbq --json status --workspace workspaces/demo
 ```
 
-Export records content hashes for cues, translation, review state, and the ASS.
-Burn rejects a changed or untracked workspace ASS. `--allow-stale` is reserved
-for an intentional manual draft; an explicitly supplied ASS outside the
-workspace remains supported. Successful burn also records the final MP4 hash
-and the exact source-video and ASS hashes.
-
-## Completion Checks
-
-```bash
-openbbq --json delivery check --workspace workspaces/demo --to zh
-```
-
-Final `delivery check` is a hard gate combining ASR, deterministic translation,
-full-context semantic review, exact bilingual ASS content, export/burn
-freshness, burn provenance, and a non-empty MP4. Any failure returns
-`ready:false` with a non-zero exit code.
-Visual layout is not a default gate; non-vision models do not need to inspect
-risk frames and are not penalized for skipping them.
-
-`qa render`, `qa check`, and `qa attest` remain available as optional manual
-diagnostics when the user explicitly requests visual review. They do not
-automatically select an ASS preset or trigger a reburn.
+`qa render/check/attest` remain optional diagnostics when a human explicitly
+requests visual inspection. They never run automatically, select a preset, or
+trigger a reburn.
 
 ## ASS Presets
 
@@ -278,71 +276,42 @@ openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset mobile
 ```
 
-- `default`: normal 16:9 horizontal video.
-- `fansub`: more prominent translated line.
-- `fansub-compact`: a smaller, raised bilingual stack used only when explicitly
-  requested; the default flow never auto-selects it from sampled frames.
-- `mobile`: 9:16 vertical video with a vertical canvas and larger bottom safe
-  area.
+- `default`: normal 16:9 styling;
+- `fansub`: a more prominent translated line and the default landscape choice;
+- `fansub-compact`: an explicit smaller, raised bilingual stack;
+- `mobile`: 9:16 styling with a larger bottom safe area.
 
-The mobile preset changes rendering only. Use target-side `translate init`
-overrides to set line capacity; content that still exceeds reading-speed or
-line-capacity gates must be revised or resegmented.
+Presets affect rendering, not translation meaning. OpenBBQ does not predict
+where arbitrary text will appear in the video.
 
-## Agent Usage
+## Agent Installation And Output
 
-Agents should use JSON output with the root flag before the command:
-
-```bash
-openbbq --json status --workspace workspaces/demo
-openbbq --json export --workspace workspaces/demo --to zh --mode bilingual --format ass
-```
-
-Human Rich output is used only when stdout is an interactive TTY. In Codex, CI,
-or other non-TTY runners, OpenBBQ emits compact JSON automatically even when
-`--json` is omitted.
-
-The workspace manifest records completed, running, and failed stages. Poll
-`status` for progress during long tasks such as `fetch`, `transcribe`, and
-`burn`.
-
-Install the packaged agent skill. The default target is the shared agents
-directory:
+Install the packaged skill:
 
 ```bash
 openbbq skill install
 ```
 
-This writes to `~/.agents/skills/openbbq-subtitles/`. If your agent reads a
-product-specific skills directory, use `openbbq skill install --agent claude` or
-`openbbq skill install --agent codex`. To install all supported targets at once,
-use `openbbq skill install --agent all`.
-
-Installation always writes the English skill and its English `references/`.
-
-Agents that read the skill directly from stdout can use `openbbq skill show`.
-
-## Outputs
+Use `--agent claude`, `--agent codex`, or `--agent all` when a harness reads a
+product-specific skill directory. `openbbq skill show` prints the installed
+instructions.
 
 Common workspace outputs:
 
-- `media/`: fetched or generated media.
-- `transcript.json`: ASR output.
-- `cues.json`: source subtitle cues.
-- `translation.<lang>.json`: editable translation worksheet.
-- `.openbbq/asr-review.json`: transcript-hash-bound uncertain-word decisions.
-- `.openbbq/translation-audit.<lang>.json`: current-cue risk review decisions.
-- `.openbbq/qa.json`: MP4/frame evidence and optional visual attestation.
-- `review.<lang>.json`: cue-level human review state and reviewed-content hashes.
-- `.openbbq/artifacts.json`: export provenance and content hashes used by burn.
-- `.openbbq/review/`: local locks, checkpoints, waveform cache, and preview proxy.
-- `out/<lang>.srt`: exported SRT subtitles.
-- `out/<lang>.ass`: exported ASS subtitles.
+- `transcript.json`: ASR transcript;
+- `cues.json`: canonical source cues;
+- `translation.<lang>.json`: editable translation worksheet;
+- `.openbbq/agent-session.<lang>.json`: leases and translation evidence;
+- `.openbbq/glossary-overlay.json`: task-local reusable glossary learning;
+- `review.<lang>.json`: human review state;
+- `.openbbq/artifacts.json`: export/burn provenance;
+- `out/<lang>.srt` and `out/<lang>.ass`: subtitle exports;
 - `out/<lang>-burned.mp4`: hard-subtitled video.
 
 ## Commands
 
 ```text
+openbbq agent init/next/apply/finish
 openbbq doctor
 openbbq init
 openbbq status
@@ -352,7 +321,7 @@ openbbq extract-audio
 openbbq transcribe
 openbbq segment
 openbbq asr check/batch/apply/amend
-openbbq translate init/batch/apply/check/audit/audit-apply
+openbbq translate init/batch/apply/check
 openbbq review
 openbbq glossary list/show/new/use/suggest/audit/apply
 openbbq export

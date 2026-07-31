@@ -131,7 +131,10 @@ def test_simplified_chinese_translation_rules_are_target_language_scoped(
     assert brief.title == "Demo"
     assert brief.author == "Channel"
     assert brief.domain_context == "AI agents"
+    assert len(brief.rules) == 4
     assert any("当前 cue" in rule for rule in brief.rules)
+    assert any("语境明确匹配" in rule for rule in brief.rules)
+    assert any("字符预算仅供参考" in rule for rule in brief.rules)
 
 
 @pytest.mark.parametrize("lang", ["zh-TW", "zh-Hant", "zh-HK", "fr"])
@@ -140,6 +143,9 @@ def test_unsupported_target_language_rules_use_generic_fallback(lang: str) -> No
 
     assert brief.ruleset == "generic@1"
     assert brief.generic_translation_rules is True
+    assert len(brief.rules) == 4
+    assert any("current source" in rule for rule in brief.rules)
+    assert any("character budget as guidance" in rule for rule in brief.rules)
 
 
 def test_build_worksheet_target_line_override_increases_visual_capacity() -> None:
@@ -180,13 +186,14 @@ def test_build_worksheet_includes_pending_glossary_terms_and_context() -> None:
         name="g",
         context="Fantasy series context",
         terms=[
-            Term(source="Frieren", target="芙莉莲"),
+            Term(source="Frieren", target="芙莉莲", aliases=["Freiren"]),
             Term(source="bare", note="pending official translation"),
             Term(source="Pey", keep=True),
         ],
     )
     doc, _ = tr.build_worksheet(_cues(Cue(id=1, start=0, end=1, source="x")), g, "zh")
     assert [r.source for r in doc.glossary] == ["Frieren", "bare", "Pey"]
+    assert doc.glossary[0].aliases == ["Freiren"]
     assert doc.brief is not None
     assert doc.brief.domain_context == "Fantasy series context"
 
@@ -239,6 +246,16 @@ def test_apply_targets_unknown_id_fails_before_mutation() -> None:
     assert doc.items[0].target is None  # nothing half-applied
 
 
+def test_item_hash_is_stable_and_tracks_editable_content() -> None:
+    item = _item(1, "hello", "你好")
+
+    assert tr.item_hash(item) == tr.item_hash(item.model_copy(deep=True))
+
+    changed = item.model_copy(deep=True)
+    changed.target = "您好"
+    assert tr.item_hash(changed) != tr.item_hash(item)
+
+
 # --- check: integrity ---------------------------------------------------------
 
 
@@ -261,79 +278,21 @@ def test_check_complete() -> None:
     assert report.ready is True
 
 
-def test_check_source_copy_is_quality_issue() -> None:
-    cues = _cues(Cue(id=1, start=0, end=2, source="Hello there"))
-    doc = _ws_doc(_item(1, "Hello there", "Hello there"))
-
-    report = tr.check(cues, doc, "zh")
-
-    assert report.ready is False
-    assert report.quality_warnings == 1
-    assert report.quality_issues == [
-        tr.QualityIssue(id=1, code="source_copy", detail="target matches source")
-    ]
-
-
-def test_check_kept_glossary_only_source_is_not_source_copy() -> None:
-    cues = _cues(Cue(id=1, start=0, end=2, source="OpenAI"))
-    doc = Translation(
-        source_lang="en",
-        target_lang="zh",
-        params=EN_PARAMS,
-        glossary=[GlossaryRef(source="OpenAI", keep=True)],
-        items=[_item(1, "OpenAI", "OpenAI")],
-    )
-
-    assert tr.check(cues, doc, "zh").quality_issues == []
-
-
-def test_check_target_script_mismatch_is_quality_issue() -> None:
-    cues = _cues(Cue(id=1, start=0, end=2, source="Hello from Vienna"))
-    doc = _ws_doc(_item(1, "Hello from Vienna", "Hello from Austria"))
-
-    report = tr.check(cues, doc, "zh")
-
-    assert [issue.code for issue in report.quality_issues] == ["target_script"]
-
-
-def test_check_repeated_target_for_distinct_sources_is_quality_issue() -> None:
-    cues = _cues(
-        Cue(id=1, start=0, end=1, source="First source"),
-        Cue(id=2, start=1, end=2, source="Second source"),
-        Cue(id=3, start=2, end=3, source="Third source"),
-    )
-    repeated = "我们客户不够。对。"
-    doc = _ws_doc(
-        _item(1, "First source", repeated),
-        _item(2, "Second source", repeated),
-        _item(3, "Third source", repeated),
-    )
-
-    report = tr.check(cues, doc, "zh")
-
-    assert report.ready is False
-    assert [(issue.id, issue.code) for issue in report.quality_issues] == [
-        (1, "repeated_target"),
-        (2, "repeated_target"),
-        (3, "repeated_target"),
-    ]
-
-
-def test_check_zero_budget_is_explicit_blocker() -> None:
+def test_check_zero_budget_is_advisory() -> None:
     cues = _cues(Cue(id=1, start=0, end=0.02, source="A full sentence"))
     doc = _ws_doc(
         TranslationItem(
             id=1,
             source="A full sentence",
             budget=Budget(max_chars=0, seconds=0.02),
-            target=None,
+            target="译文",
         )
     )
 
     report = tr.check(cues, doc, "zh")
 
     assert report.zero_budget == [1]
-    assert report.ready is False
+    assert report.ready is True
 
 
 def test_check_blank_counts_missing() -> None:
@@ -601,26 +560,6 @@ def test_apply_command_merges_batches(tmp_path) -> None:
     assert ws.read_manifest(path).stages[Stage.TRANSLATE].status is StageStatus.RUNNING
 
 
-def test_apply_command_records_budget_driven_shortening_for_audit(tmp_path) -> None:
-    path = _workspace(tmp_path, Cue(id=1, start=0, end=1, source="hello there"))
-    init_cmd(_ctx(), lang="zh", workspace=str(path))
-    long_batch = tmp_path / "targets.long.json"
-    long_batch.write_text(
-        json.dumps({"1": "这是一条明显超过字幕预算的冗长翻译文本"}),
-        encoding="utf-8",
-    )
-    apply_cmd(_ctx(), lang="zh", targets=str(long_batch), workspace=str(path))
-    short_batch = tmp_path / "targets.short.json"
-    short_batch.write_text(json.dumps({"1": "简短译文"}), encoding="utf-8")
-
-    apply_cmd(_ctx(), lang="zh", targets=str(short_batch), workspace=str(path))
-
-    audit = ws.read_translation_audit_optional(path, "zh")
-    assert audit is not None
-    assert "budget_rewrite" in audit.flags[1].codes
-    assert "shortened_translation" in audit.flags[1].codes
-
-
 def test_apply_command_requires_worksheet(tmp_path) -> None:
     path = _workspace(tmp_path, Cue(id=1, start=0, end=1, source="hi"))
     batch = tmp_path / "targets.json"
@@ -687,7 +626,7 @@ def test_translate_command_payload_next_hints(
     check_cmd(_ctx(), lang="zh", workspace=str(path))
     assert (
         _payload(capsys)["next"]
-        == "openbbq translate audit zh --limit 20"
+        == "openbbq export --to zh --mode bilingual --format ass"
     )
 
 
@@ -734,60 +673,7 @@ def test_translate_check_payload_term_issues(
     payload = _payload(capsys)
     assert payload["term_warnings"] == 1
     assert payload["term_issues"] == [{"id": 1, "term": "OpenAI", "expected": "OpenAI"}]
-    assert payload["ready"] is False
-
-
-def test_translate_check_quality_issue_keeps_stage_running(
-    tmp_path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    path = _workspace(tmp_path, Cue(id=1, start=0, end=2, source="Hello there"))
-    init_cmd(_ctx(), lang="zh", workspace=str(path))
-    _payload(capsys)
-    wpath = path / "translation.zh.json"
-    doc = ws.read_translation(wpath)
-    doc.items[0].target = "Hello there"
-    ws.write_text_atomic(wpath, doc.model_dump_json())
-
-    check_cmd(_ctx(), lang="zh", workspace=str(path))
-
-    payload = _payload(capsys)
-    assert payload["ready"] is False
-    assert payload["quality_warnings"] == 1
-    quality_issues = cast(list[dict[str, object]], payload["quality_issues"])
-    assert quality_issues[0]["code"] == "source_copy"
-    assert ws.read_manifest(path).stages[Stage.TRANSLATE].status is StageStatus.RUNNING
-
-
-def test_translate_check_reports_target_line_capacity() -> None:
-    params = SegmentParams(
-        max_cps=100,
-        max_chars_per_line=4,
-        max_lines=2,
-        min_dur=1,
-        max_dur=7,
-        min_gap=0.083,
-    )
-    cues = _cues(Cue(id=1, start=0, end=2, source="hello"))
-    worksheet = Translation(
-        source_lang="en",
-        target_lang="zh",
-        params=params,
-        items=[
-            TranslationItem(
-                id=1,
-                source="hello",
-                target="一二三四五六七八九",
-                budget=Budget(max_chars=20, seconds=2),
-            )
-        ],
-    )
-
-    report = tr.check(cues, worksheet, "zh")
-
-    assert report.over_budget == []
-    assert [(issue.id, issue.code) for issue in report.quality_issues] == [
-        (1, "line_capacity")
-    ]
+    assert payload["ready"] is True
 
 
 def test_translate_batch_returns_bounded_items_context_and_next_cursor(
@@ -825,7 +711,9 @@ def test_translate_batch_returns_bounded_items_context_and_next_cursor(
     assert [item["selected"] for item in items] == [False, True, True, False]
     assert payload["next_from"] == 5
     assert payload["remaining"] == 2
-    assert [item["source"] for item in cast(list[dict[str, object]], payload["glossary"])] == [
+    assert [
+        item["source"] for item in cast(list[dict[str, object]], payload["glossary"])
+    ] == [
         "source 2",
         "source 5",
     ]

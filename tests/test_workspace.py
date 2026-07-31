@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import datetime, timezone
 from pathlib import Path
 from types import TracebackType
@@ -280,3 +280,19 @@ def test_record_stage_failed_does_not_reset_later_stages(tmp_path) -> None:
     updated = ws.read_manifest(wsdir)
     assert updated.stages[Stage.SEGMENT].artifact == "cues.json"
     assert updated.stages[Stage.EXPORT].artifact == "out/zh.srt"
+
+
+def test_stage_execution_lock_serializes_long_running_mechanical_work(tmp_path) -> None:
+    wsdir = tmp_path / "ws"
+    wsdir.mkdir()
+
+    def wait_for_lock() -> str:
+        with ws.stage_execution_lock(wsdir, Stage.FETCH):
+            return "acquired"
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with ws.stage_execution_lock(wsdir, Stage.FETCH):
+            waiting = pool.submit(wait_for_lock)
+            with pytest.raises(TimeoutError):
+                waiting.result(timeout=0.05)
+        assert waiting.result(timeout=1) == "acquired"

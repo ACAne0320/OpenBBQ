@@ -14,7 +14,7 @@ from ...core import glossary_overlay
 from ...core import media
 from ...core import workspace as ws
 from ...errors import OpenBBQError
-from ...schemas import Stage
+from ...schemas import Cues, Stage, Translation
 from ..delivery import assess_delivery
 from ..output import Output
 from ..results import Result
@@ -67,7 +67,7 @@ def init(
         typer.Option("--glossary", help="existing global glossary name"),
     ] = None,
 ) -> None:
-    """Initialize a balanced single-prompt workflow."""
+    """Initialize the one-shot editable-draft workflow."""
 
     output: Output = ctx.obj
     ws.validate_lang(to)
@@ -84,7 +84,6 @@ def init(
             path,
             to,
             glossary_name=glossary,
-            glossary_selected=glossary is not None,
         )
     output.emit(
         AgentResult(
@@ -137,7 +136,7 @@ def apply(
     ctx: typer.Context,
     response: Annotated[
         str,
-        typer.Argument(help="JSON response for the active semantic batch"),
+        typer.Argument(help="JSON response for the active agent batch"),
     ],
     workspace: Annotated[
         str | None,
@@ -148,7 +147,7 @@ def apply(
         typer.Option("--to", help="target language when multiple sessions exist"),
     ] = None,
 ) -> None:
-    """Atomically apply the complete active semantic batch response."""
+    """Atomically apply the complete active agent batch response."""
 
     output: Output = ctx.obj
     path = ws.resolve_workspace(workspace)
@@ -208,6 +207,32 @@ def _fresh_stage_artifact(path: Path, stage: Stage, expected: Path) -> bool:
     return True
 
 
+def _fresh_agent_subtitle(
+    path: Path,
+    subtitle: Path,
+    cues: Cues,
+    worksheet: Translation,
+    preset: exportlib.AssPreset,
+    lang: str,
+) -> bool:
+    """Reuse only the exact bilingual ASS recipe owned by ``agent finish``."""
+
+    if not _fresh_stage_artifact(path, Stage.EXPORT, subtitle):
+        return False
+    try:
+        actual = subtitle.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    expected = exportlib.render_ass(
+        cues,
+        exportlib.ExportMode.BILINGUAL,
+        translation=worksheet,
+        preset=preset,
+        translation_lang=lang,
+    )
+    return actual == expected
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -253,8 +278,10 @@ def finish(
                 pid=session.finish_pid,
                 fix="wait for the active openbbq agent finish process",
             )
-        if lease is not None and lease.action == "finish" and not agent_workflow.active_lease_fresh(
-            path, manifest, session
+        if (
+            lease is not None
+            and lease.action == "finish"
+            and not agent_workflow.active_lease_fresh(path, manifest, session)
         ):
             session.active_lease = None
             ws.write_agent_session(path, session)
@@ -272,18 +299,31 @@ def finish(
         session = ws.read_agent_session_optional(path, lang)
         if session is None or session.finish_pid != finish_pid:
             raise OpenBBQError("agent_finish_claim_lost")
-        cues_path = ws.require_artifact(path, manifest, Stage.SEGMENT, fix="openbbq segment")
+        cues_path = ws.require_artifact(
+            path, manifest, Stage.SEGMENT, fix="openbbq segment"
+        )
         cues = ws.read_cues(cues_path)
         worksheet = ws.read_translation(ws.worksheet_path(path, lang))
-        gate = agent_workflow.balanced_gate(path, manifest, session, cues, worksheet)
+        gate = agent_workflow.draft_gate(path, manifest, session, cues, worksheet)
         if not gate.ready:
             raise OpenBBQError(
                 "agent_finish_not_ready",
                 problems=list(gate.problems),
                 fix=f"run openbbq agent next --workspace {path}",
             )
-        inputs_hash = agent_workflow.semantic_inputs_hash(
+        human_reviewed = agent_workflow.human_review_is_complete(
+            path,
+            cues,
+            worksheet,
+        )
+        inputs_hash = agent_workflow.draft_inputs_hash(
             path, manifest, session, cues, worksheet
+        )
+        agent_workflow.record_translation_progress(
+            path,
+            manifest,
+            worksheet,
+            complete=True,
         )
         subtitle_rel = f"out/{lang}.ass"
         video_rel = f"out/{lang}-burned.mp4"
@@ -297,7 +337,14 @@ def finish(
             else exportlib.AssPreset.FANSUB
         )
 
-        if not _fresh_stage_artifact(path, Stage.EXPORT, subtitle):
+        if not _fresh_agent_subtitle(
+            path,
+            subtitle,
+            cues,
+            worksheet,
+            preset,
+            lang,
+        ):
             export_context = _capture_context()
             export_command(
                 export_context,
@@ -309,7 +356,6 @@ def finish(
                 ass_preset=preset,
                 allow_missing=False,
                 allow_unreviewed=True,
-                allow_quality_warnings=True,
             )
         if not _fresh_stage_artifact(path, Stage.BURN, video):
             burn_context = _capture_context()
@@ -340,8 +386,7 @@ def finish(
                     terms=(),
                     warnings=(),
                 )
-                if session.finished is not None
-                and session.finished.glossary_published
+                if session.finished is not None and session.finished.glossary_published
                 else glossary_overlay.publish(path)
             )
             known_warnings = {
@@ -358,7 +403,6 @@ def finish(
                 inputs_hash=inputs_hash,
                 subtitle=subtitle_rel,
                 video=video_rel,
-                preset="mobile" if preset is exportlib.AssPreset.MOBILE else "fansub",
                 glossary_published=publication.published,
             )
             data = {
@@ -369,10 +413,11 @@ def finish(
                 "must_continue": False,
                 "subtitle": str(subtitle),
                 "video": str(video),
-                "preset": preset.value,
-                "delivery_ready": True,
+                "artifact_ready": True,
+                "quality": "human-reviewed" if human_reviewed else "draft",
+                "human_reviewed": human_reviewed,
+                "quality_warnings": agent_workflow.draft_warnings(cues, worksheet),
                 "glossary_published": publication.published,
-                "glossary_terms_published": list(publication.terms),
                 "warnings": [
                     warning.model_dump(mode="json") for warning in session.warnings
                 ],

@@ -10,9 +10,10 @@ from rich.table import Table
 
 from ...core import asr_review as asr_reviewlib
 from ...core import glossary as glossarylib
+from ...core import glossary_overlay
 from ...core import workspace as ws
 from ...errors import OpenBBQError
-from ...schemas import OpenBBQModel, Stage, Term
+from ...schemas import Glossary, OpenBBQModel, Stage, Term
 from ..output import Output
 from ..results import Result
 
@@ -240,7 +241,9 @@ def use(
     output: Output = ctx.obj
     path = ws.resolve_workspace(workspace)
     manifest = ws.read_manifest(path)
-    glossarylib.load(name)  # validate it exists / is well-formed before binding
+    selected = glossarylib.load(name)
+    if glossary_overlay.read_optional(path) is not None:
+        glossary_overlay.rebind(path, selected)
     ws.record_glossary_binding(path, manifest, name)
     output.emit(GlossaryUseResult(name=name, workspace=str(path)))
 
@@ -277,11 +280,6 @@ def suggest(
     transcript = ws.read_transcript(tpath)
 
     review = ws.read_asr_review_optional(path)
-    reference_texts = [
-        text
-        for text in (manifest.source.title, manifest.source.author)
-        if manifest.source.type == "url" and text
-    ]
     caption_source = ws.read_reference_caption_optional(path)
     reference_words = (
         asr_reviewlib.parse_reference_words(caption_source)
@@ -291,11 +289,14 @@ def suggest(
     transcript = asr_reviewlib.resolved_transcript(
         transcript,
         review,
-        reference_texts=reference_texts,
         reference_words=reference_words,
     )
 
-    gloss = glossarylib.load_optional(glossary or manifest.glossary)
+    gloss = (
+        glossarylib.load_optional(glossary)
+        if glossary is not None
+        else glossary_overlay.merged(path, manifest.glossary)
+    )
     known = glossarylib.known_forms(gloss) if gloss is not None else set()
     candidates = glossarylib.suggest_candidates(
         transcript, known=known, max_prob=max_prob, min_count=min_count, limit=limit
@@ -354,11 +355,6 @@ def audit(
     )
     raw_transcript = ws.read_transcript(tpath)
     review = ws.read_asr_review_optional(path)
-    reference_texts = [
-        text
-        for text in (manifest.source.title, manifest.source.author)
-        if manifest.source.type == "url" and text
-    ]
     caption_source = ws.read_reference_caption_optional(path)
     reference_words = (
         asr_reviewlib.parse_reference_words(caption_source)
@@ -368,13 +364,11 @@ def audit(
     report = asr_reviewlib.check(
         raw_transcript,
         review,
-        reference_texts=reference_texts,
         reference_words=reference_words,
     )
     resolved = asr_reviewlib.resolved_transcript(
         raw_transcript,
         review,
-        reference_texts=reference_texts,
         reference_words=reference_words,
     )
     captions = (
@@ -382,8 +376,17 @@ def audit(
         if caption_source is not None
         else []
     )
-    glossary_name = glossary or manifest.glossary
-    gloss = glossarylib.load_optional(glossary_name)
+    overlay = glossary_overlay.read_optional(path)
+    glossary_name = (
+        glossary
+        or manifest.glossary
+        or (None if overlay is None else overlay.base_name)
+    )
+    gloss = (
+        glossarylib.load_optional(glossary)
+        if glossary is not None
+        else glossary_overlay.merged(path, manifest.glossary)
+    )
     raw_by_id = {segment.id: segment for segment in raw_transcript.segments}
     selected = resolved.segments[offset : offset + limit]
     workspace_arg = shlex.quote(str(path))
@@ -483,13 +486,26 @@ def apply_patch(
         else None
     )
     manifest = ws.read_manifest(path) if path is not None else None
-    name = glossary or (manifest.glossary if manifest is not None else None)
+    overlay = glossary_overlay.read_optional(path) if path is not None else None
+    name = (
+        glossary
+        or (manifest.glossary if manifest is not None else None)
+        or (overlay.base_name if overlay is not None else None)
+    )
     if not name:
         raise OpenBBQError(
             "glossary_not_bound",
             fix="pass --glossary <name> or bind one with `openbbq glossary use`",
         )
-    existing = glossarylib.load(name)
+    candidate = glossarylib.glossary_path(name)
+    if candidate.is_file():
+        existing = glossarylib.load(name)
+    elif glossary is None and overlay is not None and overlay.base_name == name:
+        # An explicit expert apply may be the first publication of an
+        # automatically derived task overlay.
+        existing = Glossary(name=name, context=overlay.context, terms=[])
+    else:
+        existing = glossarylib.load(name)
     changes_path = Path(changes).expanduser()
     try:
         raw = changes_path.read_text(encoding="utf-8")
@@ -509,7 +525,10 @@ def apply_patch(
         changed
         and path is not None
         and manifest is not None
-        and manifest.glossary == name
+        and (
+            manifest.glossary == name
+            or (overlay is not None and overlay.base_name == name)
+        )
     ):
         transcribe_state = manifest.stages.get(Stage.TRANSCRIBE)
         if transcribe_state is not None:

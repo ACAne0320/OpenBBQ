@@ -109,8 +109,9 @@ HF_ENDPOINT=https://hf-mirror.com openbbq models pull large-v3-turbo
 
 模型放在 OpenBBQ 的全局缓存里，跨 workspace 复用，不写进视频项目目录。
 
-如果原生 ASR 后端在受限 sandbox 中使用 `--gpu` 失败或崩溃，请在 sandbox 外重新运行
-`transcribe`，或改用 `--cpu` 重试。
+GPU 转录必须在受限 sandbox 外运行。只有 host/GPU 尝试本身确实失败，并且返回的执行
+策略允许 fallback 时，才改用 `--cpu`；不能把 sandbox 内的 GPU 失败当作 GPU 路径
+不可用的证据。
 
 ## 完成检查
 
