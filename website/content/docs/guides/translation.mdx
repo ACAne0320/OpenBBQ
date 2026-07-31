@@ -1,103 +1,76 @@
 ---
-title: Translation Workflow
-description: Create, fill, batch-apply, and validate per-language translation worksheets.
+title: Translation
+description: Understand Agent translation batches, reproducible briefs, and editable worksheets.
 ---
 
-Translation is intentionally not an automatic black box. OpenBBQ prepares a structured worksheet; a human or Agent supplies semantic translations and can validate them incrementally.
+OpenBBQ does not embed a translation provider. An external Agent supplies the
+semantic translation while OpenBBQ controls batch size, context, ids, hashes,
+and atomic application.
 
-## Prerequisite
+## Default Agent translation
 
-Create source cues first:
+The one-prompt workflow creates a `translation@2` worksheet and returns one
+active `translate` action at a time. Each batch contains at most 20 selected
+cues and includes:
 
-```bash
-openbbq segment --workspace workspaces/demo
-```
+- source and target language;
+- fetched title and author when available;
+- glossary domain context;
+- matching terms from selected and neighboring cues, including pending terms;
+- neighboring cue text for disambiguation;
+- fixed target-language rules and a `policy_hash`.
 
-## Create a worksheet
+The response must translate every selected id and echo the exact `batch_id` and
+`policy_hash`. Missing, extra, stale, or mismatched ids are rejected.
 
-Use a BCP-47-style target language code such as `zh`, `ja`, or `pt-BR`:
+## Simplified Chinese rules
+
+Targets `zh`, `zh-Hans`, and `zh-CN` use the `zh-Hans` brief. It asks the Agent
+to produce natural concise Simplified Chinese while preserving negation,
+degree, numbers, entities, causality, conditions, and operational steps.
+
+Commands, code, paths, flags, URLs, shortcuts, product names, and model names
+remain accurate unless the glossary provides a translation. Neighbor cues may
+resolve ambiguity but content must not drift between ids. Meaning and alignment
+take priority over aggressive shortening.
+
+Traditional Chinese tags such as `zh-TW`, `zh-Hant`, and `zh-HK` use the generic
+fallback rather than incorrectly applying Simplified Chinese rules.
+
+## Translation-time ASR correction
+
+When the target meaning exposes an obvious ASR error in the current cue, the
+Agent can submit a cue-scoped source fix with evidence and a reusable decision.
+OpenBBQ updates `cues.json` and the worksheet atomically before applying the
+translation. Reusable fixes become glossary candidates automatically.
+
+Uncertain guesses should remain warnings, not invented corrections.
+
+## Quality signals
+
+`translate check` reports completeness, target budgets, and terminology
+warnings. In the default draft workflow, display budgets and ordinary glossary
+consistency are advisory. Hard gates cover complete ids, non-empty text,
+current hashes, valid timing, translation evidence, and fresh artifacts.
+
+The default workflow does not run a second full-coverage AI audit. A complete
+human review is the route to `quality: "human-reviewed"`.
+
+## Expert worksheet commands
+
+The atomic interface remains available for manual or custom-provider workflows:
 
 ```bash
 openbbq translate init zh --workspace workspaces/demo
-```
-
-This creates `translation.zh.json`. Each item is tied to a cue id and includes source text, timing, target budget, glossary hints, and `target: null`.
-
-If a worksheet already exists, `init` refuses to overwrite it. Regenerate only when you accept losing all filled targets:
-
-```bash
-openbbq translate init zh --workspace workspaces/demo --force
-```
-
-## Fill targets directly
-
-Edit `translation.zh.json` while preserving its schema and cue ids. Change only the semantic target fields unless you understand the integrity checks:
-
-```json
-{
-  "id": 1,
-  "source": "Tools should expose the process.",
-  "target": "工具应该让过程透明。"
-}
-```
-
-## Apply translations in batches
-
-For long videos, use small `{id: text}` files that are easy to review and retry:
-
-```json
-{
-  "1": "第一句译文",
-  "2": "第二句译文"
-}
-```
-
-```bash
+openbbq --json translate batch zh --workspace workspaces/demo --limit 20 --only-missing
 openbbq translate apply zh batch-01.json --workspace workspaces/demo
-openbbq translate apply zh batch-02.json --workspace workspaces/demo
-```
-
-Applying a batch is repeatable. Existing ids are overwritten and reported; unknown or malformed ids are rejected instead of silently corrupting the worksheet.
-
-## Validate completeness and quality signals
-
-```bash
 openbbq translate check zh --workspace workspaces/demo
 ```
 
-If only one worksheet exists, omit the language:
+`translate apply` accepts a `{id: target}` object and is repeatable. Atomic
+commands do not create Agent-draft delivery evidence; use the facade for a
+one-shot deliverable or complete a human review before final delivery.
 
-```bash
-openbbq translate check --workspace workspaces/demo
-```
-
-The report includes:
-
-- Filled and total cue counts.
-- Missing cue ids.
-- Targets that exceed the generated character budget.
-- Glossary term warnings.
-- Worksheet/cue integrity problems.
-
-Over-budget and terminology results are review signals. Completeness is required for target or bilingual export unless `--allow-missing` is used.
-
-## Multiple target languages
-
-Each language has an independent worksheet:
-
-```bash
-openbbq translate init zh --workspace workspaces/demo
-openbbq translate init ja --workspace workspaces/demo
-```
-
-Export the desired language explicitly with `--to`.
-
-## Using a glossary
-
-A glossary bound in `manifest.json` is included automatically. Override it for one worksheet:
-
-```bash
-openbbq translate init zh --workspace workspaces/demo --glossary project-name
-```
-
-See [Glossaries](/en/docs/guides/glossaries) for schema and lifecycle details.
+One worksheet exists per target language. `translate init --force` overwrites
+an existing worksheet and discards filled targets, so use it only when that loss
+is intentional.

@@ -3,6 +3,20 @@ title: Local Files and Online Video
 description: Initialize local media or URL sources, fetch online video, and manage YouTube authentication.
 ---
 
+## Recommended Agent entry
+
+The same facade accepts a URL, local video, or local audio:
+
+```bash
+openbbq --json agent init '<source>' --workspace workspaces/demo --to zh
+openbbq --json agent next --workspace workspaces/demo
+```
+
+For a URL, `agent next` returns fetch before audio extraction. Local files skip
+fetch. Execute the returned `argv` exactly; its `execution` policy states when
+host network, authentication state, or native GPU access requires running
+outside a restricted sandbox.
+
 ## Local video
 
 Initialize a workspace with an existing video file:
@@ -77,9 +91,12 @@ openbbq fetch --workspace workspaces/demo --no-auth
 `--auth` and `--no-auth` are mutually exclusive in intent; use only one.
 
 <Callout type="warn" title="Restricted environments">
-  Browser login needs a desktop session, and authentication storage needs a writable `OPENBBQ_HOME`. Run login and authenticated fetch outside a restricted sandbox, or point `OPENBBQ_HOME` at a writable directory.
+  Browser login needs a desktop session, and authentication storage needs a writable `OPENBBQ_HOME`. Run login and authenticated fetch outside a restricted sandbox, or point `OPENBBQ_HOME` at a writable directory. Native GPU transcription should also run on the host; use CPU only after that host attempt genuinely fails and the returned execution policy permits fallback.
 </Callout>
 
 ## Rerunning fetch
 
-Fetch progress and failures are recorded in the workspace manifest. Rerunning the command replaces the fetch stage state and invalidates downstream stages. Inspect the downloaded media before regenerating downstream artifacts.
+Fetch progress and failures are recorded in the workspace manifest. In the
+Agent facade, repeated fetch calls wait for the active stage and reuse its fresh
+completed artifact. An intentional new upstream result invalidates dependent
+downstream state.

@@ -1,97 +1,86 @@
 ---
 title: Glossaries
-description: Reuse canonical names, aliases, translation choices, and context across workspaces.
+description: Learn reusable ASR corrections and terminology without turning one-off edits into global rules.
 ---
 
-A glossary is a named JSON document stored globally under `$OPENBBQ_HOME/glossaries/`. It can influence three parts of the workflow:
+A glossary stores canonical source terms, known ASR aliases, translation
+targets or keep rules, notes, and domain context under
+`$OPENBBQ_HOME/glossaries/`.
 
-1. Canonical source terms bias supported ASR backends.
-2. Known aliases are corrected to canonical source spelling during segmentation.
-3. Translation targets and keep rules are included in translation worksheets and checks.
+## Automatic scope for one-prompt tasks
 
-## Create a glossary
+An explicit `--glossary NAME` always wins:
 
 ```bash
-openbbq glossary new project-name --context "Technical interviews about AI developer tools"
+openbbq --json agent init '<source>' --workspace workspaces/demo --to zh --glossary project-name
 ```
 
-The result is `~/.openbbq/glossaries/project-name.json` by default:
+Without one, a URL task waits until fetch discovers the author and derives a
+stable author-and-target glossary name. Later videos from the same author and
+target language reuse that glossary. A local file without an explicit glossary
+keeps its learning in the task only because author scope is unknown.
 
-```json
-{
-  "schema": "openbbq/glossary@1",
-  "name": "project-name",
-  "context": "Technical interviews about AI developer tools",
-  "terms": []
-}
-```
+The Agent does not choose among global glossaries by semantic guesswork.
 
-## Add terms
+## Task-local overlay
 
-Edit the JSON file and add entries:
+During the task, new learning is written to
+`.openbbq/glossary-overlay.json`. Base glossary plus overlay are immediately
+visible to segmentation and later translation batches, but the global library
+is not modified mid-run.
 
-```json
-{
-  "source": "OpenBBQ",
-  "target": null,
-  "aliases": ["Open BBQ", "Open BQ"],
-  "note": "Project and CLI name",
-  "keep": true
-}
-```
+When translation corrects an obvious ASR occurrence, OpenBBQ records a glossary
+candidate containing:
 
-Fields:
+- canonical corrected source text;
+- the observed ASR alias;
+- evidence and origin;
+- whether the Agent marked it reusable.
+
+A reusable correction is promoted into the overlay automatically. The Agent
+must not duplicate the same correction as a manual glossary update.
+
+## Safe publication
+
+After successful delivery, OpenBBQ publishes reusable non-conflicting overlay
+entries to the bound global glossary. Publication is idempotent and never
+overwrites an incompatible existing term. A conflict or permission failure does
+not block the subtitle video; the overlay remains in the workspace and `done`
+returns a structured retry warning.
+
+Failed or unfinished tasks do not publish their overlay.
+
+## Glossary fields
 
 | Field | Meaning |
 | --- | --- |
-| `source` | Canonical source spelling; also used for ASR biasing |
-| `target` | Canonical translation when the term should be translated |
-| `aliases` | Known ASR mistakes or alternate source forms corrected to `source` |
-| `note` | Disambiguation context for translators or agents |
-| `keep` | Keep the source spelling in target text |
+| `source` | Canonical source spelling and ASR bias term. |
+| `target` | Required canonical translation when present. |
+| `aliases` | Confirmed alternate or ASR forms corrected to `source`. |
+| `note` | Context supplied to translation batches. |
+| `keep` | Preserve source spelling in target text. |
 
-Use `target` for a canonical translation, or `keep: true` for a brand/proper noun that should remain unchanged. Leaving both unset means the translation decision is still open.
+Terms with only a note and no target are still included when relevant, so the
+Agent can use their context without inventing a fixed translation.
 
-## Inspect the library
+## Expert library commands
+
+Create, inspect, and explicitly bind a glossary:
 
 ```bash
+openbbq glossary new project-name --context "Technical interviews about developer tools"
 openbbq glossary list
 openbbq glossary show project-name
-```
-
-## Bind a glossary to a workspace
-
-At initialization:
-
-```bash
-openbbq init /path/to/video.mp4 --workspace workspaces/demo --glossary project-name
-```
-
-Or later:
-
-```bash
 openbbq glossary use project-name --workspace workspaces/demo
 ```
 
-The binding is written to `manifest.glossary`. `transcribe`, `segment`, and `translate init` use it unless their own `--glossary` option overrides the name.
-
-## Mine candidate terms
-
-After transcription, ask OpenBBQ to surface repeated proper-noun-shaped or low-confidence words:
+The compatibility interface also exposes deterministic suggestions, full
+transcript audit batches, and atomic curated updates:
 
 ```bash
 openbbq glossary suggest --workspace workspaces/demo
+openbbq glossary audit --workspace workspaces/demo --offset 0 --limit 20
+openbbq glossary apply --workspace workspaces/demo glossary-terms.json
 ```
 
-Useful filters:
-
-```bash
-openbbq glossary suggest \
-  --workspace workspaces/demo \
-  --glossary project-name \
-  --max-prob 0.6 \
-  --min-count 2 \
-  --max 30
-```
-
-Suggestions are deterministic candidates, not automatic semantic edits. Review them, then add appropriate terms manually.
+These are expert tools, not required steps in the normal one-prompt flow.

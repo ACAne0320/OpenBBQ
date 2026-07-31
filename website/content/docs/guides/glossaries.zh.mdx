@@ -1,97 +1,78 @@
 ---
 title: 术语表
-description: 在多个 workspace 中复用标准名称、别名、译名和上下文。
+description: 学习可复用的 ASR 修正和术语，同时避免把一次性修改变成全局规则。
 ---
 
-术语表是保存在 `$OPENBBQ_HOME/glossaries/` 下的全局命名 JSON 文档，会影响三个环节：
+Glossary 保存在 `$OPENBBQ_HOME/glossaries/`，可以存储标准原文、已知 ASR alias、
+固定译名或 keep 规则、备注与领域上下文。
 
-1. 标准原文术语可为支持的 ASR 后端提供提示。
-2. 已知别名在 segment 时纠正为标准原文拼写。
-3. 标准译名和保留规则会加入翻译工作表与检查。
+## 一句话任务的自动作用域
 
-## 创建术语表
+显式 `--glossary NAME` 始终优先：
 
 ```bash
-openbbq glossary new project-name --context "关于 AI 开发工具的技术访谈"
+openbbq --json agent init '<source>' --workspace workspaces/demo --to zh --glossary project-name
 ```
 
-默认生成 `~/.openbbq/glossaries/project-name.json`：
+未指定时，URL 任务会等待 fetch 得到作者，并生成稳定的“作者+目标语言” glossary 名称。
+同作者、同目标语言的后续视频会复用它。未显式指定 glossary 的本地文件因为无法确认
+作者作用域，只在当前任务中保留学习结果。
 
-```json
-{
-  "schema": "openbbq/glossary@1",
-  "name": "project-name",
-  "context": "关于 AI 开发工具的技术访谈",
-  "terms": []
-}
-```
+Agent 不会依靠语义猜测在全局 glossary 之间自行选择。
 
-## 添加术语
+## 任务本地 overlay
 
-编辑 JSON 并添加条目：
+任务中的新学习写入 `.openbbq/glossary-overlay.json`。Base glossary 与 overlay 会立即
+用于分段和后续翻译批次，但全局库不会在任务中途被修改。
 
-```json
-{
-  "source": "OpenBBQ",
-  "target": null,
-  "aliases": ["Open BBQ", "Open BQ"],
-  "note": "项目和 CLI 名称",
-  "keep": true
-}
-```
+翻译阶段修正明确 ASR occurrence 时，OpenBBQ 会记录 glossary candidate，包括：
 
-字段含义：
+- 修正后的标准原文；
+- 实际观察到的 ASR alias；
+- 证据与来源；
+- Agent 是否将它判断为 reusable。
+
+Reusable correction 会自动提升到 overlay。Agent 不需要再把同一修正重复提交为手动
+glossary update。
+
+## 安全发布
+
+成功交付后，OpenBBQ 才把 overlay 中可复用且无冲突的条目发布到绑定的全局 glossary。
+发布是幂等的，不会覆盖不兼容的旧条目。冲突或权限失败不会阻塞字幕视频；overlay 会
+留在 workspace 中，`done` 返回结构化重试 warning。
+
+失败或未完成的任务不会发布 overlay。
+
+## Glossary 字段
 
 | 字段 | 含义 |
 | --- | --- |
-| `source` | 标准原文拼写，也用于 ASR 提示 |
-| `target` | 需要翻译时采用的标准译名 |
-| `aliases` | 会被纠正为 `source` 的 ASR 错词或其他原文形式 |
-| `note` | 给译者或 Agent 的消歧上下文 |
-| `keep` | 在译文中保留原文拼写 |
+| `source` | 标准原文拼写与 ASR bias term。 |
+| `target` | 存在时必须使用的标准译名。 |
+| `aliases` | 已确认并会修正为 `source` 的其他形式或 ASR 错词。 |
+| `note` | 提供给翻译批次的上下文。 |
+| `keep` | 在译文中保留原文拼写。 |
 
-有固定译名时设置 `target`；品牌或专有名词不翻译时使用 `keep: true`。两者都不设置表示翻译决策尚未确定。
+只有 note、没有 target 的相关术语也会进入翻译批次，让 Agent 使用上下文，但不会因此
+编造固定译名。
 
-## 查看术语表库
+## 专家术语表命令
+
+创建、查看和显式绑定 glossary：
 
 ```bash
+openbbq glossary new project-name --context "关于开发工具的技术访谈"
 openbbq glossary list
 openbbq glossary show project-name
-```
-
-## 绑定到 workspace
-
-初始化时绑定：
-
-```bash
-openbbq init /path/to/video.mp4 --workspace workspaces/demo --glossary project-name
-```
-
-也可以之后绑定：
-
-```bash
 openbbq glossary use project-name --workspace workspaces/demo
 ```
 
-名称写入 `manifest.glossary`。`transcribe`、`segment` 和 `translate init` 默认使用它，各命令的 `--glossary` 可以临时覆盖。
-
-## 挖掘候选术语
-
-转录后，让 OpenBBQ 找出重复出现、形似专有名词或低置信度的词：
+兼容接口也保留确定性 suggest、全文 audit batch 与原子 curated update：
 
 ```bash
 openbbq glossary suggest --workspace workspaces/demo
+openbbq glossary audit --workspace workspaces/demo --offset 0 --limit 20
+openbbq glossary apply --workspace workspaces/demo glossary-terms.json
 ```
 
-常用筛选：
-
-```bash
-openbbq glossary suggest \
-  --workspace workspaces/demo \
-  --glossary project-name \
-  --max-prob 0.6 \
-  --min-count 2 \
-  --max 30
-```
-
-Suggest 返回的是确定性候选，不会自动进行语义编辑。请人工检查后再加入合适术语。
+这些属于专家工具，不是正常 one-shot 流程的必做步骤。

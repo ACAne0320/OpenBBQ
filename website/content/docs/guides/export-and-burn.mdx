@@ -3,6 +3,22 @@ title: Export and Burn
 description: Render source, target, or bilingual SRT/ASS subtitles and optionally burn ASS into video.
 ---
 
+## Default Agent delivery
+
+The one-prompt workflow ends with:
+
+```bash
+openbbq --json agent finish --workspace workspaces/demo --to zh
+```
+
+Only run it when `agent next` returns `finish`. It exports `out/zh.ass`, burns
+`out/zh-burned.mp4`, runs `delivery check`, and publishes eligible glossary
+learning. Landscape video uses `fansub`; portrait video uses `mobile`. Fresh
+completed outputs are reused, so finish does not burn the same result twice.
+
+The default path does not sample frames, run visual QA, or automatically retry
+with a different preset.
+
 ## Export modes
 
 `openbbq export` reads `cues.json` and, when needed, one translation worksheet.
@@ -45,9 +61,12 @@ ASS presets:
 | --- | --- |
 | `default` | Standard 16:9 horizontal video |
 | `fansub` | More prominent translated line |
+| `fansub-compact` | Explicit smaller, raised bilingual stack |
 | `mobile` | 9:16 vertical canvas and larger bottom safe area |
 
-`--ass-preset` is valid only with `--format ass`. The mobile preset changes rendering geometry; it does not shorten long subtitles.
+`--ass-preset` is valid only with `--format ass`. Presets change rendering,
+not translation meaning. OpenBBQ cannot predict where arbitrary text will
+appear inside a video.
 
 ## Review gate
 
@@ -57,7 +76,9 @@ When a matching `review.<lang>.json` or `review.source.json` exists, export requ
 openbbq review --to zh --workspace workspaces/demo
 ```
 
-For an intentional draft only, bypass the gate explicitly with `--allow-unreviewed`. This does not mark any cue reviewed.
+For an intentional atomic-command draft only, bypass the gate explicitly with
+`--allow-unreviewed`. This does not mark any cue reviewed or create Agent-draft
+delivery evidence.
 
 ## Incomplete translations
 
@@ -114,4 +135,10 @@ Burning may take minutes. Progress is written to the manifest and can be polled 
 
 ```bash
 openbbq --json status --workspace workspaces/demo
+```
+
+Validate hand-built outputs with:
+
+```bash
+openbbq --json delivery check --workspace workspaces/demo --to zh
 ```

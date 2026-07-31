@@ -7,6 +7,7 @@ description: 恢复常见的安装、媒体、ASR、翻译、导出和烧录失�
 
 ```bash
 openbbq doctor
+openbbq --json agent next --workspace workspaces/demo
 openbbq --json status --workspace workspaces/demo
 ```
 
@@ -49,13 +50,15 @@ openbbq transcribe --model large-v3-turbo --auto-download
 
 ## GPU 或原生后端失败
 
-默认使用 `--gpu`。可以改用 CPU：
+默认使用 `--gpu`。原生 GPU 任务可能只是因为 Agent 在受限 sandbox 内运行而失败。先在
+宿主环境原样重跑命令；只有宿主尝试失败，并且 `agent next` execution policy 允许时，
+才改用 CPU：
 
 ```bash
 openbbq transcribe --model large-v3-turbo --cpu --workspace workspaces/demo
 ```
 
-原生 GPU 后端可能只在受限 sandbox 中失败。请先在普通用户终端运行转录，再判断后端本身是否损坏。
+不能把 sandbox 内的 GPU 失败当作加速器损坏的证据。
 
 ## 缺少 FFmpeg 或字幕 filter
 
@@ -104,10 +107,33 @@ openbbq auth browser-login youtube
 ## 翻译未完成
 
 ```bash
-openbbq translate check zh --workspace workspaces/demo
+openbbq --json agent next --workspace workspaces/demo
 ```
 
-填写报告中的 id 后重新检查。只有明确需要未翻译 cue 回退到原文的草稿时，才使用 `--allow-missing`。
+Facade 会返回当前 lease 或下一个缺失批次。不要自行创建新批次，也不要编辑 Agent
+session。专家原子流程仍可运行 `openbbq translate check zh` 并填写报告中的 ID。
+
+## Agent 在 `done` 前停止
+
+在同一个 workspace 继续：
+
+```bash
+openbbq --json agent next --workspace workspaces/demo
+```
+
+重复 `next` 是安全的，会返回同一个活动 lease。每次 command 或 apply 成功后继续，
+直到 `done` 报告 `terminal: true`。
+
+## 机械命令被重复调用
+
+Fetch、extract、transcribe 与 segment 使用 workspace execution lease。第二次调用会等待
+活动阶段；新鲜产物已经存在时返回 `reused: true`。这可以避免 Agent 或 harness 重复
+轮询破坏 workspace。
+
+## `agent apply` 拒绝响应
+
+使用当前 `agent next` 返回的精确 response schema、`batch_id`、`policy_hash` 和完整
+selected ID 集合。Source 或 worksheet 已变化时，丢弃旧响应并重新请求下一步。
 
 ## 工作表不再匹配 cues
 
@@ -124,6 +150,11 @@ openbbq export --to zh --mode bilingual --format ass --workspace workspaces/demo
 openbbq burn --workspace workspaces/demo
 ```
 
+默认工作流不要手工拼装这些命令。持续运行到 `agent next` 返回 `finish`，再只执行一次
+其中返回的 `agent finish`。
+
 ## Stale running 阶段
 
-Running 工作超过 60 秒没有心跳时，`status` 会标记 stale。确认没有进程仍在运行，检查 stderr/日志，然后重跑对应命令。重跑会更新该阶段，并使依赖的下游状态失效。
+Running 工作超过 60 秒没有心跳时，`status` 会标记 stale。确认没有进程仍在运行并检查
+stderr/日志，然后调用 `agent next` 获取权威恢复 action；不要删除 lock 或手工编辑
+manifest。

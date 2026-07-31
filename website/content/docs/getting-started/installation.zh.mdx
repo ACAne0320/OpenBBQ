@@ -16,15 +16,24 @@ description: 安装 OpenBBQ，以及当前工作流需要的依赖。
   OpenBBQ 仍处于 pre-alpha 阶段，当前工作流主要在 macOS 上开发；Windows 和 Linux 支持仍在路线图中。
 </Callout>
 
-## 安装 CLI
+## 安装 CLI 与 Agent Skill
 
-安装发布包、whisper.cpp 后端和本地审核界面：
+安装发布包和默认 whisper.cpp 后端：
 
 ```bash
-uv tool install 'openbbq[whispercpp,review]'
+uv tool install 'openbbq[whispercpp]'
+openbbq skill install --agent all
 ```
 
-如果不需要浏览器字幕审核，可以省略 `review` extra。
+Skill 会指导受支持的 Agent 遵循唯一权威的 `agent next/apply/finish` 工作流。只需
+安装一个目标时，可使用 `--agent codex`、`--agent claude`，或默认共享的 `agents`
+目标。
+
+专业用户需要本地浏览器审核界面时，再加入对应 extra：
+
+```bash
+uv tool install --force 'openbbq[whispercpp,review]'
+```
 
 如果安装后找不到 `openbbq`，按 uv 输出的提示配置 PATH，然后打开新的 shell。
 
@@ -79,6 +88,7 @@ openbbq models pull large-v3-turbo
 
 ```bash
 openbbq doctor
+openbbq --version
 openbbq --help
 ```
 
@@ -88,9 +98,11 @@ openbbq --help
 
 ```bash
 uv tool upgrade openbbq
+openbbq skill install --agent all --force
+openbbq doctor
 ```
 
-修改 extra 或修复安装：
+修改 extra 或修复 CLI 安装：
 
 ```bash
 uv tool install --force 'openbbq[whispercpp,review]'

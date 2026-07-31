@@ -1,90 +1,81 @@
 ---
 title: 工作流模型
-description: 理解 workspace、阶段状态、依赖关系和安全重跑。
+description: 理解 Agent facade、action、lease、workspace 与安全恢复。
 ---
 
-OpenBBQ 将处理过程拆成独立命令，而不是隐藏在一条固定管线中。人或 Agent 可以检查每个产物、进行语义编辑，再决定下一步操作。
+OpenBBQ 提供两套互补接口：
 
-## Workspace
+- Agent facade 是一句提示词生成字幕底稿的默认路径；
+- 原子命令继续服务于专业编辑、诊断和显式手动流程。
 
-Workspace 是包含 OpenBBQ `manifest.json` 的目录。`openbbq init` 会创建它并记录来源：
+## 唯一权威的下一步
 
-```bash
-openbbq init --workspace workspaces/demo /path/to/video.mp4
-```
-
-大多数命令按以下顺序解析 workspace：
-
-1. `--workspace` 或 `-w` 显式指定的目录。
-2. 当前目录，然后逐级向上查找。
-3. 找不到 OpenBBQ manifest 时返回结构化 `no_workspace` 错误。
-
-因此可以在 workspace 目录树内的任何位置执行命令。
-
-## 来源类型
-
-`init` 识别三种来源：
-
-| 来源 | 示例 | 获取步骤 |
-| --- | --- | --- |
-| URL | `https://www.youtube.com/watch?v=...` | 必须先运行 `fetch` |
-| 本地视频 | `.mp4`、`.mkv`、`.mov`、`.webm` 等 | 跳过 `fetch` |
-| 本地音频 | `.wav`、`.mp3`、`.m4a`、`.flac` 等 | 跳过 `fetch`；不能 `burn` |
-
-本地路径会解析为绝对路径。OpenBBQ 会直接使用源文件，不会把它复制进 workspace。
-
-## 阶段与产物
-
-Manifest 是工作日志，而不是预先填好的检查表。只有执行过命令，阶段才会出现。
-
-| 阶段 | 命令 | 主要产物 |
-| --- | --- | --- |
-| fetch | `openbbq fetch` | `media/` 下的下载媒体 |
-| extract_audio | `openbbq extract-audio` | `media/audio.16k.wav` |
-| transcribe | `openbbq transcribe` | `transcript.json` |
-| segment | `openbbq segment` | `cues.json` |
-| translate | `openbbq translate ...` | `translation.<lang>.json` |
-| review | `openbbq review` | `review.<lang>.json`（或 `review.source.json`），并同步 cue 与翻译工作表修改 |
-| export | `openbbq export` | `out/` 下的字幕 |
-| burn | `openbbq burn` | `out/` 下的硬字幕 MP4 |
-
-阶段状态包括 `running`、`done`、`failed` 和 `pending`。长任务会写入进度心跳；running 阶段超过 60 秒没有更新时，`status` 会将它标记为 stale。
-
-## 重跑上游阶段
-
-上游阶段开始或完成时，已经记录的后续阶段会变成 `pending`。例如重跑 `transcribe` 会使 segment、translate、review、export 和 burn 状态失效，因为它们可能已经与新 transcript 不一致。
-
-完成分段和可选翻译后，运行 `openbbq review --workspace PATH`。本地浏览器编辑器会把原文、译文和 cue 时间同步写回工作区的规范文件。所选审核范围完成前 export 会被阻止；如需草稿输出，可显式使用 `--allow-unreviewed`。
-
-OpenBBQ 不会自动删除人工编辑过的文件，请显式检查或重新生成下游产物。
-
-<Callout type="warn" title="翻译工作表">
-  `openbbq translate init <lang> --force` 会覆盖工作表并丢弃已经填写的 target。不传 `--force` 时，OpenBBQ 会拒绝替换现有工作表。
-</Callout>
-
-## 人类与机器输出
-
-交互式终端会显示 Rich 表格和进度条；`--json`、CI 和其他非 TTY 环境会在 stdout 输出一个紧凑 JSON 对象：
+Agent 只初始化一次：
 
 ```bash
-openbbq --json status --workspace workspaces/demo
+openbbq --json agent init '<source>' --workspace workspaces/demo --to zh
 ```
 
-根级 `--json` 必须放在命令名称之前。成功和失败使用不同退出码，适合 Agent 和脚本处理。
-
-## OpenBBQ 全局数据
-
-Workspace 产物属于单个媒体项目；共享数据保存在 `OPENBBQ_HOME` 下，默认是 `~/.openbbq`：
-
-```text
-~/.openbbq/
-├── auth/          # 保存的网站会话
-├── glossaries/    # 命名术语表 JSON
-└── models/        # ASR 模型缓存
-```
-
-受限环境中可以指定其他可写位置：
+之后持续请求下一步：
 
 ```bash
-OPENBBQ_HOME=/path/to/openbbq-home openbbq doctor
+openbbq --json agent next --workspace workspaces/demo
 ```
+
+`agent next` 只返回以下一种 action：
+
+| Action | Agent 职责 |
+| --- | --- |
+| `run_command` | 原样执行返回的 `argv`，并遵守 execution policy。 |
+| `review_source` | 仅在仍有结构性 ASR blocker 时处理完整的有界批次。 |
+| `translate` | 翻译所有 selected cue，并返回精确的 batch 与 policy hash。 |
+| `finish` | 只运行一次 `openbbq agent finish`。 |
+| `done` | 交付返回的产物、质量状态和告警。 |
+
+语义响应通过以下命令原子应用：
+
+```bash
+openbbq --json agent apply --workspace workspaces/demo response.json
+```
+
+## Lease 与有界批次
+
+每个语义 action 都有持久化 lease，包含 selected ID、source hash、worksheet hash 与
+policy hash。在 apply 前，重复调用 `next` 会返回同一个 lease。缺少 ID、额外 ID、
+过期内容或错误 policy 的响应都会被拒绝。
+
+翻译批次最多包含 20 条 cue，并携带可复现的翻译 brief、相关 glossary 上下文与相邻
+cue。相邻 cue 只用于消歧，内容必须留在选中的 cue ID 中。
+
+## 机械命令执行
+
+`run_command` 包含机器可读的执行指导。Fetch、原生 GPU 转录与 finish 通常需要在受限
+sandbox 外的宿主环境执行。重复机械命令会等待当前阶段，并复用已经完成的新鲜产物，
+不会启动相互竞争的重复任务。
+
+## 原文纠错与 glossary 学习
+
+确定性检查会在翻译前修复已知结构性字幕问题。翻译时发现明确 ASR 错误，Agent 可以
+提交当前 cue 内的有界 source fix，并判断该修正是否可复用。
+
+OpenBBQ 会把发现记录到任务本地 glossary overlay。URL 来源没有显式 glossary 时，
+fetch 得到的作者元数据会绑定稳定的“作者+目标语言” glossary。可复用且无冲突的条目
+只在成功交付后发布；发布冲突不会阻塞视频。
+
+## Finish 与交付
+
+`agent finish` 要求当前翻译证据完整，导出 `out/zh.ass`、烧录
+`out/zh-burned.mp4`、运行交付门禁，并发布符合条件的 glossary 学习。产物仍然新鲜
+时，重复 finish 会幂等返回，不会再次烧录。
+
+自动结果报告 `quality: "draft"` 和 `human_reviewed: false`。通过
+`openbbq review` 完成全部当前人工审核后，质量状态才会变为 `human-reviewed`。
+
+## Workspace 与恢复
+
+所有状态都属于一个 workspace。`manifest.json` 记录机械阶段；
+`.openbbq/agent-session.<lang>.json` 记录 lease 与翻译证据。任务中断后，在同一
+workspace 再次调用 `agent next`；不要猜测下一条命令，也不要创建第二个语义批次。
+
+Facade 默认不运行视觉 QA，也不会自动选择 `fansub-compact`。专家原子命令见
+[CLI 参考](/zh/docs/reference/cli)。
