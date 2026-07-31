@@ -1,90 +1,92 @@
 ---
 title: Workflow Model
-description: Understand workspaces, stage state, dependencies, and safe reruns.
+description: Understand the Agent facade, actions, leases, workspaces, and safe recovery.
 ---
 
-OpenBBQ exposes separate commands instead of hiding the process behind one fixed pipeline. A human or Agent can inspect each artifact, make semantic edits, and choose the next operation.
+OpenBBQ has two complementary interfaces:
 
-## Workspaces
+- the Agent facade is the default for one-prompt subtitle drafts;
+- atomic commands remain available for professional editing, diagnosis, and
+  explicit manual workflows.
 
-A workspace is a directory containing an OpenBBQ `manifest.json`. `openbbq init` creates it and records the source:
+## One authoritative next action
 
-```bash
-openbbq init --workspace workspaces/demo /path/to/video.mp4
-```
-
-Most commands resolve the workspace in this order:
-
-1. The directory passed with `--workspace` or `-w`.
-2. The current directory, then each parent directory.
-3. A structured `no_workspace` error when no OpenBBQ manifest is found.
-
-This allows commands to run from anywhere inside a workspace tree.
-
-## Sources
-
-`init` recognizes three source types:
-
-| Source | Examples | Required acquisition step |
-| --- | --- | --- |
-| URL | `https://www.youtube.com/watch?v=...` | Run `fetch` first |
-| Local video | `.mp4`, `.mkv`, `.mov`, `.webm`, and others | Skip `fetch` |
-| Local audio | `.wav`, `.mp3`, `.m4a`, `.flac`, and others | Skip `fetch`; `burn` is unavailable |
-
-Local paths are resolved to absolute paths. The source file is used in place rather than copied into the workspace.
-
-## Stages and artifacts
-
-The manifest is a work log, not a prefilled checklist. A stage appears only after its command runs.
-
-| Stage | Command | Main artifact |
-| --- | --- | --- |
-| fetch | `openbbq fetch` | downloaded media under `media/` |
-| extract_audio | `openbbq extract-audio` | `media/audio.16k.wav` |
-| transcribe | `openbbq transcribe` | `transcript.json` |
-| segment | `openbbq segment` | `cues.json` |
-| translate | `openbbq translate ...` | `translation.<lang>.json` |
-| review | `openbbq review` | `review.<lang>.json` (or `review.source.json`), synchronized cue and worksheet edits |
-| export | `openbbq export` | subtitle under `out/` |
-| burn | `openbbq burn` | hard-subtitled MP4 under `out/` |
-
-Stages can be `running`, `done`, `failed`, or `pending`. Long tasks include a progress heartbeat. `status` marks a running stage as stale when it has not updated for more than 60 seconds.
-
-## Rerunning upstream stages
-
-When an upstream stage starts or completes, later recorded stages are changed to `pending`. For example, rerunning `transcribe` invalidates segment, translate, review, export, and burn state because their artifacts may no longer match the new transcript.
-
-After segmentation and optional translation, run `openbbq review --workspace PATH`. The local browser editor writes source text, translations, and cue timing back to their canonical workspace files. Export is blocked until the selected review scope is complete; `--allow-unreviewed` is an explicit escape hatch for draft output.
-
-OpenBBQ does not automatically delete edited files. Review or regenerate downstream artifacts explicitly.
-
-<Callout type="warn" title="Translation worksheets">
-  `openbbq translate init <lang> --force` overwrites the worksheet and discards filled targets. Without `--force`, OpenBBQ refuses to replace an existing worksheet.
-</Callout>
-
-## Human and machine output
-
-Interactive terminals receive Rich tables and progress bars. `--json`, CI, and other non-TTY environments receive one compact JSON object on stdout:
+An Agent initializes once:
 
 ```bash
-openbbq --json status --workspace workspaces/demo
+openbbq --json agent init '<source>' --workspace workspaces/demo --to zh
 ```
 
-The root `--json` flag must appear before the command name. Successful and failed commands use different exit codes, making the output suitable for agents and scripts.
-
-## Global OpenBBQ data
-
-Workspace artifacts belong to one media project. Shared data is stored under `OPENBBQ_HOME`, defaulting to `~/.openbbq`:
-
-```text
-~/.openbbq/
-├── auth/          # saved site sessions
-├── glossaries/    # named glossary JSON files
-└── models/        # ASR model cache
-```
-
-Set a different writable location when running in a restricted environment:
+It then repeatedly asks for the next action:
 
 ```bash
-OPENBBQ_HOME=/path/to/openbbq-home openbbq doctor
+openbbq --json agent next --workspace workspaces/demo
 ```
+
+`agent next` returns one of these actions:
+
+| Action | Agent responsibility |
+| --- | --- |
+| `run_command` | Execute the returned `argv` exactly and obey its execution policy. |
+| `review_source` | Resolve the complete bounded batch only when a structural ASR blocker remains. |
+| `translate` | Translate every selected cue and return the exact batch and policy hashes. |
+| `finish` | Run `openbbq agent finish` once. |
+| `done` | Deliver the returned artifacts, quality state, and warnings. |
+
+Semantic responses are applied atomically:
+
+```bash
+openbbq --json agent apply --workspace workspaces/demo response.json
+```
+
+## Leases and bounded batches
+
+Every semantic action has a persistent lease containing its selected ids,
+source hash, worksheet hash, and policy hash. Until the response is applied,
+repeated `next` calls return the same lease. An apply is rejected when ids are
+missing, extra, stale, or bound to the wrong policy.
+
+Translation batches contain at most 20 cues. The active batch includes a
+reproducible translation brief, relevant glossary context, and neighboring cues
+for disambiguation. Neighbors are context only; content must remain aligned to
+the selected cue ids.
+
+## Mechanical command execution
+
+`run_command` includes machine-readable execution guidance. Fetch, native GPU
+transcription, and finish commonly require host execution outside a restricted
+sandbox. Repeated mechanical commands wait for the active stage and reuse its
+fresh completed artifact instead of starting competing work.
+
+## Source correction and glossary learning
+
+Deterministic checks repair known structural caption problems before
+translation. If translation reveals an obvious ASR mistake, the Agent may
+submit a bounded source fix for the current cue. It also marks whether the fix
+is reusable.
+
+OpenBBQ records that discovery in the task-local glossary overlay. For URL
+sources without an explicit glossary, fetched author metadata selects a stable
+author-and-target glossary. Reusable non-conflicting terms publish only after
+successful delivery; publication conflicts do not block the video.
+
+## Finish and delivery
+
+`agent finish` requires current translation evidence, exports `out/zh.ass`,
+burns `out/zh-burned.mp4`, runs the delivery gate, and publishes eligible
+glossary learning. Fresh completed artifacts make finish idempotent.
+
+The automatic result reports `quality: "draft"` and
+`human_reviewed: false`. A complete current review made with `openbbq review`
+changes the quality to `human-reviewed`.
+
+## Workspaces and recovery
+
+All state belongs to one workspace. `manifest.json` records mechanical stages;
+`.openbbq/agent-session.<lang>.json` records leases and translation evidence.
+If a task is interrupted, call `agent next` again in the same workspace. Do not
+guess the next command or create a second semantic batch.
+
+The facade does not run visual QA and does not automatically choose
+`fansub-compact`. Expert atomic commands are documented in the [CLI
+reference](/en/docs/reference/cli).

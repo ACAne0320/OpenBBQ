@@ -1,12 +1,12 @@
 ---
 title: Documentation
-description: Install OpenBBQ and build a complete video translation workflow.
+description: Turn a video into an editable bilingual subtitle draft with one Agent prompt.
 ---
 
-OpenBBQ is an agent-friendly CLI for video translation and subtitle production. It provides composable commands for acquiring media, transcription, subtitle segmentation, translation review, export, and hard-subtitle burning.
+OpenBBQ is an Agent-friendly CLI for video translation and subtitle production. Its default workflow turns one simple request into an editable bilingual ASS subtitle and a hard-subtitled video. Fine-grained commands remain available for professional review and recovery.
 
 <Callout title="Current status">
-  OpenBBQ is pre-alpha software. The current implementation is centered on Python 3.12, FFmpeg, yt-dlp, and the whisper.cpp ASR backend. Verify important output before publishing it.
+  OpenBBQ is pre-alpha software. The automatic workflow aims for a useful 70–80 point draft, not a professionally certified final subtitle. Review important output before publishing it.
 </Callout>
 
 ## Start here
@@ -16,31 +16,28 @@ OpenBBQ is an agent-friendly CLI for video translation and subtitle production. 
     Install the CLI, FFmpeg, an ASR backend, and a model.
   </Card>
   <Card title="Quickstart" href="/en/docs/getting-started/quickstart">
-    Produce bilingual subtitles from a local video.
+    Start with the same one-shot prompt for a URL or local video.
   </Card>
   <Card title="Workflow model" href="/en/docs/getting-started/workflow">
-    Understand workspaces, stages, and resumable commands.
+    Understand actions, leases, artifacts, and safe recovery.
   </Card>
   <Card title="CLI reference" href="/en/docs/reference/cli">
     Look up every command, argument, option, and default.
   </Card>
 </Cards>
 
-## The pipeline
+## The default path
 
 ```text
-source
-  -> init
-  -> fetch (URL sources only)
-  -> extract-audio
-  -> transcribe
-  -> segment
-  -> translate init/apply/check
-  -> export
-  -> burn (optional)
+one prompt
+  -> agent init
+  -> agent next (one authoritative action)
+  -> run mechanical commands or apply translation batches (<=20 cues)
+  -> agent finish (export + burn + delivery check once)
+  -> done
 ```
 
-Each command writes a validated artifact and records its state in `manifest.json`. You can inspect progress with `openbbq status`, rerun an upstream stage, and continue from the resulting workspace.
+Repeated `agent next` calls return the same active lease until it is applied. OpenBBQ validates ids, hashes, timing, and artifact freshness while the Agent handles semantic translation and obvious cue-scoped ASR corrections.
 
 ## Choose a guide
 

@@ -16,15 +16,24 @@ description: Install OpenBBQ and the dependencies required by your workflow.
   OpenBBQ is pre-alpha. The current workflow is developed primarily on macOS; Windows and Linux support is still on the roadmap.
 </Callout>
 
-## Install the CLI
+## Install the CLI and Agent skill
 
-Install the published package with the whisper.cpp backend and the local review UI:
+Install the published package with the default whisper.cpp backend:
 
 ```bash
-uv tool install 'openbbq[whispercpp,review]'
+uv tool install 'openbbq[whispercpp]'
+openbbq skill install --agent all
 ```
 
-If you do not need browser-based subtitle review, the `review` extra may be omitted.
+The skill teaches supported Agents to follow the one authoritative
+`agent next/apply/finish` workflow. Use `--agent codex`, `--agent claude`, or
+the default shared `agents` target when only one installation is needed.
+
+Professional users who want the local browser review UI can include its extra:
+
+```bash
+uv tool install --force 'openbbq[whispercpp,review]'
+```
 
 If the `openbbq` command is not found after installation, follow the PATH instruction printed by uv, then open a new shell.
 
@@ -79,6 +88,7 @@ Downloads are resumable and stored under `~/.openbbq/models/whisper.cpp/` by def
 
 ```bash
 openbbq doctor
+openbbq --version
 openbbq --help
 ```
 
@@ -88,9 +98,11 @@ For hard-subtitle workflows, confirm that `ffmpeg subtitle filters` reports both
 
 ```bash
 uv tool upgrade openbbq
+openbbq skill install --agent all --force
+openbbq doctor
 ```
 
-To change extras or repair the installation:
+To change extras or repair the CLI installation:
 
 ```bash
 uv tool install --force 'openbbq[whispercpp,review]'

@@ -4,62 +4,61 @@ type Locale = "en" | "zh";
 
 const copy = {
   en: {
-    eyebrow: "Open-source video translation",
+    eyebrow: "One prompt. Editable output.",
     title: "Turn video into bilingual subtitles.",
     lede:
-      "A resumable command-line workflow for transcription, translation, subtitle export, and hard-subtitle burning.",
+      "Give your Agent a video. OpenBBQ keeps the workflow deterministic and returns an editable bilingual subtitle draft plus a hard-subtitled video.",
     start: "Getting started",
     github: "View on GitHub",
     install: "Install with uv",
-    workflow: "Workflow",
+    workflow: "Ask your Agent",
+    prompt: "Make this video into a bilingual Chinese-English subtitled video: https://www.youtube.com/watch?v=...",
     workspace: "Workspace output",
     inspectEyebrow: "Inspectable by default",
-    inspectTitle: "Each stage leaves an artifact you can review.",
+    inspectTitle: "A useful first draft, with every artifact left editable.",
     reference: "CLI reference",
     stages: [
       ["Source", "Fetch a URL or use a local video.", "media/audio.16k.wav"],
-      ["Transcribe", "Create a timed source transcript.", "transcript.json"],
-      ["Translate", "Review an editable target worksheet.", "translation.zh.json"],
-      ["Export", "Write subtitles or a burned video.", "out/zh.ass"],
+      ["Transcribe", "Create and validate a timed source transcript.", "transcript.json"],
+      ["Translate", "Process at most 20 aligned cues per Agent batch.", "translation.zh.json"],
+      ["Deliver", "Export ASS and burn the video once.", "out/zh-burned.mp4"],
     ],
     agentsEyebrow: "Built for agents and people",
     agentsTitle: "Automate the routine. Keep every artifact editable.",
     agentsBody:
-      "Commands are composable, progress is recorded in the workspace, and interrupted stages can be resumed without hiding the intermediate files.",
+      "The Agent follows one authoritative next-action interface. Leases, hashes, timing checks, and artifact provenance keep the run resumable without hiding intermediate files.",
     agentsLink: "See the workflow model",
   },
   zh: {
-    eyebrow: "开源视频翻译工具",
+    eyebrow: "一句提示词，产物始终可编辑",
     title: "把视频制作成双语字幕。",
-    lede: "一套可恢复的命令行工作流，覆盖转录、翻译、字幕导出与硬字幕烧录。",
+    lede: "把视频交给 Agent。OpenBBQ 负责确定性工作流，返回可编辑的双语字幕底稿和烧录后的视频。",
     start: "开始使用",
     github: "在 GitHub 查看",
     install: "使用 uv 安装",
-    workflow: "工作流",
+    workflow: "发送给 Agent",
+    prompt: "帮我把这个视频制作成中英双语字幕视频：https://www.youtube.com/watch?v=...",
     workspace: "Workspace 产物",
     inspectEyebrow: "默认可检查",
-    inspectTitle: "每个阶段都会留下可供检查的产物。",
+    inspectTitle: "先得到可用底稿，并保留每一份可编辑产物。",
     reference: "CLI 参考",
     stages: [
       ["输入", "下载在线视频或使用本地视频。", "media/audio.16k.wav"],
-      ["转录", "生成带时间轴的原文转录。", "transcript.json"],
-      ["翻译", "检查并编辑目标语言工作表。", "translation.zh.json"],
-      ["导出", "输出字幕文件或烧录后的视频。", "out/zh.ass"],
+      ["转录", "生成并校验带时间轴的原文转录。", "transcript.json"],
+      ["翻译", "Agent 每批处理不超过 20 条对齐 cue。", "translation.zh.json"],
+      ["交付", "只导出一次 ASS，并只烧录一次。", "out/zh-burned.mp4"],
     ],
     agentsEyebrow: "为 Agent 和人而设计",
     agentsTitle: "让自动化处理重复工作，让产物始终可编辑。",
     agentsBody:
-      "命令可以自由组合，进度会记录在 workspace 中；中断后可以继续执行，同时保留所有中间文件。",
+      "Agent 只遵循一个权威的下一步接口。Lease、hash、时间轴检查和产物 provenance 让流程可恢复，同时保留所有中间文件。",
     agentsLink: "了解工作流模型",
   },
 } as const;
 
-const commands = [
-  "openbbq init --workspace workspaces/demo ./video.mp4",
-  "openbbq transcribe --workspace workspaces/demo",
-  "openbbq segment --workspace workspaces/demo",
-  "openbbq translate init --workspace workspaces/demo --target-language zh",
-  "openbbq export --workspace workspaces/demo --target-language zh --format ass",
+const setupCommands = [
+  "uv tool install 'openbbq[whispercpp]'",
+  "openbbq skill install --agent all",
 ];
 
 const artifacts = [
@@ -68,7 +67,10 @@ const artifacts = [
   "transcript.json",
   "cues.json",
   "translation.zh.json",
+  ".openbbq/agent-session.zh.json",
+  ".openbbq/glossary-overlay.json",
   "out/zh.ass",
+  "out/zh-burned.mp4",
 ];
 
 export function HomePage({ locale }: { locale: Locale }) {
@@ -95,13 +97,13 @@ export function HomePage({ locale }: { locale: Locale }) {
         <div className="bbq-workbench">
           <section aria-labelledby="install-heading">
             <div className="bbq-workbench-heading" id="install-heading">{text.install}</div>
-            <code>uv tool install 'openbbq[whispercpp]'</code>
+            <ol className="bbq-command-list">
+              {setupCommands.map((command) => <li key={command}><code>{command}</code></li>)}
+            </ol>
           </section>
           <section aria-labelledby="workflow-heading">
             <div className="bbq-workbench-heading" id="workflow-heading">{text.workflow}</div>
-            <ol className="bbq-command-list">
-              {commands.map((command) => <li key={command}><code>{command}</code></li>)}
-            </ol>
+            <code>{text.prompt}</code>
           </section>
           <section aria-labelledby="workspace-heading">
             <div className="bbq-workbench-heading" id="workspace-heading">{text.workspace}</div>

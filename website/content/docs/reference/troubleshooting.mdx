@@ -7,6 +7,7 @@ description: Recover from common installation, media, ASR, translation, export, 
 
 ```bash
 openbbq doctor
+openbbq --json agent next --workspace workspaces/demo
 openbbq --json status --workspace workspaces/demo
 ```
 
@@ -49,13 +50,16 @@ Interrupted model downloads retain a temporary file and resume when the server s
 
 ## GPU or native backend failure
 
-The default is `--gpu`. Retry on CPU:
+The default is `--gpu`. Native GPU work may fail only because an Agent ran it
+inside a restricted sandbox. First rerun the exact command on the host. Retry
+on CPU only after that host attempt fails and the `agent next` execution policy
+permits fallback:
 
 ```bash
 openbbq transcribe --model large-v3-turbo --cpu --workspace workspaces/demo
 ```
 
-Native GPU backends may fail inside restricted sandboxes even when they work in a normal terminal. Run transcription in a regular user environment before concluding that the backend is broken.
+Do not treat a sandbox GPU failure as evidence that the accelerator is broken.
 
 ## FFmpeg missing or subtitle filters unavailable
 
@@ -104,10 +108,36 @@ openbbq auth browser-login youtube
 ## Incomplete translation
 
 ```bash
-openbbq translate check zh --workspace workspaces/demo
+openbbq --json agent next --workspace workspaces/demo
 ```
 
-Fill the reported ids and recheck. Use `--allow-missing` only for an intentional draft that should fall back to source text.
+The facade returns the current lease or the next missing batch. Do not invent a
+new batch or edit Agent session state. Expert atomic workflows can still use
+`openbbq translate check zh` and fill the reported ids.
+
+## The Agent stopped before `done`
+
+Continue in the same workspace:
+
+```bash
+openbbq --json agent next --workspace workspaces/demo
+```
+
+Repeated `next` is safe and returns the same active lease. Continue after every
+successful command or apply until `done` reports `terminal: true`.
+
+## A mechanical command was called twice
+
+Fetch, extract, transcribe, and segment use workspace execution leases. A
+second call waits for the active stage and returns `reused: true` when the fresh
+artifact already exists. This prevents duplicate Agent or harness polling from
+corrupting the workspace.
+
+## `agent apply` rejects a response
+
+Use the exact response schema, `batch_id`, `policy_hash`, and complete selected
+ID set from the current `agent next`. If source or worksheet content changed,
+discard the old response and request the next action again.
 
 ## Worksheet no longer matches cues
 
@@ -124,6 +154,13 @@ openbbq export --to zh --mode bilingual --format ass --workspace workspaces/demo
 openbbq burn --workspace workspaces/demo
 ```
 
+For the default workflow, do not assemble these commands manually. Continue
+until `agent next` returns `finish`, then run its returned `agent finish` command
+once.
+
 ## Stale running stage
 
-`status` marks running work stale after 60 seconds without a heartbeat. Confirm that no process is still active, inspect its stderr/logs, then rerun the affected command. Rerunning updates that stage and invalidates dependent downstream state.
+`status` marks running work stale after 60 seconds without a heartbeat. Confirm
+that no process is still active, inspect its stderr/logs, then call `agent next`
+for the authoritative recovery action. Do not delete locks or hand-edit the
+manifest.

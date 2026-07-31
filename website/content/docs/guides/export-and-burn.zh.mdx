@@ -3,6 +3,21 @@ title: 导出与烧录
 description: 渲染原文、译文或双语 SRT/ASS，并按需烧录 ASS 到视频。
 ---
 
+## 默认 Agent 交付
+
+一句提示词流程最终执行：
+
+```bash
+openbbq --json agent finish --workspace workspaces/demo --to zh
+```
+
+只有 `agent next` 返回 `finish` 时才运行。它会导出 `out/zh.ass`、烧录
+`out/zh-burned.mp4`、执行 `delivery check`，并发布符合条件的 glossary 学习。横屏
+使用 `fansub`，竖屏使用 `mobile`。产物仍然新鲜时会直接复用，因此 finish 不会对同一
+结果重复烧录。
+
+默认路径不抽样视频帧、不运行视觉 QA，也不会自动换 preset 重试。
+
 ## 导出模式
 
 `openbbq export` 读取 `cues.json`，需要译文时再读取一个翻译工作表。
@@ -45,9 +60,11 @@ ASS 预设：
 | --- | --- |
 | `default` | 常规 16:9 横屏视频 |
 | `fansub` | 更醒目的译文行 |
+| `fansub-compact` | 显式选择的、更小且抬高的双语字幕栈 |
 | `mobile` | 9:16 竖屏画布和更大的底部安全区 |
 
-`--ass-preset` 只能与 `--format ass` 一起使用。Mobile 预设只改变渲染几何，不会自动缩短长字幕。
+`--ass-preset` 只能与 `--format ass` 一起使用。Preset 只改变渲染，不改变翻译含义；
+OpenBBQ 无法预测视频画面中任意文字出现的位置。
 
 ## 审核门禁
 
@@ -57,7 +74,8 @@ ASS 预设：
 openbbq review --to zh --workspace workspaces/demo
 ```
 
-只有明确需要草稿时才使用 `--allow-unreviewed` 绕过门禁；该选项不会把任何 cue 标为已审核。
+只有明确需要原子命令草稿时才使用 `--allow-unreviewed` 绕过门禁；该选项不会把任何
+cue 标为已审核，也不会生成 Agent 底稿交付证据。
 
 ## 未完成译文
 
@@ -114,4 +132,10 @@ openbbq burn --workspace workspaces/demo --ffmpeg /path/to/ffmpeg
 
 ```bash
 openbbq --json status --workspace workspaces/demo
+```
+
+手动构建的产物可以这样校验：
+
+```bash
+openbbq --json delivery check --workspace workspaces/demo --to zh
 ```

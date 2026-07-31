@@ -1,12 +1,12 @@
 ---
 title: 文档
-description: 安装 OpenBBQ，并搭建完整的视频翻译工作流。
+description: 用一句 Agent 提示词把视频制作成可编辑的双语字幕底稿。
 ---
 
-OpenBBQ 是一个面向 Agent 的视频翻译和字幕制作 CLI，提供媒体获取、转录、字幕切分、翻译审校、导出和硬字幕烧录等可组合命令。
+OpenBBQ 是一个面向 Agent 的视频翻译和字幕制作 CLI。默认流程把一句简单请求变成可编辑的双语 ASS 字幕和烧录后的视频；专业审校与故障恢复仍可使用细粒度命令。
 
 <Callout title="当前状态">
-  OpenBBQ 仍处于 pre-alpha 阶段。当前实现主要基于 Python 3.12、FFmpeg、yt-dlp 和 whisper.cpp ASR 后端，发布前请人工检查重要输出。
+  OpenBBQ 仍处于 pre-alpha 阶段。自动流程的目标是可用的 70–80 分底稿，不是经过专业认证的最终字幕；发布重要内容前仍应人工检查。
 </Callout>
 
 ## 从这里开始
@@ -16,31 +16,28 @@ OpenBBQ 是一个面向 Agent 的视频翻译和字幕制作 CLI，提供媒体�
     安装 CLI、FFmpeg、ASR 后端和模型。
   </Card>
   <Card title="快速开始" href="/zh/docs/getting-started/quickstart">
-    从本地视频制作一份双语字幕。
+    对 URL 或本地视频使用相同的一句话提示词。
   </Card>
   <Card title="工作流模型" href="/zh/docs/getting-started/workflow">
-    理解 workspace、阶段和可恢复命令。
+    理解 action、lease、产物与安全恢复。
   </Card>
   <Card title="CLI 参考" href="/zh/docs/reference/cli">
     查询所有命令、参数、选项和默认值。
   </Card>
 </Cards>
 
-## 处理管线
+## 默认路径
 
 ```text
-source
-  -> init
-  -> fetch（仅 URL 来源）
-  -> extract-audio
-  -> transcribe
-  -> segment
-  -> translate init/apply/check
-  -> export
-  -> burn（可选）
+一句提示词
+  -> agent init
+  -> agent next（唯一权威 action）
+  -> 执行机械命令或提交翻译批次（每批 <=20 条）
+  -> agent finish（一次导出、烧录与交付检查）
+  -> done
 ```
 
-每个命令都会写入经过校验的产物，并在 `manifest.json` 中记录状态。你可以通过 `openbbq status` 查看进度，重新运行上游阶段，再从更新后的 workspace 继续。
+活动批次应用前，重复调用 `agent next` 会返回同一个 lease。OpenBBQ 校验 ID、hash、时间轴和产物新鲜度；Agent 负责语义翻译，并可修正明确的 cue-scoped ASR 错误。
 
 ## 按任务选择指南
 

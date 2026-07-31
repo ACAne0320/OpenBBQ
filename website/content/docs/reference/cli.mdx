@@ -12,6 +12,7 @@ openbbq [--json] COMMAND [ARGS]...
 | Option | Description |
 | --- | --- |
 | `--json` | Emit one machine-readable JSON object. Must appear before the command. |
+| `--version` | Print the installed OpenBBQ version. |
 | `--help` | Show help for the current command or group. |
 | `--install-completion` | Install shell completion. |
 | `--show-completion` | Print shell completion code. |
@@ -48,6 +49,22 @@ openbbq status [--workspace PATH]
 
 Reports source metadata, glossary binding, worksheets, recorded stages, progress, artifacts, failures, and stale running stages.
 
+## `agent`
+
+The default one-prompt facade:
+
+```text
+openbbq agent init [--workspace PATH] [--to CODE] [--glossary NAME] SOURCE
+openbbq agent next [--workspace PATH] [--to CODE]
+openbbq agent apply [--workspace PATH] [--to CODE] RESPONSE.json
+openbbq agent finish [--workspace PATH] [--to CODE]
+```
+
+`init` creates the editable-draft session. `next` returns the one authoritative
+action. `apply` atomically accepts the complete active semantic response.
+`finish` exports, burns, checks delivery, and publishes eligible glossary
+learning once.
+
 ## `fetch`
 
 ```text
@@ -58,6 +75,7 @@ openbbq fetch [--workspace PATH] [--auth SITE | --no-auth]
 | --- | --- |
 | `--auth SITE` | Use a saved site app session, currently `youtube`. |
 | `--no-auth` | Force anonymous yt-dlp download. |
+| `--max-height INT` | Limit downloaded video height; yt-dlp best quality is the default. |
 
 Valid only for URL sources. Supported YouTube URLs automatically use a configured YouTube session unless `--no-auth` is passed.
 
@@ -123,6 +141,16 @@ openbbq translate apply [--workspace PATH] LANG TARGETS.json
 
 Merges a JSON object mapping cue ids to translated text. Repeat for multiple batches.
 
+## `translate batch`
+
+```text
+openbbq translate batch [--workspace PATH] [--from ID] [--limit 1..200]
+  [--only-missing] [--context 0..5] [LANG]
+```
+
+Reads a bounded worksheet slice with neighboring context. The compatibility
+default limit is 20; the Agent facade independently enforces a maximum of 20.
+
 ## `translate check`
 
 ```text
@@ -151,17 +179,21 @@ openbbq export [OPTIONS]
 | `--mode source\|target\|bilingual` | source, or target with `--to` | Render mode. |
 | `--format srt\|ass` | `srt` | Subtitle format. |
 | `--output PATH` | `out/<lang>.<format>` | Destination path. |
-| `--ass-preset default\|fansub\|mobile` | `default` | ASS style preset; valid only with ASS. |
+| `--ass-preset default\|fansub\|fansub-compact\|mobile` | `default` | ASS style preset; valid only with ASS. |
 | `--allow-missing` | off | Fall back to source text for missing target cues. |
 | `--allow-unreviewed` | off | Bypass the review-completion gate for an explicit draft export. |
 
 ## `burn`
 
 ```text
-openbbq burn [--workspace PATH] [--subtitle FILE.ass] [--output FILE.mp4] [--ffmpeg PATH]
+openbbq burn [--workspace PATH] [--subtitle FILE.ass] [--output FILE.mp4]
+  [--ffmpeg PATH] [--allow-stale]
 ```
 
-Uses the last export artifact when `--subtitle` is omitted. The default output is based on the subtitle filename, for example `out/zh-burned.mp4`. Requires a video source and ASS input.
+Uses the last export artifact when `--subtitle` is omitted. The default output
+is based on the subtitle filename, for example `out/zh-burned.mp4`. Requires a
+video source and ASS input. `--allow-stale` is an explicit expert escape hatch
+for an intentional untracked or stale subtitle.
 
 ## `models`
 
@@ -192,6 +224,8 @@ openbbq glossary show NAME
 openbbq glossary new [--context TEXT] NAME
 openbbq glossary use [--workspace PATH] NAME
 openbbq glossary suggest [OPTIONS]
+openbbq glossary audit [--workspace PATH] [--offset N] [--limit N]
+openbbq glossary apply [--workspace PATH] [--glossary NAME] CHANGES.json
 ```
 
 `suggest` options:
@@ -202,6 +236,48 @@ openbbq glossary suggest [OPTIONS]
 | `--max-prob FLOAT` | `0.6` | Surface words below this average ASR probability. |
 | `--min-count INT` | `1` | Minimum occurrences. |
 | `--max INT` | `30` | Maximum candidates returned. |
+
+`audit` pages through resolved transcript segments with contextual evidence.
+`apply` atomically adds or updates at most 20 curated terms. These are expert
+compatibility tools; the Agent facade uses a task-local overlay and publishes
+eligible learning after delivery.
+
+## `asr`
+
+Expert ASR diagnosis and correction commands:
+
+```text
+openbbq asr check [--workspace PATH] [--max-prob FLOAT]
+openbbq asr batch [--workspace PATH] [--offset N] [--limit N]
+  [--only-unresolved | --all] [--max-prob FLOAT]
+openbbq asr apply [--workspace PATH] DECISIONS.json
+openbbq asr amend [--workspace PATH] AMENDMENTS.json
+```
+
+`check` and `batch` expose deterministic issues. `apply` records explicit issue
+decisions. `amend` applies bounded contextual phrase corrections without a
+detector issue id. Normal one-prompt tasks use these only when `agent next`
+returns an exceptional source-review action.
+
+## `delivery`
+
+```bash
+openbbq delivery check [--workspace PATH] [--to CODE]
+```
+
+Returns non-zero until source, translation evidence, export, and burn artifacts
+are complete, current, structurally valid, and non-empty.
+
+## `qa`
+
+```text
+openbbq qa render
+openbbq qa check
+openbbq qa attest
+```
+
+Optional expert visual-evidence commands. They are not part of the default
+Agent workflow. `render` alone does not perform visual inspection.
 
 ## `auth`
 

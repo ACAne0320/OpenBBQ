@@ -1,141 +1,89 @@
 ---
 title: 快速开始
-description: 按显式阶段从本地视频制作双语字幕。
+description: 用一句 Agent 提示词生成可编辑的双语字幕底稿和烧录后的视频。
 ---
 
-本指南以英文的本地视频为例，输出“中文在上、英文在下”的 ASS 双语字幕。请根据素材替换路径和语言代码。
+这是在线 URL 与本地文件都推荐使用的默认路径。OpenBBQ 负责工作流状态和确定性校验，
+Agent 负责语义翻译。
 
-## 1. 检查环境
+## 1. 检查安装
 
 ```bash
+openbbq --version
 openbbq doctor
 openbbq models list
 ```
 
-如果还没有缓存模型：
+尚未缓存正式字幕模型时，先下载：
 
 ```bash
 openbbq models pull large-v3-turbo
 ```
 
-## 2. 创建 workspace
+确保随包 Skill 为最新版：
 
 ```bash
-openbbq init --workspace workspaces/demo /path/to/video.mp4
+openbbq skill install --agent all --force
 ```
 
-`init` 只记录来源并创建 `workspaces/demo/manifest.json`，不会复制或处理视频。
+## 2. 发送一句提示词
 
-进入 workspace 后，后续命令可以自动向上查找它：
+在线视频：
 
-```bash
-cd workspaces/demo
-openbbq status
-```
+> 帮我把这个视频制作成中英双语字幕视频：https://www.youtube.com/watch?v=...
 
-也可以留在其他目录，并在每个命令中传 `--workspace workspaces/demo`。
+本地文件：
 
-## 3. 标准化音频
+> 帮我把 `/path/to/video.mp4` 制作成中英双语字幕视频。
 
-```bash
-openbbq extract-audio
-```
+提示词中不需要解释下载、ASR、分批翻译、glossary 维护、字幕导出或烧录步骤；这些规则
+由 Agent Skill 提供。
 
-命令会生成 `media/audio.16k.wav`，即适合 ASR 的 16 kHz 单声道 WAV。
+## 3. 让 Agent 完成任务
 
-## 4. 转录
-
-```bash
-openbbq transcribe --model large-v3-turbo --language en --gpu
-```
-
-结果写入 `transcript.json`。`--gpu` 是默认选项；如果原生后端无法使用当前加速器，或在受限环境中失败，请改用 `--cpu`。
-
-模型不在缓存中时，可以先 pull，也可以明确允许自动下载：
-
-```bash
-openbbq transcribe --model large-v3-turbo --language en --auto-download
-```
-
-## 5. 生成字幕 cue
-
-```bash
-openbbq segment
-```
-
-该命令根据对应语言的时长、每行字符数和 CPS 配置，将 transcript 确定性地转换为 `cues.json`。输出会报告需要复查的 over-CPS 和 over-width cue。
-
-## 6. 创建翻译工作表
-
-```bash
-openbbq translate init zh
-```
-
-打开 `translation.zh.json`。每个项目都有稳定的 cue `id`、原文、时间信息、翻译长度预算，以及待填写的 `target`。
-
-小项目可以直接编辑 `target`；需要可重复的分批处理时，创建一个 JSON 对象：
-
-```json
-{
-  "1": "第一句译文",
-  "2": "第二句译文"
-}
-```
-
-保存为 `targets.json`，然后合并并检查：
-
-```bash
-openbbq translate apply zh targets.json
-openbbq translate check zh
-```
-
-`apply` 可以重复执行；`check` 会报告缺失 cue、超预算译文和术语警告。
-
-## 7. 导出双语 ASS
-
-```bash
-openbbq export --to zh --mode bilingual --format ass --ass-preset fansub
-```
-
-默认输出为 `out/zh.ass`。双语模式会把译文放在原文上方。
-
-烧录前，请先用支持 ASS 的播放器预览字幕文件。
-
-## 8. 烧录字幕（可选）
-
-```bash
-openbbq burn
-```
-
-`burn` 会使用最近一次导出的 ASS 产物，创建 `out/zh-burned.mp4`。该步骤要求来源是视频，并且 FFmpeg 支持 libass filter。
-
-## 随时检查进度
-
-```bash
-openbbq status
-```
-
-脚本或 Agent 使用：
-
-```bash
-openbbq --json status
-```
-
-长任务会持续更新 `manifest.json`，其他进程可以轮询 `status`，不需要解析进度条。
-
-## 最终 workspace
+正常流程如下：
 
 ```text
-workspaces/demo/
-├── manifest.json
-├── media/
-│   └── audio.16k.wav
-├── transcript.json
-├── cues.json
-├── translation.zh.json
-└── out/
-    ├── zh.ass
-    └── zh-burned.mp4
+fetch（仅 URL）-> 抽取音频 -> 转录 -> 校验/分段
+               -> 每批不超过 20 条 cue 的翻译
+               -> 导出 ASS -> 烧录一次 -> 交付检查 -> done
 ```
 
-URL 来源请继续阅读[本地文件与在线视频](/zh/docs/guides/sources)；SRT、ASS 模式和预设见[导出与烧录](/zh/docs/guides/export-and-burn)。
+OpenBBQ 每次只返回一个权威的下一步。机械 action 会提供精确 argv 和执行策略。GPU
+转录、带登录态的 fetch 与最终烧录可能需要在受限 sandbox 外运行；Agent 不应在宿主机
+GPU 可用时擅自改用 CPU。
+
+翻译批次会携带目标语言规则、标题与作者、相邻上下文和命中的 glossary 术语。翻译时
+发现明确 ASR 错误，Agent 可以提交 cue-scoped source fix；可复用的修正会成为
+glossary candidate，并在成功交付后安全发布。
+
+## 4. 获取产物
+
+完成后的 `done` 响应返回：
+
+- `out/zh.ass`：可编辑的双语 ASS 字幕；
+- `out/zh-burned.mp4`：烧录后的视频；
+- 默认自动路径的 `quality: "draft"`；
+- 默认自动路径的 `human_reviewed: false`；
+- 非阻塞的质量提示或 glossary 发布告警。
+
+默认流程只导出和烧录一次，不运行视觉 QA，也不会自动改用 `fansub-compact`。
+
+<Callout title="质量预期">
+  自动结果定位为可用的 70–80 分底稿。它应保持结构和 cue 对齐，但不代表每条字幕都
+  经过专业人工确认。
+</Callout>
+
+## 继续专业精修
+
+可以在同一个 workspace 中打开可选的浏览器编辑器：
+
+```bash
+openbbq review --workspace /path/to/workspace --to zh
+```
+
+也可以把 `out/zh.ass` 导入 Aegisub 或剪辑软件。人工修改具有最高权威，不要让自动
+Agent 流程覆盖已经完成的人工工作。
+
+登录与本地文件细节见[本地文件与在线视频](/zh/docs/guides/sources)；Agent 实现细节见
+[Agent 与 JSON](/zh/docs/guides/agents)。

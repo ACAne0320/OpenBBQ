@@ -1,103 +1,66 @@
 ---
-title: 翻译工作流
-description: 创建、填写、分批合并并校验多语言翻译工作表。
+title: 翻译
+description: 理解 Agent 翻译批次、可复现 brief 与可编辑工作表。
 ---
 
-翻译阶段有意不做成自动黑盒。OpenBBQ 负责准备结构化工作表，由人或 Agent 提供语义翻译，并支持增量校验。
+OpenBBQ 不内置翻译 provider。外部 Agent 负责语义翻译，OpenBBQ 负责批次大小、上下文、
+ID、hash 与原子应用。
 
-## 前置条件
+## 默认 Agent 翻译
 
-先生成原文 cue：
+一句提示词流程会创建 `translation@2` 工作表，并且同时只返回一个活动 `translate`
+action。每批最多选择 20 条 cue，并包含：
 
-```bash
-openbbq segment --workspace workspaces/demo
-```
+- 原语言与目标语言；
+- fetch 能获取到的标题和作者；
+- glossary 领域上下文；
+- 当前与相邻 cue 命中的术语，包括 pending term；
+- 用于消歧的相邻 cue 文本；
+- 固定目标语言规则与 `policy_hash`。
 
-## 创建工作表
+响应必须翻译所有 selected ID，并原样带回 `batch_id` 和 `policy_hash`。缺失、额外、
+过期或 policy 不匹配的 ID 都会被拒绝。
 
-使用 `zh`、`ja`、`pt-BR` 这类 BCP-47 风格目标语言代码：
+## 简体中文规则
+
+`zh`、`zh-Hans` 和 `zh-CN` 使用 `zh-Hans` brief：输出自然、简洁的简体中文，同时
+保留否定、程度、数字、实体、因果、条件与操作步骤。
+
+命令、代码、路径、flag、URL、快捷键、产品名和模型名应保持准确，除非 glossary
+明确提供译名。相邻 cue 只用于消歧，内容不能跨 ID 漂移。含义与对齐优先于激进压缩。
+
+`zh-TW`、`zh-Hant` 和 `zh-HK` 等繁体标签使用 generic fallback，不会误套简体规则。
+
+## 翻译时修正 ASR
+
+译文语义暴露当前 cue 中的明确 ASR 错误时，Agent 可以提交带证据和 reusable 判断的
+cue-scoped source fix。OpenBBQ 会先原子同步 `cues.json` 与工作表，再应用译文；可复用
+修正会自动成为 glossary candidate。
+
+不确定的猜测应保留为 warning，不能编造 source correction。
+
+## 质量信号
+
+`translate check` 报告完整度、target budget 与术语提示。默认底稿流程中，显示预算和
+普通 glossary 一致性只是 advisory；硬门禁覆盖完整 ID、非空文本、当前 hash、有效
+时间轴、翻译证据与新鲜产物。
+
+默认流程不再运行第二轮全量 AI audit。只有完整人工审核才会得到
+`quality: "human-reviewed"`。
+
+## 专家工作表命令
+
+手动流程或自定义 provider 仍可使用原子接口：
 
 ```bash
 openbbq translate init zh --workspace workspaces/demo
-```
-
-命令会创建 `translation.zh.json`。每个项目都绑定 cue id，并包含原文、时间、目标长度预算、术语提示和 `target: null`。
-
-工作表已存在时，`init` 会拒绝覆盖。只有明确接受丢失全部译文时才重新生成：
-
-```bash
-openbbq translate init zh --workspace workspaces/demo --force
-```
-
-## 直接填写 target
-
-编辑 `translation.zh.json` 时保留 schema 和 cue id。除非理解完整性校验，否则只修改语义 target：
-
-```json
-{
-  "id": 1,
-  "source": "Tools should expose the process.",
-  "target": "工具应该让过程透明。"
-}
-```
-
-## 分批合并译文
-
-长视频适合使用小型 `{id: text}` 文件，便于检查和重试：
-
-```json
-{
-  "1": "第一句译文",
-  "2": "第二句译文"
-}
-```
-
-```bash
+openbbq --json translate batch zh --workspace workspaces/demo --limit 20 --only-missing
 openbbq translate apply zh batch-01.json --workspace workspaces/demo
-openbbq translate apply zh batch-02.json --workspace workspaces/demo
-```
-
-批次可以重复应用。已有 id 会被覆盖并报告；未知或格式错误的 id 会被拒绝，不会静默破坏工作表。
-
-## 校验完整性与质量信号
-
-```bash
 openbbq translate check zh --workspace workspaces/demo
 ```
 
-只有一个工作表时，可以省略语言：
+`translate apply` 接受 `{id: target}` 对象，可以重复执行。原子命令不会生成 Agent 底稿
+交付证据；一句提示词交付请使用 facade，或在最终交付前完成人工审核。
 
-```bash
-openbbq translate check --workspace workspaces/demo
-```
-
-报告包括：
-
-- 已填写和总 cue 数。
-- 缺失 cue id。
-- 超过生成字符预算的 target。
-- 术语警告。
-- 工作表与 cue 的完整性问题。
-
-超预算和术语结果是审校信号。目标或双语导出默认要求全部翻译完成，除非使用 `--allow-missing`。
-
-## 多个目标语言
-
-每个语言使用独立工作表：
-
-```bash
-openbbq translate init zh --workspace workspaces/demo
-openbbq translate init ja --workspace workspaces/demo
-```
-
-导出时通过 `--to` 明确选择语言。
-
-## 使用术语表
-
-绑定在 `manifest.json` 中的术语表会自动加入。也可以只为当前工作表覆盖：
-
-```bash
-openbbq translate init zh --workspace workspaces/demo --glossary project-name
-```
-
-Schema 和生命周期见[术语表](/zh/docs/guides/glossaries)。
+每种目标语言有独立工作表。`translate init --force` 会覆盖现有工作表并丢弃已填 target，
+只应在明确接受损失时使用。

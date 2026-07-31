@@ -17,13 +17,12 @@ workspace/
 ├── transcript.json
 ├── cues.json
 ├── translation.zh.json
-├── review.zh.json
-├── .openbbq/review/
-│   ├── journal.json
-│   ├── checkpoints/
-│   └── cache/
+├── .openbbq/
+│   ├── agent-session.zh.json
+│   ├── glossary-overlay.json
+│   ├── artifacts.json
+│   └── review/                 # only after browser review
 └── out/
-    ├── en.srt
     ├── zh.ass
     └── zh-burned.mp4
 ```
@@ -60,13 +59,36 @@ Translation worksheets and exports depend on cue identity. Rerunning segmentatio
 
 ## `translation.<lang>.json`
 
-One editable worksheet per target language. The file intentionally keeps unfilled targets as `null` so humans and agents can discover remaining work. Use `translate apply` for controlled batch updates and `translate check` for integrity.
+One editable worksheet per target language. The current `translation@2` schema
+includes a reproducible translation brief in addition to cue ids, source text,
+targets, timing, budgets, and glossary context. The Agent facade updates it in
+hash-bound batches of at most 20 cues.
+
+## Agent session and glossary overlay
+
+`.openbbq/agent-session.<lang>.json` stores the active lease, translation
+evidence bound to cue/policy/glossary hashes, finish state, and warnings. It is
+workflow state maintained by OpenBBQ, not a file to hand-edit.
+
+`.openbbq/glossary-overlay.json` records task-local entries, evidence, and
+glossary candidates. It identifies the base glossary but does not modify the
+global library until delivery succeeds.
+
+`.openbbq/artifacts.json` records export and burn provenance. Delivery uses it
+to reject stale or mismatched outputs and to make a fresh finish idempotent.
 
 ## Review state
 
-`review.<lang>.json` (or `review.source.json` for source-only review) uses the `openbbq/review@1` schema and stores per-cue status, notes, content fingerprints, the selected target language, and revision metadata. It does not duplicate subtitle text. Review edits keep `cues.json` and all translation worksheets aligned. Mutations use recoverable checkpoints and a cross-file journal; undo and redo are also available during the active review session.
+Professional review is optional. `review.<lang>.json` (or
+`review.source.json`) uses the `openbbq/review@1` schema and stores per-cue
+status, notes, content fingerprints, the selected target language, and revision
+metadata. It does not duplicate subtitle text. A complete current review is the
+evidence for `quality: "human-reviewed"`.
 
-`.openbbq/review/` contains recoverable transaction checkpoints, the current journal, the single-editor lock, and derived waveform/proxy caches. These files are implementation state rather than authored subtitle content.
+`.openbbq/review/` contains recoverable transaction checkpoints, the current
+journal, the single-editor lock, and derived waveform/proxy caches. These files
+appear only after using the review UI and are implementation state rather than
+authored subtitle content.
 
 ## `out/`
 

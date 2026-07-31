@@ -17,13 +17,12 @@ workspace/
 ├── transcript.json
 ├── cues.json
 ├── translation.zh.json
-├── review.zh.json
-├── .openbbq/review/
-│   ├── journal.json
-│   ├── checkpoints/
-│   └── cache/
+├── .openbbq/
+│   ├── agent-session.zh.json
+│   ├── glossary-overlay.json
+│   ├── artifacts.json
+│   └── review/                 # 仅在浏览器审核后出现
 └── out/
-    ├── en.srt
     ├── zh.ass
     └── zh-burned.mp4
 ```
@@ -60,13 +59,31 @@ ASR 输出，包括检测或指定的语言、媒体时长、后端/模型信息
 
 ## `translation.<lang>.json`
 
-每个目标语言一个可编辑工作表。未填写 target 会显式保留为 `null`，便于人和 Agent 发现剩余工作。使用 `translate apply` 控制分批更新，使用 `translate check` 检查完整性。
+每个目标语言一个可编辑工作表。当前 `translation@2` schema 除 cue ID、原文、target、
+时间、预算与 glossary 上下文外，还包含可复现的翻译 brief。Agent facade 以每批最多
+20 条、绑定 hash 的方式更新它。
+
+## Agent session 与 glossary overlay
+
+`.openbbq/agent-session.<lang>.json` 保存活动 lease、绑定 cue/policy/glossary hash 的
+翻译证据、finish 状态与 warnings。它由 OpenBBQ 维护，不应手工编辑。
+
+`.openbbq/glossary-overlay.json` 保存任务本地条目、证据与 glossary candidate，并记录
+base glossary；成功交付前不会修改全局库。
+
+`.openbbq/artifacts.json` 保存 export 与 burn provenance。Delivery 依靠它拒绝 stale 或
+不匹配的产物，并让仍然新鲜的 finish 幂等返回。
 
 ## 审核状态
 
-`review.<lang>.json`（仅原文审核时为 `review.source.json`）使用 `openbbq/review@1` schema，保存每条 cue 的状态、备注、内容指纹、当前目标语言和 revision 元数据，不重复保存字幕正文。审核修改会保持 `cues.json` 与所有翻译工作表对齐。变更通过可恢复的 checkpoint 与跨文件 journal 写入；当前审核会话中也支持撤销和重做。
+专业审核是可选路径。`review.<lang>.json`（仅原文审核时为 `review.source.json`）使用
+`openbbq/review@1` schema，保存每条 cue 的状态、备注、内容指纹、当前目标语言和
+revision 元数据，不重复保存字幕正文。完整且当前的审核是
+`quality: "human-reviewed"` 的证据。
 
-`.openbbq/review/` 保存可恢复的事务 checkpoint、当前 journal、单编辑者锁和派生 waveform/proxy 缓存。这些属于实现状态，不是用户编写的字幕正文。
+`.openbbq/review/` 保存可恢复的事务 checkpoint、当前 journal、单编辑者锁和派生
+waveform/proxy 缓存。它只会在使用 review UI 后出现，属于实现状态，不是用户编写的
+字幕正文。
 
 ## `out/`
 
