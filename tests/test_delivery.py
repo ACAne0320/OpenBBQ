@@ -448,6 +448,17 @@ def test_delivery_rejects_cues_beyond_source_media_duration(
     }
 
 
+def test_media_duration_is_unknown_when_ffprobe_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def missing_ffprobe(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("ffprobe")
+
+    monkeypatch.setattr(media.subprocess, "run", missing_ffprobe)
+
+    assert media.media_duration(tmp_path / "source.mp4") is None
+
+
 @pytest.mark.parametrize(
     ("relative_path", "expected_code"),
     [

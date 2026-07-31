@@ -135,20 +135,23 @@ def _matching_ffprobe(ffmpeg: Path) -> str:
 def media_duration(path: Path, *, ffmpeg: Path | None = None) -> float | None:
     """Container duration in seconds via ffprobe; None means progress is unknown."""
     ffprobe = _matching_ffprobe(ffmpeg) if ffmpeg is not None else "ffprobe"
-    proc = subprocess.run(
-        [
-            ffprobe,
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(path),
-        ],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        proc = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
     if proc.returncode != 0:
         return None
     try:
