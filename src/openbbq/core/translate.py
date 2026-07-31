@@ -1,22 +1,19 @@
-"""Translation worksheet: build a per-language work file from cues + glossary,
-and validate a filled one.
+"""Build, fill, and check per-language translation worksheets.
 
-Source/target split, joined at export (DESIGN translate spec): ``cues.json`` is
-the immutable source product; each target language gets a ``translation@1``
-worksheet the Agent owns. ``build_worksheet`` prepares it (budget per cue +
-glossary map and translation brief), ``apply_targets`` merges an id→target batch into it (how the
-Agent fills at scale without ad hoc scripts), ``check`` validates a filled one
-(integrity hard-fails; status is reported). Pure domain logic — no cli/output;
-failures surface as OpenBBQError. Legacy ``translation@1`` documents stay
-readable; the agent facade migrates them to ``translation@2`` in place.
+``cues.json`` is the authoritative source text and each target language owns a
+worksheet.  The agent workflow may update one cue occurrence and its worksheet
+copy atomically when it finds an obvious ASR error.  This module otherwise
+contains pure worksheet logic: construction, target merging, advisory lint,
+and stable item hashing.  Legacy ``translation@1`` files remain readable and
+the agent facade upgrades them to ``translation@2``.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
-import unicodedata
 from dataclasses import dataclass
 
 from openbbq.core import glossary as gl
@@ -39,6 +36,22 @@ def is_filled(target: str | None) -> bool:
     translate spec 决策 12: a stray ``""`` / whitespace is still "untranslated").
     """
     return target is not None and bool(target.strip())
+
+
+def item_hash(item: TranslationItem) -> str:
+    """Stable hash of the editable content represented by one worksheet item."""
+    payload = json.dumps(
+        {
+            "id": item.id,
+            "source": item.source,
+            "target": item.target,
+            "budget": item.budget.model_dump(mode="json"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 # --- build (translate init) ---------------------------------------------------
@@ -77,9 +90,23 @@ def _glossary_refs(g: Glossary | None) -> list[GlossaryRef]:
     if g is None:
         return []
     return [
-        GlossaryRef(source=t.source, target=t.target, note=t.note, keep=t.keep)
+        GlossaryRef(
+            source=t.source,
+            target=t.target,
+            aliases=list(t.aliases),
+            note=t.note,
+            keep=t.keep,
+        )
         for t in g.terms
     ]
+
+
+def glossary_ref_matches(text: str, ref: GlossaryRef) -> bool:
+    """Whether a cue contains a glossary term's canonical form or an alias."""
+
+    return any(
+        gl.contains_term(text, form) for form in (ref.source, *ref.aliases) if form
+    )
 
 
 def build_worksheet(
@@ -100,7 +127,11 @@ def build_worksheet(
         "max_chars_per_line": max_chars_per_line,
         "max_lines": max_lines,
     }
-    invalid = {name: value for name, value in overrides.items() if value is not None and value <= 0}
+    invalid = {
+        name: value
+        for name, value in overrides.items()
+        if value is not None and value <= 0
+    }
     if invalid:
         raise OpenBBQError(
             "invalid_translation_profile",
@@ -236,13 +267,6 @@ class TermIssue:
 
 
 @dataclass(frozen=True)
-class QualityIssue:
-    id: int
-    code: str
-    detail: str
-
-
-@dataclass(frozen=True)
 class CheckReport:
     total: int
     filled: int
@@ -251,19 +275,11 @@ class CheckReport:
     zero_budget: list[int]  # ids whose timing leaves no target-language capacity
     term_warnings: int
     term_issues: list[TermIssue]
-    quality_warnings: int
-    quality_issues: list[QualityIssue]
 
     @property
     def ready(self) -> bool:
-        """True only when deterministic translation gates are all clear."""
-        return not (
-            self.missing
-            or self.over_budget
-            or self.zero_budget
-            or self.term_issues
-            or self.quality_issues
-        )
+        """Whether every cue has a target; budget and term warnings are advisory."""
+        return not self.missing
 
 
 def verify_integrity(cues: Cues, worksheet: Translation, lang: str) -> None:
@@ -312,7 +328,6 @@ def check(cues: Cues, worksheet: Translation, lang: str) -> CheckReport:
     over_budget = _over_budget(worksheet)
     zero_budget = [it.id for it in worksheet.items if it.budget.max_chars <= 0]
     term_issues = _term_issues(worksheet)
-    quality_issues = _quality_issues(worksheet)
     return CheckReport(
         total=len(worksheet.items),
         filled=len(worksheet.items) - len(missing),
@@ -321,8 +336,6 @@ def check(cues: Cues, worksheet: Translation, lang: str) -> CheckReport:
         zero_budget=zero_budget,
         term_warnings=len(term_issues),
         term_issues=term_issues,
-        quality_warnings=len(quality_issues),
-        quality_issues=quality_issues,
     )
 
 
@@ -340,10 +353,6 @@ def _worksheet_profile(worksheet: Translation) -> seg.LanguageProfile:
         pause_threshold=params.pause_threshold,
         cjk=cjk_profile.cjk,
     )
-
-
-def count_target_chars(worksheet: Translation, text: str) -> int:
-    return seg.count_chars(text, _worksheet_profile(worksheet))
 
 
 _CJK_WRAP_TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:['’.-][A-Za-z0-9]+)*|[^\s]")
@@ -389,114 +398,12 @@ def _term_issues(worksheet: Translation) -> list[TermIssue]:
         target = it.target or ""
         target_fold = target.casefold()
         for ref in worksheet.glossary:
-            if not gl.contains_term(it.source, ref.source):
+            if not glossary_ref_matches(it.source, ref):
                 continue
             expect = ref.source if ref.keep else ref.target
             if expect and expect.casefold() not in target_fold:
                 issues.append(TermIssue(id=it.id, term=ref.source, expected=expect))
     return issues
-
-
-_ASCII_WORD_RE = re.compile(r"[A-Za-z]+(?:['’-][A-Za-z]+)*")
-_ZH_JA_SCRIPT_RE = re.compile(r"[\u3400-\u9fff\u3040-\u30ff]")
-_KO_SCRIPT_RE = re.compile(r"[\uac00-\ud7af]")
-
-
-def _quality_key(text: str) -> str:
-    normalized = unicodedata.normalize("NFKC", text).casefold()
-    return "".join(ch for ch in normalized if ch.isalnum())
-
-
-def _kept_source_only(worksheet: Translation, source: str) -> bool:
-    source_key = _quality_key(source)
-    return any(
-        ref.keep and _quality_key(ref.source) == source_key
-        for ref in worksheet.glossary
-    )
-
-
-def _expected_script_present(lang: str, text: str) -> bool | None:
-    base = lang.split("-", 1)[0].casefold()
-    if base in {"zh", "ja"}:
-        return bool(_ZH_JA_SCRIPT_RE.search(text))
-    if base == "ko":
-        return bool(_KO_SCRIPT_RE.search(text))
-    return None
-
-
-def _quality_issues(worksheet: Translation) -> list[QualityIssue]:
-    """Conservative deterministic lint for failure patterns seen in agent runs.
-
-    This deliberately does not claim semantic correctness. It catches copied
-    source text, clearly wrong target script, and long duplicate runs so those
-    artifacts cannot be mistaken for a completed translation.
-    """
-    issues: list[QualityIssue] = []
-    filled = [item for item in worksheet.items if is_filled(item.target)]
-
-    if worksheet.source_lang.casefold() != worksheet.target_lang.casefold():
-        for item in filled:
-            target = item.target or ""
-            lines = wrap_target_lines(worksheet, target)
-            profile = _worksheet_profile(worksheet)
-            if len(lines) > profile.max_lines or any(
-                seg.count_chars(line, profile) > profile.max_chars_per_line
-                for line in lines
-            ):
-                issues.append(
-                    QualityIssue(
-                        id=item.id,
-                        code="line_capacity",
-                        detail=(
-                            f"target needs {len(lines)} line(s); profile allows "
-                            f"{profile.max_lines} × {profile.max_chars_per_line} chars"
-                        ),
-                    )
-                )
-            if _quality_key(item.source) == _quality_key(
-                target
-            ) and not _kept_source_only(worksheet, item.source):
-                issues.append(
-                    QualityIssue(
-                        id=item.id,
-                        code="source_copy",
-                        detail="target matches source",
-                    )
-                )
-                continue
-
-            expected = _expected_script_present(worksheet.target_lang, target)
-            if expected is False:
-                source_words = _ASCII_WORD_RE.findall(item.source)
-                target_words = _ASCII_WORD_RE.findall(target)
-                if len(source_words) >= 2 and len(target_words) >= 2:
-                    issues.append(
-                        QualityIssue(
-                            id=item.id,
-                            code="target_script",
-                            detail=f"target does not contain {worksheet.target_lang} script",
-                        )
-                    )
-
-    by_target: dict[str, list[TranslationItem]] = {}
-    for item in filled:
-        key = _quality_key(item.target or "")
-        if len(key) >= 6:
-            by_target.setdefault(key, []).append(item)
-    for group in by_target.values():
-        if len(group) < 3 or len({_quality_key(item.source) for item in group}) < 3:
-            continue
-        count = len(group)
-        for item in group:
-            issues.append(
-                QualityIssue(
-                    id=item.id,
-                    code="repeated_target",
-                    detail=f"same target is used for {count} distinct cues",
-                )
-            )
-
-    return sorted(issues, key=lambda issue: (issue.id, issue.code))
 
 
 # --- bounded Agent read (translate batch) ------------------------------------
@@ -568,7 +475,7 @@ def select_batch(
     relevant_glossary = [
         ref
         for ref in worksheet.glossary
-        if any(gl.contains_term(source, ref.source) for source in included_sources)
+        if any(glossary_ref_matches(source, ref) for source in included_sources)
     ]
     return BatchReport(
         selected_ids=[item.id for _index, item in selected],

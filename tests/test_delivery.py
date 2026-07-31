@@ -4,16 +4,16 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, cast
+from typing import cast
 
 import pytest
 
 from openbbq.cli import main
-from openbbq.cli.commands.status import StatusResult
 from openbbq.cli.delivery import assess_delivery
-from openbbq.core import qa as qalib
+from openbbq.core import agent_workflow
+from openbbq.core import media
 from openbbq.core import export as exportlib
-from openbbq.core import translation_audit as auditlib
+from openbbq.core import review as reviewlib
 from openbbq.core import workspace as ws
 from openbbq.schemas import (
     ASRInfo,
@@ -21,6 +21,7 @@ from openbbq.schemas import (
     Cue,
     Cues,
     Manifest,
+    ReviewStatus,
     Segment,
     SegmentParams,
     Source,
@@ -29,7 +30,6 @@ from openbbq.schemas import (
     StageStatus,
     Transcript,
     Translation,
-    TranslationAuditDecision,
     TranslationItem,
     Word,
 )
@@ -48,7 +48,8 @@ PARAMS = SegmentParams(
 def _workspace(
     tmp_path: Path,
     *,
-    visual_status: Literal["pass", "fail"] = "pass",
+    agent_draft: bool = True,
+    target: str = "你好",
 ) -> Path:
     path = tmp_path / "ws"
     path.mkdir()
@@ -92,46 +93,25 @@ def _workspace(
             TranslationItem(
                 id=1,
                 source="Hello there.",
-                target="你好",
+                target=target,
                 budget=Budget(max_chars=20, seconds=3),
             )
         ],
     )
     translation_path = path / "translation.zh.json"
     translation_path.write_text(translation.model_dump_json(), encoding="utf-8")
-    audit_items = auditlib.audit_items(cues, translation, None, coverage="all")
-    audit = auditlib.apply_decisions(
-        cues,
-        translation,
-        None,
-        audit_items,
-        {
-            1: TranslationAuditDecision(
-                action="accept",
-                reason="The source meaning and Chinese translation match.",
-            )
-        },
-        coverage="all",
-    ).audit
-    ws.write_translation_audit(path, "zh", audit)
 
-    subtitle = path / "out" / "zh.ass"
-    subtitle.parent.mkdir()
-    subtitle.write_text(
-        exportlib.render_ass(
-            cues,
-            exportlib.ExportMode.BILINGUAL,
-            translation=translation,
-        ),
-        encoding="utf-8",
-    )
-    burned = path / "out" / "zh-burned.mp4"
-    burned.write_bytes(b"burned-video")
-
+    audio = path / "media" / "audio.16k.wav"
+    audio.parent.mkdir(parents=True)
+    audio.write_bytes(b"normalized-audio")
     manifest = Manifest(
         created_at=datetime.now(timezone.utc),
         source=Source(type="local_video", ref=str(source)),
         stages={
+            Stage.EXTRACT_AUDIO: StageState(
+                status=StageStatus.DONE,
+                artifact="media/audio.16k.wav",
+            ),
             Stage.TRANSCRIBE: StageState(
                 status=StageStatus.DONE, artifact="transcript.json"
             ),
@@ -152,11 +132,46 @@ def _workspace(
         Stage.SEGMENT,
         inputs=[transcript_path],
     )
+
+    if agent_draft:
+        session = agent_workflow.create_session(path, "zh")
+        action = agent_workflow.next_action(path, manifest, session)
+        assert action["action"] == "translate"
+        agent_workflow.apply_response(
+            path,
+            manifest,
+            session,
+            json.dumps(
+                {
+                    "batch_id": action["batch_id"],
+                    "policy_hash": action["policy_hash"],
+                    "translations": {"1": target},
+                    "source_fixes": [],
+                    "glossary_updates": [],
+                }
+            ),
+        )
+        session = ws.read_agent_session_optional(path, "zh")
+        assert session is not None
+        translation = ws.read_translation(translation_path)
+
+    subtitle = path / "out" / "zh.ass"
+    subtitle.parent.mkdir()
+    subtitle.write_text(
+        exportlib.render_ass(
+            cues,
+            exportlib.ExportMode.BILINGUAL,
+            translation=translation,
+        ),
+        encoding="utf-8",
+    )
+    burned = path / "out" / "zh-burned.mp4"
+    burned.write_bytes(b"burned-video")
     ws.record_artifact_provenance(
         path,
         subtitle,
         Stage.EXPORT,
-        inputs=[cues_path, translation_path, ws.translation_audit_path(path, "zh")],
+        inputs=[cues_path, translation_path],
     )
     ws.record_artifact_provenance(
         path,
@@ -164,27 +179,17 @@ def _workspace(
         Stage.BURN,
         inputs=[source, subtitle],
     )
-
-    frame = path / ".openbbq" / "qa" / "frame.png"
-    frame.parent.mkdir(parents=True)
-    frame.write_bytes(b"frame")
-    report = qalib.create_report(
+    manifest = ws.read_manifest(path)
+    manifest.stages[Stage.EXPORT] = StageState(
+        status=StageStatus.DONE,
+        artifact="out/zh.ass",
+    )
+    manifest.stages[Stage.BURN] = StageState(
+        status=StageStatus.DONE,
         artifact="out/zh-burned.mp4",
-        artifact_path=burned,
-        duration_s=3,
-        frames=[
-            qalib.FrameEvidence(
-                path=str(frame.relative_to(path)), cue_id=1, at=1.5, file=frame
-            )
-        ],
     )
-    report = qalib.attest(
-        report,
-        result=visual_status,
-        reason="Every rendered frame was inspected.",
-        issues=["subtitle_overlap"] if visual_status == "fail" else None,
-    )
-    ws.write_qa(path, report)
+    ws.write_manifest(path, manifest)
+
     return path
 
 
@@ -200,6 +205,50 @@ def _run_cli(
     return code, json.loads(captured.out)
 
 
+def _write_current_delivery_outputs(path: Path) -> None:
+    manifest = ws.read_manifest(path)
+    cues_path = path / "cues.json"
+    translation_path = path / "translation.zh.json"
+    cues = ws.read_cues(cues_path)
+    translation = ws.read_translation(translation_path)
+    subtitle = path / "out" / "zh.ass"
+    subtitle.write_text(
+        exportlib.render_ass(
+            cues,
+            exportlib.ExportMode.BILINGUAL,
+            translation=translation,
+        ),
+        encoding="utf-8",
+    )
+    provenance_inputs = [cues_path, translation_path]
+    review_path = reviewlib.review_path(path, "zh")
+    if review_path.is_file():
+        provenance_inputs.append(review_path)
+    ws.record_artifact_provenance(
+        path,
+        subtitle,
+        Stage.EXPORT,
+        inputs=provenance_inputs,
+    )
+    burned = path / "out" / "zh-burned.mp4"
+    burned.write_bytes(b"burned-video")
+    ws.record_artifact_provenance(
+        path,
+        burned,
+        Stage.BURN,
+        inputs=[Path(manifest.source.ref), subtitle],
+    )
+    manifest.stages[Stage.EXPORT] = StageState(
+        status=StageStatus.DONE,
+        artifact="out/zh.ass",
+    )
+    manifest.stages[Stage.BURN] = StageState(
+        status=StageStatus.DONE,
+        artifact="out/zh-burned.mp4",
+    )
+    ws.write_manifest(path, manifest)
+
+
 def test_delivery_assessment_passes_complete_fresh_workflow(
     tmp_path: Path,
 ) -> None:
@@ -210,41 +259,69 @@ def test_delivery_assessment_passes_complete_fresh_workflow(
     assert assessment.ready is True
     assert assessment.issues == ()
     assert assessment.lang == "zh"
-
-    status = StatusResult.of(path, ws.read_manifest(path)).payload()
-    assert status["delivery_ready"] is True
-    assert status["delivery_lang"] == "zh"
-    assert status["delivery_issues"] == []
+    assert assessment.gates["translation"] is True
+    assert assessment.gates["translation_evidence"] is True
 
 
-def test_delivery_cli_visual_failure_does_not_block_delivery(
+def test_complete_human_review_is_valid_evidence_without_agent_session(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _workspace(tmp_path, visual_status="fail")
-
-    code, payload = _run_cli(
-        ["--json", "delivery", "check", "--workspace", str(path), "--to", "zh"],
-        monkeypatch,
-        capsys,
+    path = _workspace(tmp_path, agent_draft=False)
+    review = reviewlib.ReviewSession.open(path, "zh")
+    snapshot = review.snapshot()
+    updated = review.update_cue(
+        1,
+        target="您好",
+        base_revision=snapshot.revision,
+        op_id="human-edit",
     )
-
-    assert code == 0
-    assert payload["ok"] is True
-    assert payload["ready"] is True
-    assert "qa_visual" not in cast(dict[str, bool], payload["gates"])
-
-
-def test_delivery_does_not_require_rendered_frame_qa(tmp_path: Path) -> None:
-    path = _workspace(tmp_path)
-    ws.qa_path(path).unlink()
+    review.set_status(
+        1,
+        ReviewStatus.REVIEWED,
+        base_revision=updated.revision,
+        op_id="human-reviewed",
+    )
+    ws.refresh_artifact_provenance(path, path / "cues.json", Stage.SEGMENT)
+    _write_current_delivery_outputs(path)
 
     assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
 
     assert assessment.ready is True
-    assert assessment.gates["qa_mechanical"] is True
-    assert "qa_visual" not in assessment.gates
+    assert assessment.issues == ()
+
+
+def test_human_review_cannot_make_a_missing_target_deliverable(
+    tmp_path: Path,
+) -> None:
+    path = _workspace(tmp_path, agent_draft=False)
+    reviewlib.ReviewSession.open(path, "zh")
+    translation_path = path / "translation.zh.json"
+    translation = ws.read_translation(translation_path)
+    translation.items[0].target = None
+    ws.write_text_atomic(translation_path, translation.model_dump_json(indent=2))
+    ws.refresh_artifact_provenance(path, path / "cues.json", Stage.SEGMENT)
+
+    assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
+
+    assert assessment.ready is False
+    assert "translation_incomplete" in {issue.code for issue in assessment.issues}
+
+
+def test_delivery_does_not_require_rendered_frame_qa(tmp_path: Path) -> None:
+    path = _workspace(tmp_path)
+    assert not ws.qa_path(path).exists()
+
+    assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
+
+    assert assessment.ready is True
+    assert set(assessment.gates) == {
+        "asr",
+        "segment",
+        "translation",
+        "translation_evidence",
+        "export",
+        "burn",
+    }
 
 
 def test_delivery_cli_complete_workspace_exits_zero_ready_true(
@@ -262,27 +339,43 @@ def test_delivery_cli_complete_workspace_exits_zero_ready_true(
 
     assert code == 0
     assert payload["ok"] is True
-    assert payload["ready"] is True
+    assert payload["artifact_ready"] is True
     assert payload["issues"] == []
     assert all(cast(dict[str, bool], payload["gates"]).values())
 
 
-def test_delivery_detects_stale_full_coverage_semantic_review(tmp_path: Path) -> None:
+def test_delivery_rejects_stale_agent_evidence(
+    tmp_path: Path,
+) -> None:
     path = _workspace(tmp_path)
     translation_path = path / "translation.zh.json"
     translation = ws.read_translation(translation_path)
     translation.items[0].target = "您好"
     translation_path.write_text(translation.model_dump_json(), encoding="utf-8")
 
+    _write_current_delivery_outputs(path)
+
     assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
 
     codes = {issue.code for issue in assessment.issues}
     assert assessment.ready is False
-    assert "translation_audit_incomplete" in codes
-    assert "export_stale_artifact" in codes
+    assert "agent_session_stale" in codes
 
 
-def test_delivery_rejects_source_only_ass_even_when_hashes_are_fresh(tmp_path: Path) -> None:
+def test_delivery_rejects_translation_without_review_or_agent_evidence(
+    tmp_path: Path,
+) -> None:
+    path = _workspace(tmp_path, agent_draft=False)
+
+    assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
+
+    assert assessment.ready is False
+    assert "translation_evidence_missing" in {issue.code for issue in assessment.issues}
+
+
+def test_delivery_rejects_source_only_ass_even_when_hashes_are_fresh(
+    tmp_path: Path,
+) -> None:
     path = _workspace(tmp_path)
     cues = ws.read_cues(path / "cues.json")
     subtitle = path / "out" / "zh.ass"
@@ -297,15 +390,12 @@ def test_delivery_rejects_source_only_ass_even_when_hashes_are_fresh(tmp_path: P
         inputs=[
             path / "cues.json",
             path / "translation.zh.json",
-            ws.translation_audit_path(path, "zh"),
         ],
     )
 
     assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
 
-    assert "export_not_bilingual_ass" in {
-        issue.code for issue in assessment.issues
-    }
+    assert "export_not_bilingual_ass" in {issue.code for issue in assessment.issues}
 
 
 def test_delivery_detects_segment_stale_after_transcript_change(tmp_path: Path) -> None:
@@ -317,9 +407,7 @@ def test_delivery_detects_segment_stale_after_transcript_change(tmp_path: Path) 
 
     assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
 
-    assert "segment_stale_artifact" in {
-        issue.code for issue in assessment.issues
-    }
+    assert "segment_stale_artifact" in {issue.code for issue in assessment.issues}
 
 
 def test_delivery_rejects_zero_duration_cues_even_with_nonempty_burn(
@@ -336,14 +424,35 @@ def test_delivery_rejects_zero_duration_cues_even_with_nonempty_burn(
 
     assert assessment.ready is False
     assert assessment.gates["segment"] is False
-    assert assessment.gates["qa_mechanical"] is False
     assert "invalid_cue_timeline" in {issue.code for issue in assessment.issues}
+
+
+def test_delivery_rejects_cues_beyond_source_media_duration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _workspace(tmp_path)
+    cues_path = path / "cues.json"
+    cues = ws.read_cues(cues_path)
+    cues.cues[0].start = 3.2
+    cues.cues[0].end = 4.0
+    cues_path.write_text(cues.model_dump_json(), encoding="utf-8")
+    ws.refresh_artifact_provenance(path, cues_path, Stage.SEGMENT)
+    monkeypatch.setattr(media, "media_duration", lambda _path: 3.0)
+
+    assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
+
+    assert assessment.ready is False
+    assert assessment.gates["segment"] is False
+    assert "cues_exceed_media_duration" in {
+        issue.code for issue in assessment.issues
+    }
 
 
 @pytest.mark.parametrize(
     ("relative_path", "expected_code"),
     [
         (".openbbq/asr-review.json", "invalid_asr_review"),
+        (".openbbq/agent-session.zh.json", "invalid_agent_session"),
     ],
 )
 def test_delivery_turns_malformed_sidecars_into_ready_false_issues(
@@ -358,15 +467,6 @@ def test_delivery_turns_malformed_sidecars_into_ready_false_issues(
 
     assert assessment.ready is False
     assert expected_code in {issue.code for issue in assessment.issues}
-
-
-def test_delivery_ignores_optional_malformed_visual_qa(tmp_path: Path) -> None:
-    path = _workspace(tmp_path)
-    ws.qa_path(path).write_text("{}", encoding="utf-8")
-
-    assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
-
-    assert assessment.ready is True
 
 
 def test_delivery_incomplete_workspace_reports_actionable_gate_not_exception(

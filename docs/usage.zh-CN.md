@@ -2,40 +2,80 @@
 
 [README](../README.zh-CN.md) · [English Usage](usage.md)
 
-这份文档说明默认 agent 流程，以及供专家兼容使用的原子命令。
+OpenBBQ 提供两条互补路径：
+
+- 默认 agent facade：一句提示词生成结构完整、可编辑的 AI 字幕底稿；
+- 专家原子命令与 `openbbq review`：用于诊断和专业人工精修。
+
+自动流程的目标是稳定、可用的 70–80 分底稿，不代表每条 cue 都经过专业确认。
 
 ## 推荐：单提示词 Agent 流程
 
-新任务使用 facade 初始化一次：
+安装随包发布的 skill 后，用户只需发送：
+
+> 帮我把这个视频制作成中英双语字幕视频：https://www.youtube.com/watch?v=...
+
+下面的流程由 Agent 自行负责，用户不需要在提示词里逐项说明内部步骤。
+
+初始化一次；只有明确知道现有 glossary 与视频匹配时才显式传入：
 
 ```bash
-openbbq --json agent init 'https://www.youtube.com/watch?v=...' --workspace workspaces/demo --to zh
+openbbq --json agent init 'https://www.youtube.com/watch?v=...' \
+  --workspace workspaces/demo --to zh [--glossary <name>]
 ```
 
-之后反复运行：
+然后持续请求唯一权威的下一步：
 
 ```bash
 openbbq --json agent next --workspace workspaces/demo
 ```
 
-- `run_command`：原样执行返回的 `argv`。
-- `select_glossary`、`review_source`、`translate`、`review_risks`：按返回的
-  `response_schema` 写 JSON，然后运行
-  `openbbq --json agent apply --workspace workspaces/demo response.json`。
-- `finish`：执行其 `argv`。默认只导出和烧录一次；横屏为 `fansub`，竖屏为
-  `mobile`，不运行视觉 QA 或 `fansub-compact`。
+按返回的 action 执行：
+
+- `run_command`：原样执行返回的 `argv`；
+- `review_source`：仅在结构性 ASR 问题阻塞分段时，提交完整的有界响应；
+- `translate`：翻译所有 selected ID，并提交响应；
+- `finish`：执行其中的 `argv`；
 - `done`：交付返回的字幕和视频路径。
 
-语义 action 使用持久化 lease；重复 `next` 会得到同一 batch。`apply` 必须包含精确的
-`batch_id`、`policy_hash` 和完整 ID 集合。翻译 batch 由 CLI 强制最多 20 条。
-`translation@2` worksheet 会固定目标语言规则、标题/作者、glossary context 和 pending
-term。默认 balanced 门禁只复查真正高风险译文；下文的 `coverage=all` 是旧 workspace
-和显式 thorough 模式的专家接口。
-如果风险复查才发现遗漏的 ASR 错词，`review_risks` 的同一次响应可以提交 cue-scoped
-`source_fixes` 和可复用的 `glossary_updates`。时间轴塌缩 detector 不允许直接 accept，
-必须修复或丢弃损坏 segment；零时长 cue 会被 segment/export/delivery 拒绝。
+语义 action 使用：
 
-下面各节保留原子命令，主要用于认证、沙盒/GPU、恢复、调试和旧流程。
+```bash
+openbbq --json agent apply --workspace workspaces/demo response.json
+```
+
+正常流程是：
+
+```text
+fetch → extract → transcribe → validate/segment
+      → translate（每批 ≤20 条）→ finish → done
+```
+
+默认没有模型驱动的 glossary 选择对话、额外语义复查队列或全量 AI audit。显式
+`--glossary` 始终优先；否则 URL 任务会在 fetch 得到作者后绑定稳定的作者+目标语言
+glossary。重复调用 `next` 会返回同一活动 lease。`apply` 必须带精确的 `batch_id`、
+`policy_hash` 和完整 ID 集合；source 或 worksheet 过期时会被拒绝。
+
+翻译响应还可以提交：
+
+- 明显 ASR 错误的 cue-scoped `source_fixes`；
+- 真正可复用的 `glossary_updates`；
+- 模型不确定时的简短 warning。
+
+普通低置信 ASR 词、显示预算和 glossary 一致性都只作为提示。硬门禁只覆盖：schema
+与时间轴有效、ID 完整、原文/译文非空、hash 当前、更新原子、产物 provenance
+新鲜，以及最终文件非空。
+
+`finish` 只导出和烧录一次；横屏使用 `fansub`，竖屏使用 `mobile`。默认不运行视觉
+QA，也不选择 `fansub-compact`。正常 `done` 响应包含：
+
+```json
+{
+  "artifact_ready": true,
+  "quality": "draft",
+  "human_reviewed": false
+}
+```
 
 ## 检查环境
 
@@ -46,18 +86,19 @@ uv sync --extra whispercpp --dev
 uv run pytest
 ```
 
-运行检查：
+运行环境：
 
 ```bash
 openbbq doctor
+openbbq models list
 openbbq models pull large-v3-turbo
 ```
 
-如果要烧录字幕，`doctor` 应该能找到带 `ass` 和 `subtitles` filter 的 FFmpeg。
+烧录字幕需要 FFmpeg 提供 `ass` 和 `subtitles` filter。
 
-## YouTube 流程
+## 输入、认证与 GPU
 
-zsh 这类 shell 里要给 URL 加引号：
+zsh 等 shell 中应给 URL 加引号。等价的 YouTube 原子流程是：
 
 ```bash
 openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
@@ -67,21 +108,7 @@ openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language
 openbbq segment --workspace workspaces/demo
 ```
 
-如果 YouTube 要求登录或人机验证：
-
-```bash
-openbbq auth browser-login youtube
-openbbq fetch --workspace workspaces/demo --max-height 1080
-```
-
-浏览器登录态保存在 `OPENBBQ_HOME` 下，默认是 `~/.openbbq`。这个目录需要可写。
-如果运行环境是受限 sandbox，请在普通用户环境里执行 browser auth 和 `fetch`，或把
-`OPENBBQ_HOME` 指到可写目录。公开视频如果因为已保存登录态触发 403，可以改用
-`openbbq fetch --workspace workspaces/demo --no-auth`。
-
-## 本地文件流程
-
-本地视频可以跳过 `fetch`：
+本地文件跳过 `fetch`：
 
 ```bash
 openbbq init --workspace workspaces/demo /path/to/video.mp4
@@ -90,160 +117,129 @@ openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language
 openbbq segment --workspace workspaces/demo
 ```
 
-## ASR 和 GPU
+YouTube 要求登录或人工验证时：
 
-所选 ASR 后端支持时，`--gpu` 是默认的快速路径。如果原生后端在受限 sandbox 中崩溃
-或失败，请在 sandbox 外重新运行 `transcribe`，或改用 `--cpu` 重试。
+```bash
+openbbq auth browser-login youtube
+openbbq fetch --workspace workspaces/demo --max-height 1080
+```
 
-分段前必须处理所有低置信词和段级异常（重复幻觉、异常词速、标题/作者实体冲突）：
+浏览器状态保存在 `OPENBBQ_HOME`，默认是 `~/.openbbq`。受限 sandbox 无法访问状态
+时，应在普通用户环境中执行浏览器认证和网络下载。公开视频若因已保存认证触发 403，
+可用 `--no-auth` 重试。
+
+所选后端支持时，GPU 是 ASR 默认路径。原生 GPU 与模型缓存应在受限 sandbox 外运行。
+只有 sandbox 外 GPU 确实失败后，才改用 CPU：
+
+```bash
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --cpu
+```
+
+## Glossary
+
+仅在范围明确时显式使用现有 glossary：
+
+```bash
+openbbq glossary list
+openbbq glossary show <name>
+openbbq --json agent init '<source>' --workspace workspaces/demo --to zh --glossary <name>
+```
+
+显式 glossary 始终优先。未显式指定时，URL 任务等待 fetch 元数据，然后根据作者派生
+稳定的 `author-<slug>-<target>-<hash>` glossary；同作者、同目标语言的后续视频会
+得到同一 glossary，同时避免不同目标语言共用单一 `target` 字段，不依赖
+模型判断。本地文件如果没有显式 glossary，则只使用任务 overlay。
+
+翻译时，OpenBBQ 会提供已绑定的 glossary context，以及 selected/neighbor cue 中
+相关的术语。可复用发现保存在任务级 `.openbbq/glossary-overlay.json`。任务中立即
+使用 base + overlay，但只在成功交付后更新全局库。
+
+发布过程不会覆盖已有 owner 或字段。冲突、缺少绑定或权限失败会保留 overlay，并返回
+不阻塞视频交付的重试 warning。
+
+## 专家 ASR 诊断
+
+以下命令是可选专家工具，不是默认 one-shot 步骤：
 
 ```bash
 openbbq --json asr check --workspace workspaces/demo
 openbbq --json asr batch --workspace workspaces/demo --limit 20 --only-unresolved
 openbbq asr apply --workspace workspaces/demo asr-decisions.json
-```
-
-词和实体使用 accept/replace；重复段可用 keep_first/drop。所有决定都必须写理由；
-短语 replace 还要提供精确的 `find` 与 `replacement`。fetch 到 YouTube VTT 时，batch
-会附带同时间的参考文字。
-重复处理直到 `asr check` 返回 `ready: true`；未决或过期决定会阻止 `segment`。该门禁
-只覆盖检测器发现的问题，不代表高置信词一定正确。
-
-检测器门禁通过后，必须结合语义上下文审计全部转写段：
-
-```bash
+openbbq asr amend --workspace workspaces/demo asr-amendments.json
 openbbq --json glossary suggest --workspace workspaces/demo
 openbbq --json glossary audit --workspace workspaces/demo --offset 0 --limit 20
-```
-
-沿 `next_offset` 翻页，直到 `remaining` 为 0。每项包含前后段、词级概率、已解析/原始
-source、可用时的参考字幕和 glossary 命中。Agent 根据上下文判断；概率和参考文字只是
-证据。
-
-没有检测器 issue id 的一次性错误，用有界 amendment 修正：
-
-```json
-{"amendments":[{"segment_id":12,"find":"hot tick","replacement":"hot take","reason":"结合前后句可知这里是固定表达 hot take。"}]}
-```
-
-```bash
-openbbq asr amend --workspace workspaces/demo asr-amendments.json
-```
-
-可复用的专名和 ASR 变体用原子 patch 更新已绑定 glossary：
-
-```json
-{"terms":[{"source":"Andy Matuschak","aliases":["Annie Matushak"],"note":"研究者；已确认的 ASR 变体"}]}
-```
-
-```bash
 openbbq glossary apply --workspace workspaces/demo glossary-terms.json
-openbbq --json segment --workspace workspaces/demo
 ```
 
-segment 输出会报告 `glossary_matched_terms`、`glossary_aliases_applied` 和
-`glossary_no_effect`。仅仅绑定 glossary 不能证明术语维护真的生效。
+它们用于诊断已知 ASR 问题、迁移旧 workspace，或执行人工主导的彻底检查。低置信本身
+不要求替换；全转录 audit 也不是默认交付门禁。单次修正必须限定 occurrence；只有
+明确可复用的 glossary alias 才能影响之后匹配的文本。
 
-## 翻译
+## 专家翻译命令
 
-创建中文翻译工作表：
+facade 通常会创建并维护翻译 worksheet。等价的原子命令仍可使用：
 
 ```bash
 openbbq translate init zh --workspace workspaces/demo --max-lines 2
-```
-
-长视频先读取有界批次，避免 Agent 把整个 worksheet 塞进上下文：
-
-```bash
 openbbq --json translate batch zh --workspace workspaces/demo --from 1 --limit 20 --only-missing
-```
-
-把选中的 cue id → 译文写成 JSON，再用 apply 合并：
-
-```bash
-echo '{"1": "第一句译文", "2": "第二句译文"}' > targets.json
 openbbq translate apply zh --workspace workspaces/demo targets.json
-```
-
-检查工作表：
-
-```bash
 openbbq translate check zh --workspace workspaces/demo
 ```
 
-只有 `ready: true` 才表示翻译完成。必须处理 `missing`、`over_budget`、
-`zero_budget`、`term_issues` 和 `quality_issues`；只有明确导出草稿时才使用
-`--allow-quality-warnings` 绕过。
-`translate check` 完全只读，不会让已完成的 export/burn 失效。双语 ASS 会按
-worksheet 的目标语行预算确定性插入 `\N`，不会截断译文。
+`translate check` 把缺失/空译文作为错误，也可能把预算或 glossary 问题报告为
+warning。这些 warning 帮助编辑者排序，不证明含义正确，也不会在默认流程中制造
+强制复查循环。
 
-分批审核全覆盖语义队列（风险项优先，每条带前后文）：
+## 专业审核与编辑
 
-```bash
-openbbq --json translate audit zh --workspace workspaces/demo --coverage all --limit 20
-openbbq translate audit-apply zh --workspace workspaces/demo translation-audit.json
-```
-
-每条 accept/revise 都要写理由，revise 还要带 `target`。每个 cue 都必须审核；修改一条
-会使本条和相邻上下文决定失效。存在当前未审核项时，
-正式导出会被阻止；`--allow-quality-warnings` 只用于明确草稿。
-
-## 可视化审核与字幕编辑
-
-安装可选的本地审核 UI，然后打开一个目标语言：
+安装可选的本地 review UI，并打开已生成的 workspace：
 
 ```bash
 uv tool install 'openbbq[review]' --force
 openbbq review --workspace workspaces/demo --to zh
 ```
 
-浏览器把视频或音频、waveform、cue 时间轴、原文、译文、时间和审核状态放在同一
-工作区中。文字修改会自动保存到 `cues.json` 和 `translation.<lang>.json`；支持
-拆分、合并、新增、删除、撤销/重做，以及逐 cue 的已审核/待处理状态。SRT/ASS
-仍是派生产物，需要显式执行 `export` 重新生成。
+浏览器会同时展示视频或音频、waveform、cue 时间轴、原文、译文、时间和审核状态。
+它支持修改原文/译文/时间、拆分/合并/新增/删除、撤销/重做，以及逐 cue 的
+reviewed/flagged 状态。修改会自动保存到 workspace 的权威数据。
 
-一旦存在 `review.<lang>.json`，对应的目标语/双语导出默认要求全部 cue 已审核。
-只有明确需要草稿导出时才使用 `--allow-unreviewed`。
+人工修改具有最高权威，自动流程不会覆盖。编辑完成后，应主动重新导出 SRT/ASS 和
+烧录视频。ASS 也可以导入 Aegisub 或其他剪辑软件继续处理。
 
-## 导出和烧录
+当每条当前 cue 都经过确认后，OpenBBQ 可以报告：
 
-导出双语 ASS：
-
-```bash
-openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --output out/zh.ass
+```json
+{
+  "quality": "human-reviewed",
+  "human_reviewed": true
+}
 ```
 
-烧录成视频：
+这表示人工审核状态完整，不是自动语义评分。
+
+## 导出、烧录与交付
+
+人工修改后可使用原子命令重新生成产物：
 
 ```bash
+openbbq export --workspace workspaces/demo --to zh --mode bilingual \
+  --format ass --output out/zh.ass
 openbbq burn --workspace workspaces/demo
+openbbq --json delivery check --workspace workspaces/demo --to zh
 ```
 
-烧录可能需要几分钟。JSON 或非 TTY 模式下，stdout 仍然只输出最后的单个 JSON
-结果；进度会写进 workspace manifest。可以另开终端轮询：
+export 会记录内容 hash。burn 会拒绝被改动或未追踪的 workspace ASS，并记录源视频、
+ASS 和最终 MP4 hash。delivery 检查 schema、完整非空内容、有效时间轴、产物新鲜度
+和 provenance。语义 warning 不会声称或否定专业准确率。
+
+长任务会把进度写入 workspace manifest：
 
 ```bash
 openbbq --json status --workspace workspaces/demo
 ```
 
-导出会记录 cues、译文、review 状态和 ASS 的内容哈希。burn 默认拒绝已改动或未追踪
-的 workspace 内 ASS；`--allow-stale` 只用于明确的手工草稿，显式传入 workspace
-外部 ASS 仍然受支持。成功 burn 还会记录最终 MP4，以及所用源视频和 ASS 的精确
-内容哈希。
-
-## 完成交付检查
-
-```bash
-openbbq --json delivery check --workspace workspaces/demo --to zh
-```
-
-最终 `delivery check` 是硬门禁：它综合 ASR、翻译机械检查、全覆盖上下文审校、
-双语 ASS 内容、export/burn freshness、烧录 provenance 与非空 MP4。任一失败都会返回
-`ready:false` 和非零退出码。视觉排版不属于默认门禁；非多模态模型不需要查看风险帧，
-也不会因此被判定失败。
-
-`qa render`、`qa check` 和 `qa attest` 仍保留为用户明确要求时的可选人工诊断，
-但不会自动切换 ASS 预设或触发重烧录。
+`qa render/check/attest` 仍是人工明确要求视觉检查时的可选诊断。它们不会自动执行、
+选择预设或触发重烧录。
 
 ## ASS 预设
 
@@ -254,66 +250,40 @@ openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass
 openbbq export --workspace workspaces/demo --to zh --mode bilingual --format ass --ass-preset mobile
 ```
 
-- `default`：常规 16:9 横屏视频。
-- `fansub`：译文行更醒目。
-- `fansub-compact`：更小且上移的双语堆叠，仅在用户明确指定时使用；默认流程不会
-  根据抽帧自动选择它。
-- `mobile`：面向 9:16 竖屏视频，使用竖屏画布和更大的底部安全区。
+- `default`：常规 16:9 样式；
+- `fansub`：译文更醒目，也是默认横屏选择；
+- `fansub-compact`：用户显式选择的更小、上移双语堆叠；
+- `mobile`：9:16 样式和更大的底部安全区。
 
-`mobile` 只改变渲染样式。目标语行容量由 `translate init` 的覆盖参数控制；如果仍
-超过阅读速度或行容量门禁，需要修订译文或重新切分。
+预设只影响渲染，不影响翻译含义。OpenBBQ 不预测视频中任意文字会出现在哪里。
 
-## Agent 使用
+## Agent 安装与输出
 
-Agent 应把根级 `--json` 放在命令名前使用 JSON 输出：
-
-```bash
-openbbq --json status --workspace workspaces/demo
-openbbq --json export --workspace workspaces/demo --to zh --mode bilingual --format ass
-```
-
-只有 stdout 是交互式 TTY 时，OpenBBQ 才使用 Rich 人类可读输出。在 Codex、CI 或
-其他非 TTY 运行器里，即使没有显式传 `--json`，也会自动输出紧凑 JSON。
-
-工作空间 manifest 记录了已完成、运行中和失败的阶段。`fetch`、`transcribe`、
-`burn` 这类长任务可以通过 `status` 查询进度。
-
-安装随包发布的 agent skill。默认目标是共享 agents 目录：
+安装随包发布的 skill：
 
 ```bash
 openbbq skill install
 ```
 
-这会写入 `~/.agents/skills/openbbq-subtitles/`。如果当前 agent 读取自己的
-skills 目录，Claude Code 使用 `openbbq skill install --agent claude`，Codex
-使用 `openbbq skill install --agent codex`。一次安装所有支持目标使用
-`openbbq skill install --agent all`。
+如果 harness 读取独立 skill 目录，可使用 `--agent claude`、`--agent codex` 或
+`--agent all`。`openbbq skill show` 会输出已安装的说明。
 
-安装固定写入英文 skill 及其英文 `references/`。
+常见 workspace 产物：
 
-需要直接从 stdout 读取 skill 内容的 agent 可以使用 `openbbq skill show`。
-
-## 输出文件
-
-常见工作空间输出：
-
-- `media/`：下载或生成的媒体文件。
-- `transcript.json`：ASR 转录结果。
-- `cues.json`：原文字幕 cue。
-- `translation.<lang>.json`：可编辑翻译工作表。
-- `.openbbq/asr-review.json`：绑定 transcript hash 的低置信词决定。
-- `.openbbq/translation-audit.<lang>.json`：绑定当前 cue 内容的风险审核决定。
-- `.openbbq/qa.json`：MP4/截帧证据和可选视觉证明。
-- `review.<lang>.json`：逐 cue 的人工审核状态与已审核内容 hash。
-- `.openbbq/artifacts.json`：供 burn 校验的导出来源与内容 hash。
-- `.openbbq/review/`：本地 lock、checkpoint、waveform cache 和预览 proxy。
-- `out/<lang>.srt`：导出的 SRT 字幕。
-- `out/<lang>.ass`：导出的 ASS 字幕。
-- `out/<lang>-burned.mp4`：烧录硬字幕后的视频。
+- `transcript.json`：ASR 转录；
+- `cues.json`：权威原文 cue；
+- `translation.<lang>.json`：可编辑翻译 worksheet；
+- `.openbbq/agent-session.<lang>.json`：lease 与翻译证据；
+- `.openbbq/glossary-overlay.json`：任务级可复用 glossary 学习；
+- `review.<lang>.json`：人工审核状态；
+- `.openbbq/artifacts.json`：export/burn provenance；
+- `out/<lang>.srt` 与 `out/<lang>.ass`：字幕；
+- `out/<lang>-burned.mp4`：烧录硬字幕视频。
 
 ## 命令
 
 ```text
+openbbq agent init/next/apply/finish
 openbbq doctor
 openbbq init
 openbbq status
@@ -323,7 +293,7 @@ openbbq extract-audio
 openbbq transcribe
 openbbq segment
 openbbq asr check/batch/apply/amend
-openbbq translate init/batch/apply/check/audit/audit-apply
+openbbq translate init/batch/apply/check
 openbbq review
 openbbq glossary list/show/new/use/suggest/audit/apply
 openbbq export

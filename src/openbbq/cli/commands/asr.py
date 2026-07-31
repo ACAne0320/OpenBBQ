@@ -41,7 +41,6 @@ class AsrIssueReport(OpenBBQModel):
     severity: str | None = None
     previous: str | None = None
     next_segment: str | None = None
-    words_per_second: float | None = None
     find: str | None = None
     replacement: str | None = None
     reference_text: str | None = None
@@ -72,7 +71,6 @@ def _issue_report(
             severity=issue.severity,
             previous=issue.previous_text,
             next_segment=issue.next_text,
-            words_per_second=issue.words_per_second,
             find=issue.find,
             replacement=issue.replacement,
             reference_text=issue.reference_text,
@@ -185,11 +183,6 @@ def _load(workspace: str | None):
     )
     transcript = ws.read_transcript(transcript_path)
     review = ws.read_asr_review_optional(path)
-    reference_texts = [
-        text
-        for text in (manifest.source.title, manifest.source.author)
-        if manifest.source.type == "url" and text
-    ]
     caption_source = ws.read_reference_caption_optional(path)
     captions = (
         reviewlib.parse_reference_captions(caption_source)
@@ -201,7 +194,7 @@ def _load(workspace: str | None):
         if caption_source is not None
         else []
     )
-    return path, transcript, review, reference_texts, captions, reference_words
+    return path, transcript, review, captions, reference_words
 
 
 def _write_review_and_invalidate(path: Path, review: AsrReview) -> Path:
@@ -231,15 +224,12 @@ def check(
 ) -> None:
     """Report whether every ASR word issue and segment anomaly has a decision."""
     output: Output = ctx.obj
-    path, transcript, review, reference_texts, captions, reference_words = _load(
-        workspace
-    )
+    path, transcript, review, captions, reference_words = _load(workspace)
     workspace_arg = shlex.quote(str(path))
     report = reviewlib.check(
         transcript,
         review,
         max_prob=max_prob,
-        reference_texts=reference_texts,
         reference_words=reference_words,
     )
     output.emit(
@@ -297,15 +287,12 @@ def batch(
             fix=f"use --offset >= 0 and --limit from 1 to {reviewlib.MAX_DECISION_BATCH}",
         )
     output: Output = ctx.obj
-    path, transcript, review, reference_texts, captions, reference_words = _load(
-        workspace
-    )
+    path, transcript, review, captions, reference_words = _load(workspace)
     workspace_arg = shlex.quote(str(path))
     report = reviewlib.check(
         transcript,
         review,
         max_prob=max_prob,
-        reference_texts=reference_texts,
         reference_words=reference_words,
     )
     resolved = set(report.resolved_ids)
@@ -365,7 +352,7 @@ def apply(
 ) -> None:
     """Merge explicit accept/replace/drop/keep_first ASR decisions."""
     output: Output = ctx.obj
-    path, transcript, review, reference_texts, _, reference_words = _load(workspace)
+    path, transcript, review, _, reference_words = _load(workspace)
     decisions_path = Path(decisions).expanduser()
     try:
         raw = decisions_path.read_text(encoding="utf-8")
@@ -381,7 +368,6 @@ def apply(
         review,
         parsed,
         max_prob=max_prob,
-        reference_texts=reference_texts,
         reference_words=reference_words,
     )
     artifact = _write_review_and_invalidate(path, merged)
@@ -390,7 +376,6 @@ def apply(
         transcript,
         merged,
         max_prob=max_prob,
-        reference_texts=reference_texts,
         reference_words=reference_words,
     )
     output.emit(
@@ -426,7 +411,7 @@ def amend(
     """Apply agent-found phrase corrections without a detector issue id."""
 
     output: Output = ctx.obj
-    path, transcript, review, reference_texts, _, reference_words = _load(workspace)
+    path, transcript, review, _, reference_words = _load(workspace)
     amendments_path = Path(amendments).expanduser()
     try:
         raw = amendments_path.read_text(encoding="utf-8")
@@ -448,7 +433,6 @@ def amend(
         transcript,
         merged,
         max_prob=merged.max_prob,
-        reference_texts=reference_texts,
         reference_words=reference_words,
     )
     output.emit(

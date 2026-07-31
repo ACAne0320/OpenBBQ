@@ -70,6 +70,22 @@ def test_apply_overrides_only_touches_given_fields() -> None:
     assert out.max_chars_per_line == EN.max_chars_per_line
 
 
+def test_default_english_profile_keeps_normal_long_sentences_whole() -> None:
+    assert EN.max_chars_per_line == 110
+    text = (
+        "This is a really cool example of how the first half of the series "
+        "sets up the second half's payoff."
+    )
+    tokens = text.split()
+    words = [
+        W(token, index * 0.25, (index + 1) * 0.25) for index, token in enumerate(tokens)
+    ]
+
+    assert [[word.word for word in piece] for piece in seg.split_long(words, EN)] == [
+        tokens
+    ]
+
+
 # --- wrapping -----------------------------------------------------------------
 
 
@@ -115,6 +131,23 @@ def test_split_long_ignores_leading_comma_in_long_sentence() -> None:
     assert [w.word for w in pieces[0]] != ["Well,"]
 
 
+def test_split_long_rejects_a_punctuation_break_that_flashes_too_briefly() -> None:
+    words = [
+        W("In", 0.0, 0.2),
+        W("episode", 0.2, 0.45),
+        W("3,", 0.45, 0.7),
+        W("the", 0.7, 1.0),
+        W("party", 1.0, 1.4),
+        W("faces", 1.4, 1.8),
+        W("living", 1.8, 2.2),
+        W("armor.", 2.2, 2.8),
+    ]
+
+    pieces = seg.split_long(words, _tight(max_chars_per_line=28))
+
+    assert [word.word for word in pieces[0]] != ["In", "episode", "3,"]
+
+
 def test_split_long_uses_largest_pause_when_no_punctuation() -> None:
     # gap 0.5s > pause_threshold 0.3 splits between the two words
     words = [W("hello", 0, 1.0), W("world", 1.5, 2.5)]
@@ -136,6 +169,21 @@ def test_split_long_greedy_balances_to_avoid_widow() -> None:
     words = [W("aaaa", 0, 1), W("bbbb", 1, 2), W("c", 2, 3)]
     pieces = seg.split_long(words, _tight())
     assert [[w.word for w in p] for p in pieces] == [["aaaa"], ["bbbb", "c"]]
+
+
+def test_split_long_does_not_break_after_a_possessive() -> None:
+    text = (
+        "The A-plot in this story is Laios and the party going to save his "
+        "sister before she's digested by a dragon that should be hibernating."
+    )
+    words = [
+        W(token, index * 0.3, (index + 1) * 0.3)
+        for index, token in enumerate(text.split())
+    ]
+
+    pieces = seg.split_long(words, _tight(max_chars_per_line=110))
+
+    assert all(piece[-1].word.casefold() != "his" for piece in pieces[:-1])
 
 
 def test_split_long_emits_unsplittable_word_as_is() -> None:
@@ -286,7 +334,7 @@ def test_build_cues_counts_over_cap_for_unsplittable_word() -> None:
                 start=0,
                 end=1,
                 text="x",
-                words=[W("supercalifragilisticexpialidocious" * 3, 0, 1)],
+                words=[W("x" * (EN.max_chars_per_line + 1), 0, 1)],
             )
         ),
         EN,
@@ -419,6 +467,60 @@ def test_segment_writes_cues_and_records_stage(tmp_path) -> None:
     assert doc.source_lang == "en"
     assert [c.id for c in doc.cues] == [1]
     assert ws.read_manifest(path).stages[Stage.SEGMENT].status is StageStatus.DONE
+
+
+def test_segment_allows_unreviewed_low_confidence_words(tmp_path, capsys) -> None:
+    path, manifest = _workspace(tmp_path)
+    transcript = _transcript(
+        Segment(
+            id=0,
+            start=0,
+            end=1.6,
+            text="Hello there.",
+            words=[
+                Word(word="Hello", start=0, end=0.6, prob=0.2),
+                W("there.", 0.6, 1.6),
+            ],
+        )
+    )
+    _with_transcript(path, manifest, transcript)
+
+    segment(_ctx(), workspace=str(path))
+
+    import json
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["asr_advisory_ids"] == ["s0:w0"]
+    assert ws.read_cues(path / "cues.json").cues[0].source == "Hello there."
+
+
+def test_segment_blocks_unresolved_collapsed_timeline(tmp_path) -> None:
+    path, manifest = _workspace(tmp_path)
+    transcript = _transcript(
+        Segment(
+            id=0,
+            start=0,
+            end=2,
+            text="bad timing here now",
+            words=[
+                Word(word=word, start=2, end=2, prob=0.99)
+                for word in ("bad", "timing", "here", "now")
+            ],
+        )
+    )
+    _with_transcript(path, manifest, transcript)
+
+    try:
+        segment(_ctx(), workspace=str(path))
+    except OpenBBQError as err:
+        assert err.code == "asr_review_incomplete"
+        unresolved = err.context["unresolved"]
+        assert isinstance(unresolved, list)
+        assert len(unresolved) == 1
+        assert isinstance(unresolved[0], str)
+        assert unresolved[0].startswith("a:timeline:0:")
+    else:
+        raise AssertionError("expected OpenBBQError")
 
 
 def test_segment_reports_glossary_matches_alias_corrections_and_no_effect(

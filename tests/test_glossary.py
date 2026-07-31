@@ -15,11 +15,13 @@ from openbbq.cli.commands.init import init
 from openbbq.cli.output import Output
 from openbbq.core import asr_review as asr_reviewlib
 from openbbq.core import glossary as gl
+from openbbq.core import glossary_overlay
 from openbbq.core import segment as seg
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
     ASRInfo,
+    AgentGlossaryUpdate,
     AsrDecision,
     AsrReview,
     Glossary,
@@ -60,6 +62,14 @@ def _home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _payload(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
     return cast(dict[str, object], json.loads(capsys.readouterr().out))
+
+
+def _write_overlay_updates(
+    path: Path,
+    updates: list[AgentGlossaryUpdate],
+) -> None:
+    overlay, _ = glossary_overlay.prepare_updates(path, updates)
+    glossary_overlay.write(path, overlay)
 
 
 # --- schema -------------------------------------------------------------------
@@ -282,9 +292,9 @@ def test_correction_tracker_reports_case_only_alias_application() -> None:
     )
 
     assert tracker("codex") == "Codex"
-    assert [(item.source, item.alias, item.count) for item in tracker.alias_applications] == [
-        ("Codex", "codex", 1)
-    ]
+    assert [
+        (item.source, item.alias, item.count) for item in tracker.alias_applications
+    ] == [("Codex", "codex", 1)]
 
 
 def test_correction_applies_in_build_cues() -> None:
@@ -396,6 +406,49 @@ def test_glossary_use_rebinds_manifest(
     init(_ctx(), source=_local_video(tmp_path), workspace=str(wsdir), glossary=None)
     use(_ctx(), name="frieren", workspace=str(wsdir))
     assert ws.read_manifest(wsdir).glossary == "frieren"
+
+
+def test_glossary_use_rebinds_an_existing_agent_overlay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _home(tmp_path, monkeypatch)
+    gl.save(
+        Glossary(
+            name="frieren",
+            context="Frieren series",
+            terms=[Term(source="Frieren", target="芙莉莲")],
+        )
+    )
+    wsdir = tmp_path / "ws"
+    init(_ctx(), source=_local_video(tmp_path), workspace=str(wsdir), glossary=None)
+    glossary_overlay.initialize(
+        wsdir,
+        base_name="author-example-zh-1234567890",
+        context="Example creator",
+    )
+    _write_overlay_updates(
+        wsdir,
+        [
+            AgentGlossaryUpdate(
+                source="Codex",
+                keep=True,
+                reusable=True,
+                evidence="confirmed recurring product",
+            )
+        ],
+    )
+
+    use(_ctx(), name="frieren", workspace=str(wsdir))
+
+    overlay = glossary_overlay.read_optional(wsdir)
+    assert overlay is not None
+    assert overlay.schema_ == "openbbq/glossary-overlay@2"
+    assert overlay.base_name == "frieren"
+    assert ws.read_manifest(wsdir).glossary == "frieren"
+    effective = glossary_overlay.merged(wsdir, "frieren")
+    assert effective is not None
+    assert {term.source for term in effective.terms} == {"Frieren", "Codex"}
 
 
 def _audit_workspace(
@@ -564,3 +617,39 @@ def test_glossary_apply_atomically_updates_bound_library_and_invalidates_segment
     assert payload["unchanged"] == ["hot take"]
     assert payload.get("workspace_invalidated") is None
     assert ws.read_manifest(path).stages[Stage.SEGMENT].status is StageStatus.DONE
+
+
+def test_glossary_apply_can_publish_an_automatic_overlay_without_dangling_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _home(tmp_path / "home", monkeypatch)
+    transcript = _transcript(
+        Segment(id=0, start=0, end=1, text="Codex works.", words=[W("Codex", 0, 1)])
+    )
+    path = _audit_workspace(tmp_path, transcript)
+    glossary_overlay.initialize(
+        path,
+        base_name="author-example-zh-1234567890",
+        context="Example creator",
+    )
+    manifest = ws.read_manifest(path)
+    manifest.stages[Stage.SEGMENT] = StageState(
+        status=StageStatus.DONE,
+        artifact="cues.json",
+    )
+    ws.write_manifest(path, manifest)
+    patch = tmp_path / "automatic-terms.json"
+    patch.write_text(
+        json.dumps({"terms": [{"source": "Codex", "keep": True}]}),
+        encoding="utf-8",
+    )
+
+    apply_patch(_ctx(), changes=str(patch), workspace=str(path))
+
+    payload = _payload(capsys)
+    assert payload["name"] == "author-example-zh-1234567890"
+    assert gl.load("author-example-zh-1234567890").terms[0].source == "Codex"
+    assert ws.read_manifest(path).glossary is None
+    assert ws.read_manifest(path).stages[Stage.SEGMENT].status is StageStatus.PENDING

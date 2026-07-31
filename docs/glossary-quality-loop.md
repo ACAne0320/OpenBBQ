@@ -1,57 +1,69 @@
-# Agent-driven glossary quality loop
+# Glossary Learning In The Draft Workflow
 
 ## Goal
 
-A one-shot subtitle task must let the agent discover ASR mistakes from meaning
-and context, repair the current source occurrence, and preserve only genuinely
-reusable terminology for later related videos. Confidence is an ordering clue,
-not a correctness verdict.
+OpenBBQ uses a glossary to improve related videos without turning uncertain ASR
+text into a global rule. A one-shot task may repair an obvious source
+occurrence and preserve a genuinely reusable term while translating.
+Confidence and glossary-consistency findings are clues, not correctness
+verdicts.
 
-## Default contract
+## Default Contract
 
-1. `agent next` returns `review_source` batches containing complete segments,
-   neighbors, word probabilities, detector issues, metadata, optional reference
-   captions, and current glossary context.
-2. The response covers every selected segment and detector issue. A contextual
-   one-off correction goes in `source_fixes` with short evidence.
-3. A name, term, official casing, translation rule, or recurring ASR variant
-   goes in `glossary_updates` only when it is safe for future related videos and
-   is explicitly marked `reusable: true`.
-4. OpenBBQ keeps reusable learning in `.openbbq/glossary-overlay.json`. Base +
-   overlay is used immediately by later source batches, segmentation, and
-   translation, while the global glossary stays unchanged during the task.
-5. Translation batches may discover missed ASR errors. They atomically update
-   the stable cue ID and worksheet source, then translate the corrected text.
-   The affected cue is automatically included in risk review.
-6. Risk review may make the same cue-scoped source correction and reusable
-   glossary update if the error becomes clear only during final semantic review.
-7. Only after delivery succeeds does `agent finish` publish non-conflicting
+1. Pass `--glossary <name>` to `agent init` when an existing glossary is
+   explicitly relevant; it always wins. Otherwise a URL task derives a stable
+   `author-<slug>-<target>-<hash>` glossary after fetch discovers the author.
+   The target-language scope prevents one glossary's single `target` field from
+   leaking across languages. There is no
+   model-driven glossary selection step.
+2. Normal `translate` batches receive the available glossary context, selected
+   cues, and neighbor cues.
+3. A translation response may include cue-scoped `source_fixes` when context
+   makes an ASR error clear. Source and worksheet copies update atomically.
+4. It may include `glossary_updates` only for a canonical term, official
+   casing, translation rule, or recurring ASR alias that is safe to reuse.
+5. OpenBBQ stores reusable learning in `.openbbq/glossary-overlay.json` and uses
+   base glossary plus overlay for the rest of the task. Later videos for the
+   same author and target language deterministically reuse the published
+   glossary.
+6. Only after successful delivery does `agent finish` publish non-conflicting
    reusable entries to the global library.
 
-## Safety rules
+`review_source` may offer the same bounded fixes only when a structural ASR
+problem blocks segmentation. It is not a full-transcript glossary pass.
+Ordinary low-confidence or ambiguous wording remains a warning and does not
+need a forced correction.
 
-- Detector and contextual fixes are occurrence-scoped. Only an explicit
-  glossary alias can correct text across segments.
-- A common word that may be correct elsewhere must never become a global alias.
-- Case-only aliases are retained, so `codex` reliably canonicalizes to `Codex`.
-- Overlay updates are bounded and atomic. A malformed or form-owning conflict
-  leaves canonical source products untouched.
+## Safety Rules
+
+- Source fixes are occurrence-scoped.
+- Only an explicit reusable alias may affect matching text beyond that
+  occurrence.
+- Common or ambiguous words must not become global aliases merely to satisfy a
+  warning.
+- Case-only aliases remain valid, so an intentional `codex → Codex`
+  canonicalization can persist.
+- Overlay updates are bounded and atomic.
 - Publication never overwrites an existing target, keep decision, note, or
-  alias owner. Safe entries can publish even when another entry conflicts.
-- A conflict, missing global binding, or permission error keeps the overlay and
-  returns a non-blocking retry warning. Failed/incomplete video tasks never
-  publish.
+  alias owner.
+- A conflict, missing binding, or permission failure keeps the overlay and
+  returns a non-blocking retry warning.
+- Failed or incomplete video tasks never publish.
 
-## Legacy expert interfaces
+## Expert Interfaces
 
-`asr check/batch/apply`, `glossary audit`, `asr amend`, `glossary suggest`, and
-`glossary apply` remain available for old workspaces and explicit manual work.
-They are no longer the normal Skill happy path.
+`asr check/batch/apply`, `asr amend`, `glossary suggest/audit/apply`, and the
+atomic `translate init/batch/apply/check` commands remain available for
+diagnosis, migration, or a human-directed pass. They are not required by the
+default one-shot workflow. Translation meaning is approved either by the
+agent-draft evidence produced by the facade or by a complete, current human
+review; there is no separate full-coverage AI audit.
 
-## Acceptance criteria
+## Acceptance Criteria
 
-- High-confidence contextual errors can be fixed without inventing detector IDs.
-- The same common word elsewhere is unchanged by an occurrence fix.
-- A reusable alias affects segmentation and later workspaces.
-- Translation receives glossary context plus selected and neighbor pending terms.
-- Global publication is idempotent, conflict-safe, and never blocks delivery.
+- An obvious cue-scoped error can be fixed without changing the same word
+  elsewhere.
+- Translation receives explicit glossary context and pending note-only terms.
+- Reusable aliases affect later matching work, while uncertain guesses do not.
+- Publication is idempotent, conflict-safe, and never blocks an otherwise valid
+  draft.

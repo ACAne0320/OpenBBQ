@@ -8,10 +8,9 @@ from .agent import (
     AgentSession,
     AgentSourceFix,
     AgentWarning,
+    GlossaryCandidate,
     GlossaryOverlay,
     GlossaryOverlayEntry,
-    RiskReviewEvidence,
-    SourceReviewEvidence,
     TranslationEvidence,
 )
 from .cues import Budget, Cue, Cues, SegmentParams
@@ -21,13 +20,6 @@ from .qa import QaFrame, QaReport, QaVisualIssue, QaVisualIssueCode
 from .review import Review, ReviewItem, ReviewStatus
 from .transcript import ASRInfo, Segment, Transcript, Word
 from .translation import GlossaryRef, Translation, TranslationBrief, TranslationItem
-from .translation_audit import (
-    TranslationAudit,
-    TranslationAuditDecision,
-    TranslationAuditFlag,
-    TranslationAuditFlagCode,
-    TranslationAuditRecord,
-)
 
 __all__ = [
     # common
@@ -39,7 +31,7 @@ __all__ = [
     "AsrAmendment",
     "AsrDecision",
     "AsrReview",
-    # agent-session@1 / glossary-overlay@1
+    # agent-session@2 / glossary-overlay@2
     "AgentCueSourceFix",
     "AgentFinished",
     "AgentGlossaryUpdate",
@@ -47,10 +39,9 @@ __all__ = [
     "AgentSession",
     "AgentSourceFix",
     "AgentWarning",
+    "GlossaryCandidate",
     "GlossaryOverlay",
     "GlossaryOverlayEntry",
-    "RiskReviewEvidence",
-    "SourceReviewEvidence",
     "TranslationEvidence",
     # transcript@1
     "Transcript",
@@ -70,12 +61,6 @@ __all__ = [
     "TranslationBrief",
     "TranslationItem",
     "GlossaryRef",
-    # translation-audit@1
-    "TranslationAudit",
-    "TranslationAuditDecision",
-    "TranslationAuditFlag",
-    "TranslationAuditFlagCode",
-    "TranslationAuditRecord",
     # review@1
     "Review",
     "ReviewItem",

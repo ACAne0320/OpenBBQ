@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 import typer
-from rich.progress import BarColumn, Progress as RichProgress, TextColumn, TimeElapsedColumn
+from rich.progress import (
+    BarColumn,
+    Progress as RichProgress,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 from ...core import glossary as glossarylib
 from ...core import glossary_overlay
@@ -16,6 +21,7 @@ from ...errors import OpenBBQError
 from ...schemas import ASRInfo, Progress, Stage, StageState, StageStatus, Transcript
 from ..output import Output
 from ..results import Result
+from ..stage_execution import run_stage_once
 
 TRANSCRIPT_REL = "transcript.json"
 
@@ -44,6 +50,7 @@ class TranscribeResult(Result):
         )
 
 
+@run_stage_once(Stage.TRANSCRIBE)
 def transcribe(
     ctx: typer.Context,
     workspace: Annotated[
@@ -65,14 +72,17 @@ def transcribe(
     ] = None,
     glossary: Annotated[
         str | None,
-        typer.Option("--glossary", help="glossary name (overrides the manifest binding)"),
+        typer.Option(
+            "--glossary", help="glossary name (overrides the manifest binding)"
+        ),
     ] = None,
     use_gpu: Annotated[
         bool,
         typer.Option("--gpu/--cpu", help="use backend GPU acceleration when available"),
     ] = True,
     auto_download: Annotated[
-        bool, typer.Option("--auto-download", help="download a missing named model first")
+        bool,
+        typer.Option("--auto-download", help="download a missing named model first"),
     ] = False,
 ) -> None:
     """Transcribe normalized audio to transcript.json."""
@@ -95,14 +105,15 @@ def transcribe(
             "model_missing", model=name, fix=f"openbbq models pull {name}"
         )
     if not asr.is_available():
-        raise OpenBBQError(
-            "missing_dependency", dep=asr.name, fix=asr.install_hint
-        )
+        raise OpenBBQError("missing_dependency", dep=asr.name, fix=asr.install_hint)
 
     # Glossary biasing: canonical term sources go in as `bias` (backend-agnostic);
     # the prose `context` rides the initial_prompt alongside any explicit --prompt.
-    glossary_name = glossary or manifest.glossary
-    gloss = glossary_overlay.merged(path, glossary_name)
+    gloss = (
+        glossarylib.load_optional(glossary)
+        if glossary is not None
+        else glossary_overlay.merged(path, manifest.glossary)
+    )
     bias = (
         glossarylib.bias_terms(gloss)
         if gloss is not None and Capability.BIASING in asr.capabilities

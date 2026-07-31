@@ -2,12 +2,31 @@
 
 [中文说明](README.zh-CN.md) · [Usage Guide](docs/usage.md)
 
-**OpenBBQ** is a command-line tool for agent-driven video translation and subtitle production.
+**OpenBBQ** is a command-line tool for agent-driven video translation and
+subtitle production.
 
 OpenBBQ provides a default `agent init/next/apply/finish` facade so different
-agents can follow the same quality workflow from one prompt. Fine-grained
-download, ASR, segmentation, translation, review, export, and burn commands
-remain available for expert debugging and compatibility.
+agents can turn one simple prompt into an editable bilingual subtitle draft.
+The default workflow aims for a reliable 70–80 point first pass: useful without
+manual setup, but intentionally not presented as a professionally reviewed
+final subtitle.
+
+OpenBBQ keeps structural correctness, bounded translation batches, artifact
+freshness, and one-time export/burn deterministic. The agent handles
+translation and may correct an obvious ASR occurrence or learn a reusable
+glossary term while translating. Low-confidence words, display budgets, and
+glossary consistency are advisory, not mandatory review queues.
+
+An explicit `--glossary` always wins. Otherwise, once a URL fetch identifies
+the author, OpenBBQ binds a stable author-and-target glossary automatically.
+Terms learned in the task overlay are published conflict-safely after delivery
+and reused by later videos from the same author in that target language—without
+asking the model to choose a glossary.
+
+For professional work, open the same workspace with `openbbq review` or import
+the exported ASS into Aegisub or an editor. Human edits are authoritative and
+the automatic workflow does not overwrite them. Fine-grained ASR, glossary,
+translation, export, and burn commands remain available as expert tools.
 
 ## Why OpenBBQ?
 
@@ -43,17 +62,30 @@ openbbq models pull large-v3-turbo
 openbbq doctor
 ```
 
-## Usage
+## Quickstart
 
-Recommended agent entry point:
+After installing OpenBBQ and its agent skill, give the agent one simple prompt:
+
+> Make this video into a bilingual Chinese-English subtitled video:
+> https://www.youtube.com/watch?v=...
+
+The agent should run the complete workflow and return the editable ASS plus the
+hard-subtitled video. You do not need to describe ASR, batching, glossary
+maintenance, export, or burning in the prompt.
+
+The underlying agent entry point is:
 
 ```bash
-openbbq --json agent init '<video-or-url>' --workspace workspaces/demo --to zh
+openbbq --json agent init '<video-or-url>' --workspace workspaces/demo --to zh [--glossary <name>]
 openbbq --json agent next --workspace workspaces/demo
 ```
 
-For local files, YouTube login, ASS presets, outputs, and command details, see
-the [Usage Guide](docs/usage.md).
+Continue following `agent next` until it returns `done`. A normal task has only
+mechanical commands, translation batches of at most 20 cues, one finish, and no
+default visual QA.
+
+For local files, YouTube login, professional review, ASS presets, outputs, and
+command details, see the [Usage Guide](docs/usage.md).
 
 For agent setup and the packaged OpenBBQ skill, see the
 [Agent Install Guide](docs/install-agent.md) and the

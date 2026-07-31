@@ -12,7 +12,6 @@ from ...core import agent_workflow
 from ...core import review as reviewlib
 from ...core import segment as segmentlib
 from ...core import translate as translatelib
-from ...core import translation_audit as auditlib
 from ...core import workspace as ws
 from ...errors import OpenBBQError
 from ...schemas import Progress, Stage, StageState, StageStatus
@@ -27,12 +26,15 @@ class ExportResult(Result):
     format: str  # subtitle format (srt | ass)
     ass_preset: str | None = None  # ASS style preset when format=ass
     cues: int
+    quality_warnings: list[dict[str, object]]
     elapsed_s: float
 
     def render(self) -> str:
         detail = f"{self.cues} cues · {self.format} · {self.mode}"
         if self.ass_preset is not None:
             detail = f"{detail} · {self.ass_preset}"
+        if self.quality_warnings:
+            detail = f"{detail} · {len(self.quality_warnings)} warning(s)"
         return f"[green]✓[/] exported: {self.artifact}\n  {detail}"
 
 
@@ -81,14 +83,7 @@ def export(
         bool,
         typer.Option(
             "--allow-unreviewed",
-            help="export even when an existing review file is incomplete",
-        ),
-    ] = False,
-    allow_quality_warnings: Annotated[
-        bool,
-        typer.Option(
-            "--allow-quality-warnings",
-            help="export a deliberate draft despite budget, term, timing, or quality warnings",
+            help="export an uncertified draft without human or agent evidence",
         ),
     ] = False,
 ) -> None:
@@ -115,8 +110,8 @@ def export(
 
     translation = None
     translation_lang = None
-    translation_audit_path: Path | None = None
     translation_ready = False
+    quality_warnings: list[dict[str, object]] = []
     wpath: Path | None = None
     resolved = mode or exp.default_mode(to)
     if resolved is not exp.ExportMode.SOURCE:
@@ -131,93 +126,43 @@ def export(
                 "translation_not_found", lang=to, fix=f"openbbq translate init {to}"
             )
         translation = ws.read_translation(wpath)
-
-        agent_session = ws.read_agent_session_optional(path, to)
-        balanced_ready = False
-        if agent_session is not None:
-            gate = agent_workflow.balanced_gate(
-                path,
-                manifest,
-                agent_session,
-                doc,
-                translation,
-            )
-            if not gate.ready:
-                raise OpenBBQError(
-                    "agent_session_stale",
-                    problems=list(gate.problems),
-                    fix=f"run `openbbq agent next --workspace {path}`",
-                )
-            balanced_ready = True
-
         report = translatelib.check(doc, translation, to)
-        if not balanced_ready and not allow_quality_warnings and (
-            report.over_budget
-            or report.zero_budget
-            or report.term_issues
-            or report.quality_issues
-        ):
+        quality_warnings = agent_workflow.draft_warnings(doc, translation)
+        if report.missing and not allow_missing:
             raise OpenBBQError(
-                "translation_quality_failed",
-                over_budget=report.over_budget[:15],
-                zero_budget=report.zero_budget[:15],
-                term_ids=sorted({issue.id for issue in report.term_issues})[:15],
-                quality_ids=sorted({issue.id for issue in report.quality_issues})[:15],
-                fix=(
-                    f"run `openbbq translate check {to}` and fix warnings; "
-                    "use --allow-quality-warnings only for an intentional draft"
-                ),
+                "incomplete_translation",
+                missing=report.missing,
+                fix="translate the missing cues, or pass --allow-missing",
             )
-
-        pending_audit = []
-        if not balanced_ready:
-            audit_state = ws.read_translation_audit_optional(path, to)
-            transcript = None
-            transcribe_state = manifest.stages.get(Stage.TRANSCRIBE)
-            if (
-                transcribe_state is not None
-                and transcribe_state.status is StageStatus.DONE
-                and transcribe_state.artifact
-            ):
-                transcript_path = Path(transcribe_state.artifact)
-                if not transcript_path.is_absolute():
-                    transcript_path = path / transcript_path
-                if transcript_path.is_file():
-                    transcript = ws.read_transcript(transcript_path)
-            risks = auditlib.audit_items(
-                doc,
-                translation,
-                audit_state,
-                uncertain_ids=auditlib.uncertain_cue_ids(doc, transcript),
-                coverage="all",
-            )
-            pending_audit = auditlib.pending_items(
-                risks,
-                translation,
-                audit_state,
-                require_context=True,
-            )
-            if pending_audit and not allow_quality_warnings:
+        review_path = reviewlib.review_path(path, to)
+        if review_path.is_file():
+            if not allow_unreviewed:
+                reviewlib.require_complete_review(path, doc, translation, to)
+                translation_ready = True
+        elif not allow_unreviewed:
+            agent_session = ws.read_agent_session_optional(path, to)
+            if agent_session is None:
                 raise OpenBBQError(
-                    "translation_audit_incomplete",
-                    ids=[item.id for item in pending_audit[:15]],
-                    total=len(pending_audit),
+                    "translation_evidence_missing",
+                    lang=to,
                     fix=(
-                        f"run `openbbq translate audit {to} --coverage all --limit 20` "
-                        "and review every cue; "
-                        "use --allow-quality-warnings only for an intentional draft"
+                        f"run `openbbq agent next --workspace {path}`, complete "
+                        f"`openbbq review --workspace {path} --to {to}`, or pass "
+                        "--allow-unreviewed for an uncertified export"
                     ),
                 )
-        candidate_audit_path = ws.translation_audit_path(path, to)
-        if candidate_audit_path.is_file():
-            translation_audit_path = candidate_audit_path
-        translation_ready = balanced_ready or (report.ready and not pending_audit)
-
-    if not allow_unreviewed:
-        review_lang = (
-            translation_lang if resolved is not exp.ExportMode.SOURCE else None
-        )
-        reviewlib.require_complete_review(path, doc, translation, review_lang)
+            stale_ids = agent_workflow.stale_translation_evidence_ids(
+                path, manifest, agent_session, translation
+            )
+            if stale_ids:
+                raise OpenBBQError(
+                    "agent_session_stale",
+                    cue_ids=list(stale_ids[:20]),
+                    fix=f"run `openbbq agent next --workspace {path}`",
+                )
+            translation_ready = True
+    elif not allow_unreviewed:
+        reviewlib.require_complete_review(path, doc, None, None)
 
     if translation is not None and wpath is not None and translation_ready:
         ws.record_stage(
@@ -227,7 +172,9 @@ def export(
             StageState(
                 status=StageStatus.DONE,
                 artifact=wpath.name,
-                progress=Progress(done=len(translation.items), total=len(translation.items)),
+                progress=Progress(
+                    done=len(translation.items), total=len(translation.items)
+                ),
                 updated_at=datetime.now(timezone.utc),
             ),
             preserve_later={Stage.REVIEW},
@@ -261,8 +208,6 @@ def export(
     provenance_inputs = [cpath]
     if wpath is not None:
         provenance_inputs.append(wpath)
-    if translation_audit_path is not None:
-        provenance_inputs.append(translation_audit_path)
     review_lang = translation_lang if resolved is not exp.ExportMode.SOURCE else None
     review_path = reviewlib.review_path(path, review_lang)
     if review_path.is_file():
@@ -296,6 +241,7 @@ def export(
             format=fmt,
             ass_preset=ass_preset.value if fmt == "ass" else None,
             cues=len(doc.cues),
+            quality_warnings=quality_warnings,
             elapsed_s=round(time.monotonic() - started, 2),
             next="openbbq burn",
         )

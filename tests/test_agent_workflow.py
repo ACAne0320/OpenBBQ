@@ -13,12 +13,12 @@ import typer
 from openbbq.cli.commands.agent import finish as finish_command
 from openbbq.cli.commands.export import export as export_command
 from openbbq.cli.commands.segment import segment as segment_command
-from openbbq.cli.delivery import assess_delivery
 from openbbq.cli.output import Output
 from openbbq.core import agent_workflow
 from openbbq.core import export as exportlib
 from openbbq.core import glossary as glossarylib
 from openbbq.core import glossary_overlay
+from openbbq.core import review as reviewlib
 from openbbq.core import translate as translatelib
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
@@ -30,6 +30,7 @@ from openbbq.schemas import (
     Glossary,
     Segment,
     SegmentParams,
+    ReviewStatus,
     Stage,
     StageState,
     StageStatus,
@@ -42,14 +43,8 @@ from openbbq.schemas import (
 def _workspace(tmp_path: Path, sources: list[str]) -> tuple[Path, AgentSession]:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"video")
-    path, manifest = ws.init_workspace(
-        str(video), workspace=str(tmp_path / "work")
-    )
-    session = agent_workflow.create_session(
-        path,
-        "zh",
-        glossary_selected=True,
-    )
+    path, manifest = ws.init_workspace(str(video), workspace=str(tmp_path / "work"))
+    session = agent_workflow.create_session(path, "zh")
     audio = path / "media" / "audio.16k.wav"
     audio.parent.mkdir(parents=True)
     audio.write_bytes(b"audio")
@@ -102,6 +97,11 @@ def _workspace(tmp_path: Path, sources: list[str]) -> tuple[Path, AgentSession]:
     return path, session
 
 
+def _write_overlay_updates(path: Path, updates: list[Any]) -> None:
+    overlay, _ = glossary_overlay.prepare_updates(path, updates)
+    glossary_overlay.write(path, overlay)
+
+
 def _ctx() -> typer.Context:
     return cast(typer.Context, SimpleNamespace(obj=Output(json_mode=True)))
 
@@ -123,29 +123,6 @@ def _apply(path: Path, response: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _review_all_sources(path: Path) -> None:
-    while True:
-        action = _next(path)
-        if action["action"] != "review_source":
-            return
-        _apply(
-            path,
-            {
-                "batch_id": action["batch_id"],
-                "reviewed_segment_ids": action["selected_segment_ids"],
-                "issue_decisions": {
-                    item["id"]: {
-                        "action": "accept",
-                        "reason": "context confirms the transcription",
-                    }
-                    for item in action["detector_issues"]
-                },
-                "source_fixes": [],
-                "glossary_updates": [],
-            },
-        )
-
-
 def _install_cues_and_worksheet(path: Path, sources: list[str], *, v1: bool = False):
     manifest = ws.read_manifest(path)
     params = SegmentParams(
@@ -165,7 +142,10 @@ def _install_cues_and_worksheet(path: Path, sources: list[str], *, v1: bool = Fa
         ],
     )
     cues_path = path / "cues.json"
-    ws.write_text_atomic(cues_path, cues.model_dump_json(indent=2))
+    ws.write_text_atomic(
+        cues_path,
+        cues.model_dump_json(indent=2, exclude_none=True),
+    )
     provenance_inputs = [path / "transcript.json"]
     if ws.asr_review_path(path).is_file():
         provenance_inputs.append(ws.asr_review_path(path))
@@ -198,80 +178,162 @@ def _install_cues_and_worksheet(path: Path, sources: list[str], *, v1: bool = Fa
     return cues, worksheet
 
 
-def test_source_review_lease_is_idempotent_and_covers_at_most_20_segments(
+def _collapse_word_timestamps(path: Path) -> None:
+    transcript = ws.read_transcript(path / "transcript.json")
+    for segment in transcript.segments:
+        assert segment.words is not None
+        for word in segment.words:
+            word.start = segment.end
+            word.end = segment.end
+    ws.write_text_atomic(path / "transcript.json", transcript.model_dump_json(indent=2))
+
+
+def _translate_batch(
+    path: Path,
+    action: dict[str, Any],
+    *,
+    warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    return _apply(
+        path,
+        {
+            "batch_id": action["batch_id"],
+            "policy_hash": action["policy_hash"],
+            "translations": {
+                str(item_id): f"第{item_id}条译文" for item_id in action["selected_ids"]
+            },
+            "source_fixes": [],
+            "glossary_updates": [],
+            "warnings": warnings or [],
+        },
+    )
+
+
+def test_ordinary_transcript_goes_directly_to_segment(tmp_path: Path) -> None:
+    path, _ = _workspace(tmp_path, [f"ordinary source {index}" for index in range(21)])
+
+    first = _next(path)
+    repeated = _next(path)
+
+    assert first == repeated
+    assert first == {
+        "action": "run_command",
+        "argv": ["openbbq", "--json", "segment", "--workspace", str(path)],
+        "reason": "build source cues once",
+        "execution": {
+            "sandbox": "inside_allowed",
+            "accelerator": "none",
+            "cpu_fallback": "not_applicable",
+            "reason_code": "workspace_local_operation",
+            "concurrency": "wait_and_reuse_completed_stage",
+        },
+        "terminal": False,
+        "must_continue": True,
+    }
+
+
+def test_low_confidence_words_are_advisory_and_do_not_trigger_source_review(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path, _ = _workspace(tmp_path, ["uncertain token"])
+    transcript = ws.read_transcript(path / "transcript.json")
+    assert transcript.segments[0].words is not None
+    transcript.segments[0].words[0].prob = 0.1
+    ws.write_text_atomic(path / "transcript.json", transcript.model_dump_json(indent=2))
+
+    assert _next(path)["argv"][2] == "segment"
+    segment_command(
+        _ctx(),
+        workspace=str(path),
+        lang=None,
+        glossary=None,
+        max_cps=None,
+        max_chars_per_line=None,
+        max_lines=None,
+        min_dur=None,
+        max_dur=None,
+        min_gap=None,
+        pause_threshold=None,
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["asr_advisory_ids"]
+    assert ws.read_manifest(path).stages[Stage.SEGMENT].status is StageStatus.DONE
+
+
+def test_structural_source_review_lease_is_bounded_idempotent_and_strict(
     tmp_path: Path,
 ) -> None:
-    sources = [f"ordinary source {index}" for index in range(21)]
-    path, _ = _workspace(tmp_path, sources)
+    path, _ = _workspace(tmp_path, [f"damaged source {index}" for index in range(21)])
+    _collapse_word_timestamps(path)
 
     first = _next(path)
     repeated = _next(path)
 
     assert first == repeated
     assert first["action"] == "review_source"
-    assert first["selected_segment_ids"] == list(range(20))
-    assert first["source_metadata"]["title"] == "source"
-    assert first["segments"][0]["word_count"] == 3
-    assert first["segments"][0]["words"] == []
-    assert first["segments"][0]["words_omitted"] == 3
-    assert first["segments"][0]["raw_source"] is None
-    assert first["segments"][0]["after_glossary"] is None
-    assert "previous" not in first["segments"][0]
-    assert "next" not in first["segments"][0]
-    assert first["neighbor_context"] == [
-        {"id": 20, "source": "ordinary source 20"}
-    ]
-    _apply(
-        path,
-        {
-            "batch_id": first["batch_id"],
-            "reviewed_segment_ids": first["selected_segment_ids"],
-            "issue_decisions": {},
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
+    assert 0 < len(first["selected_segment_ids"]) <= 20
+    assert all(
+        item["code"] == "collapsed_word_timestamps" for item in first["detector_issues"]
     )
-    second = _next(path)
-    assert second["selected_segment_ids"] == [20]
+    with pytest.raises(OpenBBQError) as id_error:
+        _apply(
+            path,
+            {
+                "batch_id": first["batch_id"],
+                "reviewed_segment_ids": [],
+                "issue_decisions": {},
+                "source_fixes": [],
+                "glossary_updates": [],
+            },
+        )
+    assert id_error.value.code == "agent_id_set_mismatch"
 
-
-def test_source_review_accepts_the_exact_id_set_in_any_order(tmp_path: Path) -> None:
-    path, _ = _workspace(tmp_path, ["first segment", "second segment"])
-    action = _next(path)
+    with pytest.raises(OpenBBQError) as issue_error:
+        _apply(
+            path,
+            {
+                "batch_id": first["batch_id"],
+                "reviewed_segment_ids": first["selected_segment_ids"],
+                "issue_decisions": {},
+                "source_fixes": [],
+                "glossary_updates": [],
+            },
+        )
+    assert issue_error.value.code == "agent_issue_set_mismatch"
 
     result = _apply(
         path,
         {
-            "batch_id": action["batch_id"],
-            "reviewed_segment_ids": list(reversed(action["selected_segment_ids"])),
-            "issue_decisions": {},
+            "batch_id": first["batch_id"],
+            "reviewed_segment_ids": list(reversed(first["selected_segment_ids"])),
+            "issue_decisions": {
+                item["id"]: {
+                    "action": "drop",
+                    "reason": "collapsed timing cannot produce a safe cue",
+                }
+                for item in first["detector_issues"]
+            },
             "source_fixes": [],
             "glossary_updates": [],
         },
     )
+    assert result["reviewed_segments"] == len(first["selected_segment_ids"])
+    second = _next(path)
+    assert second["action"] == "review_source"
+    assert 0 < len(second["selected_segment_ids"]) <= 20
+    assert set(second["selected_segment_ids"]).isdisjoint(first["selected_segment_ids"])
 
-    assert result["reviewed_segments"] == 2
 
-
-def test_new_session_selects_glossary_then_returns_exact_mechanical_argv(
+def test_new_session_skips_glossary_selection_and_returns_mechanical_argv(
     tmp_path: Path,
 ) -> None:
     video = tmp_path / "source.mp4"
     video.write_bytes(b"video")
-    path, manifest = ws.init_workspace(
-        str(video), workspace=str(tmp_path / "work")
-    )
+    path, manifest = ws.init_workspace(str(video), workspace=str(tmp_path / "work"))
     session = agent_workflow.create_session(path, "zh")
-    selection = agent_workflow.next_action(path, manifest, session)
-    assert selection["action"] == "select_glossary"
-    agent_workflow.apply_response(
-        path,
-        manifest,
-        session,
-        json.dumps({"batch_id": selection["batch_id"], "choice": "none"}),
-    )
 
-    command = _next(path)
+    command = agent_workflow.next_action(path, manifest, session)
 
     assert command == {
         "action": "run_command",
@@ -288,10 +350,15 @@ def test_new_session_selects_glossary_then_returns_exact_mechanical_argv(
             "accelerator": "none",
             "cpu_fallback": "not_applicable",
             "reason_code": "workspace_local_operation",
+            "concurrency": "wait_and_reuse_completed_stage",
         },
         "terminal": False,
         "must_continue": True,
     }
+    stored = ws.read_agent_session_optional(path, "zh")
+    assert stored is not None
+    sidecar = json.loads(ws.agent_session_path(path, "zh").read_text())
+    assert sidecar["schema"] == "openbbq/agent-session@2"
 
 
 def test_fetch_and_transcribe_commands_declare_host_execution_policy(
@@ -301,30 +368,24 @@ def test_fetch_and_transcribe_commands_declare_host_execution_policy(
         "https://www.youtube.com/watch?v=test",
         workspace=str(tmp_path / "url-work"),
     )
-    url_session = agent_workflow.create_session(
-        url_path,
-        "zh",
-        glossary_selected=True,
-    )
+    url_session = agent_workflow.create_session(url_path, "zh")
 
     fetch = agent_workflow.next_action(url_path, url_manifest, url_session)
 
-    assert fetch["action"] == "run_command"
     assert fetch["execution"] == {
         "sandbox": "outside_required",
         "accelerator": "none",
         "cpu_fallback": "not_applicable",
         "reason_code": "host_network_and_auth_state",
+        "concurrency": "wait_and_reuse_completed_stage",
     }
-    assert fetch["must_continue"] is True
-    assert fetch["terminal"] is False
 
     video = tmp_path / "source.mp4"
     video.write_bytes(b"video")
     path, manifest = ws.init_workspace(
         str(video), workspace=str(tmp_path / "local-work")
     )
-    agent_workflow.create_session(path, "zh", glossary_selected=True)
+    agent_workflow.create_session(path, "zh")
     audio = path / "media" / "audio.16k.wav"
     audio.parent.mkdir(parents=True)
     audio.write_bytes(b"audio")
@@ -337,85 +398,93 @@ def test_fetch_and_transcribe_commands_declare_host_execution_policy(
 
     transcribe = _next(path)
 
-    assert transcribe["action"] == "run_command"
     assert "--gpu" in transcribe["argv"]
     assert transcribe["execution"] == {
         "sandbox": "outside_required",
         "accelerator": "gpu",
         "cpu_fallback": "only_after_outside_gpu_failure",
         "reason_code": "native_gpu_and_model_cache",
+        "concurrency": "wait_and_reuse_completed_stage",
     }
-    assert transcribe["must_continue"] is True
-    assert transcribe["terminal"] is False
 
 
-def test_source_review_rejects_partial_segment_or_issue_sets(tmp_path: Path) -> None:
-    path, _ = _workspace(tmp_path, ["uncertain token"])
-    transcript = ws.read_transcript(path / "transcript.json")
-    words = transcript.segments[0].words
-    assert words is not None
-    words[0].prob = 0.1
-    ws.write_text_atomic(path / "transcript.json", transcript.model_dump_json(indent=2))
-    action = _next(path)
-
-    with pytest.raises(OpenBBQError) as segment_error:
-        _apply(
-            path,
-            {
-                "batch_id": action["batch_id"],
-                "reviewed_segment_ids": [],
-                "issue_decisions": {},
-                "source_fixes": [],
-                "glossary_updates": [],
-            },
-        )
-    assert segment_error.value.code == "agent_id_set_mismatch"
-
-    with pytest.raises(OpenBBQError) as issue_error:
-        _apply(
-            path,
-            {
-                "batch_id": action["batch_id"],
-                "reviewed_segment_ids": [0],
-                "issue_decisions": {},
-                "source_fixes": [],
-                "glossary_updates": [],
-            },
-        )
-    assert issue_error.value.code == "agent_issue_set_mismatch"
-
-
-def test_segment_is_blocked_until_agent_source_review_covers_every_segment(
+def test_fetched_url_auto_binds_a_stable_author_glossary(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path, _ = _workspace(tmp_path, ["first segment", "second segment"])
+    monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path / ".openbbq-home"))
+    path, manifest = ws.init_workspace(
+        "https://www.youtube.com/watch?v=test",
+        workspace=str(tmp_path / "work"),
+    )
+    session = agent_workflow.create_session(path, "zh")
+    media_path = path / "media" / "source.mp4"
+    media_path.parent.mkdir(parents=True)
+    media_path.write_bytes(b"video")
+    manifest.source.author = "Example 创作者"
+    ws.write_manifest(path, manifest)
+    ws.record_stage(
+        path,
+        manifest,
+        Stage.FETCH,
+        StageState(status=StageStatus.DONE, artifact="media/source.mp4"),
+    )
 
-    kwargs = {
-        "workspace": str(path),
-        "lang": None,
-        "glossary": None,
-        "max_cps": None,
-        "max_chars_per_line": None,
-        "max_lines": None,
-        "min_dur": None,
-        "max_dur": None,
-        "min_gap": None,
-        "pause_threshold": None,
-    }
-    with pytest.raises(OpenBBQError) as error:
-        segment_command(_ctx(), **kwargs)
-    assert error.value.code == "agent_source_review_incomplete"
+    action = agent_workflow.next_action(path, ws.read_manifest(path), session)
 
-    _review_all_sources(path)
-    segment_command(_ctx(), **kwargs)
-    capsys.readouterr()
-    assert ws.read_manifest(path).stages[Stage.SEGMENT].status is StageStatus.DONE
+    assert action["argv"][2] == "extract-audio"
+    assert ws.read_manifest(path).glossary is None
+    overlay = glossary_overlay.read_optional(path)
+    assert overlay is not None
+    bound = overlay.base_name
+    assert bound is not None
+    assert bound.startswith("author-example-")
+    assert "-zh-" in bound
+    assert overlay.context is not None
+    assert not glossarylib.glossary_path(bound).exists()
+    effective = glossary_overlay.merged(path)
+    assert effective is not None
+    assert effective.name == bound
+
+
+def test_author_glossaries_are_isolated_by_target_language(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path / ".openbbq-home"))
+    names: list[str] = []
+    for target_lang in ("zh", "ja"):
+        path, manifest = ws.init_workspace(
+            "https://www.youtube.com/watch?v=test",
+            workspace=str(tmp_path / target_lang),
+        )
+        session = agent_workflow.create_session(path, target_lang)
+        media_path = path / "media" / "source.mp4"
+        media_path.parent.mkdir(parents=True)
+        media_path.write_bytes(b"video")
+        manifest.source.author = "Example Creator"
+        ws.write_manifest(path, manifest)
+        ws.record_stage(
+            path,
+            manifest,
+            Stage.FETCH,
+            StageState(status=StageStatus.DONE, artifact="media/source.mp4"),
+        )
+
+        agent_workflow.next_action(path, ws.read_manifest(path), session)
+
+        overlay = glossary_overlay.read_optional(path)
+        assert overlay is not None
+        assert overlay.base_name is not None
+        names.append(overlay.base_name)
+
+    assert names[0] != names[1]
+    assert "-zh-" in names[0]
+    assert "-ja-" in names[1]
 
 
 def test_translation_v1_migrates_in_place_and_preserves_targets(tmp_path: Path) -> None:
     path, _ = _workspace(tmp_path, ["hello"])
-    _review_all_sources(path)
     _, worksheet = _install_cues_and_worksheet(path, ["hello"], v1=True)
     worksheet.items[0].target = "已有译文"
     ws.write_text_atomic(
@@ -435,14 +504,11 @@ def test_translate_requires_exact_ids_policy_and_syncs_cue_scoped_source_fix(
     tmp_path: Path,
 ) -> None:
     path, _ = _workspace(tmp_path, ["codex is useful"])
-    _review_all_sources(path)
     _install_cues_and_worksheet(path, ["codex is useful"])
     action = _next(path)
     assert action["action"] == "translate"
     assert len(action["selected_ids"]) <= 20
-    glossary_update_schema = action["response_schema"]["glossary_updates"][0]
-    assert glossary_update_schema["reusable"] is True
-    assert glossary_update_schema["aliases"] == ["reusable ASR mishearing"]
+    assert action["response_schema"]["warnings"]
 
     with pytest.raises(OpenBBQError) as policy_error:
         _apply(
@@ -468,6 +534,7 @@ def test_translate_requires_exact_ids_policy_and_syncs_cue_scoped_source_fix(
                     "cue_id": 1,
                     "find": "codex",
                     "replacement": "Codex",
+                    "reusable": True,
                     "evidence": "official product casing",
                 }
             ],
@@ -488,558 +555,275 @@ def test_translate_requires_exact_ids_policy_and_syncs_cue_scoped_source_fix(
     assert worksheet.items[0].source == "Codex is useful"
     assert worksheet.items[0].target == "Codex 很有用"
 
-    risk = _next(path)
-    assert risk["action"] == "review_risks"
-    assert "source_changed" in risk["items"][0]["risk_codes"]
-    _apply(
-        path,
-        {
-            "batch_id": risk["batch_id"],
-            "policy_hash": risk["policy_hash"],
-            "decisions": {"1": {"action": "accept"}},
-        },
-    )
     finish = _next(path)
     assert finish["action"] == "finish"
-    assert finish["execution"] == {
-        "sandbox": "outside_required",
-        "accelerator": "none",
-        "cpu_fallback": "not_applicable",
-        "reason_code": "media_encode_and_glossary_publish",
-    }
-    assert finish["terminal"] is False
-    assert finish["must_continue"] is True
+    assert finish["quality"] == "draft"
+    assert finish["human_reviewed"] is False
     assert _next(path) == finish
 
 
-def test_cue_source_fix_rejects_new_adjacent_source_overlap(
+def test_cue_scoped_source_fix_allows_empty_replacement_to_delete_noise(
     tmp_path: Path,
 ) -> None:
-    sources = ["I rename", "I rename this to demo"]
-    path, _ = _workspace(tmp_path, sources)
-    _review_all_sources(path)
-    _install_cues_and_worksheet(path, sources)
+    path, _ = _workspace(tmp_path, ["*Pewds* welcome"])
+    _install_cues_and_worksheet(path, ["*Pewds* welcome"])
     action = _next(path)
 
-    with pytest.raises(OpenBBQError) as error:
-        _apply(
-            path,
-            {
-                "batch_id": action["batch_id"],
-                "policy_hash": action["policy_hash"],
-                "translations": {
-                    "1": "我重命名它",
-                    "2": "我把它重命名为 demo",
-                },
-                "source_fixes": [
-                    {
-                        "cue_id": 1,
-                        "find": "rename",
-                        "replacement": "rename this",
-                        "evidence": "The speaker says the object pronoun here.",
-                    }
-                ],
-                "glossary_updates": [],
-            },
-        )
-
-    assert error.value.code == "source_fix_requires_review"
-    assert error.value.context["cue_ids"] == [1, 2]
-    assert error.value.context["overlap"] == "I rename this"
-
-
-def test_existing_adjacent_source_overlap_is_selected_for_risk_review(
-    tmp_path: Path,
-) -> None:
-    sources = ["I rename this", "I rename this to demo"]
-    path, _ = _workspace(tmp_path, sources)
-    _review_all_sources(path)
-    _install_cues_and_worksheet(path, sources)
-    translate = _next(path)
-    _apply(
-        path,
-        {
-            "batch_id": translate["batch_id"],
-            "policy_hash": translate["policy_hash"],
-            "translations": {
-                "1": "我重命名它",
-                "2": "我把它重命名为 demo",
-            },
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
-
-    risk = _next(path)
-
-    assert risk["action"] == "review_risks"
-    by_id = {item["id"]: item for item in risk["items"]}
-    assert set(by_id) == {1, 2}
-    assert all(
-        "adjacent_source_overlap" in item["risk_codes"]
-        for item in by_id.values()
-    )
-
-
-def test_repeated_phrase_at_different_adjacent_positions_is_reviewed(
-    tmp_path: Path,
-) -> None:
-    sources = [
-        "Maybe in this first tab, I rename this as the tab.",
-        "I rename this and this is for research. Okay.",
-    ]
-    path, _ = _workspace(tmp_path, sources)
-    _review_all_sources(path)
-    _install_cues_and_worksheet(path, sources)
-    translate = _next(path)
-    _apply(
-        path,
-        {
-            "batch_id": translate["batch_id"],
-            "policy_hash": translate["policy_hash"],
-            "translations": {
-                "1": "也许第一个标签页可以这样命名。",
-                "2": "我把它重命名为研究。好。",
-            },
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
-
-    risk = _next(path)
-
-    assert risk["action"] == "review_risks"
-    by_id = {item["id"]: item for item in risk["items"]}
-    assert set(by_id) == {1, 2}
-    assert all(
-        "adjacent_source_overlap" in item["risk_codes"]
-        for item in by_id.values()
-    )
-
-
-def test_matching_product_name_prefix_is_not_treated_as_adjacent_duplication(
-    tmp_path: Path,
-) -> None:
-    sources = [
-        "Claude Code is useful.",
-        "Claude Code is also fast.",
-    ]
-    path, _ = _workspace(tmp_path, sources)
-    _review_all_sources(path)
-    _install_cues_and_worksheet(path, sources)
-    translate = _next(path)
-    _apply(
-        path,
-        {
-            "batch_id": translate["batch_id"],
-            "policy_hash": translate["policy_hash"],
-            "translations": {
-                "1": "Claude Code 很实用。",
-                "2": "Claude Code 也很快。",
-            },
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
-
-    assert _next(path)["action"] == "finish"
-
-
-def test_repeated_rhetorical_phrase_is_not_treated_as_adjacent_duplication(
-    tmp_path: Path,
-) -> None:
-    sources = [
-        "when you have a ton of terminals with a ton of agents",
-        "doing a ton of different things.",
-    ]
-    path, _ = _workspace(tmp_path, sources)
-    _review_all_sources(path)
-    _install_cues_and_worksheet(path, sources)
-    translate = _next(path)
-    _apply(
-        path,
-        {
-            "batch_id": translate["batch_id"],
-            "policy_hash": translate["policy_hash"],
-            "translations": {
-                "1": "当你开着一堆终端、运行一堆代理，",
-                "2": "做各种不同的事。",
-            },
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
-
-    assert _next(path)["action"] == "finish"
-
-
-def test_accepted_metadata_conflict_is_rechecked_during_translation_risk_review(
-    tmp_path: Path,
-) -> None:
-    path, _ = _workspace(tmp_path, ["Fable Code can run this workflow."])
-    manifest = ws.read_manifest(path)
-    manifest.source.type = "url"
-    manifest.source.title = "Claude Code workflow"
-    manifest.stages[Stage.FETCH] = StageState(
-        status=StageStatus.DONE,
-        artifact=manifest.source.ref,
-    )
-    ws.write_manifest(path, manifest)
-    source_review = _next(path)
-    issue = next(
-        item
-        for item in source_review["detector_issues"]
-        if item["code"] == "metadata_entity_conflict"
-    )
-    _apply(
-        path,
-        {
-            "batch_id": source_review["batch_id"],
-            "reviewed_segment_ids": source_review["selected_segment_ids"],
-            "issue_decisions": {
-                issue["id"]: {
-                    "action": "accept",
-                    "reason": "The first review believes Fable is intentional.",
-                }
-            },
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
-    _install_cues_and_worksheet(
-        path,
-        ["Fable Code can run this workflow."],
-    )
-    translate = _next(path)
-    _apply(
-        path,
-        {
-            "batch_id": translate["batch_id"],
-            "policy_hash": translate["policy_hash"],
-            "translations": {"1": "Fable Code 可以运行这个工作流。"},
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
-
-    risk = _next(path)
-
-    assert risk["action"] == "review_risks"
-    assert "source_context_conflict" in risk["items"][0]["risk_codes"]
-
-
-def test_selected_glossary_canonical_entity_surfaces_as_asr_reference(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path / ".openbbq"))
-    glossarylib.save(
-        Glossary(
-            name="products",
-            context="AI coding tools",
-            terms=[Term(source="Claude Code", keep=True)],
-        )
-    )
-    path, _ = _workspace(tmp_path, ["Fable Code can run this workflow."])
-    manifest = ws.read_manifest(path)
-    manifest.glossary = "products"
-    ws.write_manifest(path, manifest)
-    glossary_overlay.initialize(path, base_name="products")
-
-    source_review = _next(path)
-
-    issue = next(
-        item
-        for item in source_review["detector_issues"]
-        if item["code"] == "metadata_entity_conflict"
-    )
-    assert issue["find"] == "Fable Code"
-    assert issue["replacement"] == "Claude Code"
-    assert issue["reference_text"] == "Claude Code"
-    assert source_review["glossary"]["terms"] == [
-        {
-            "source": "Claude Code",
-            "aliases": [],
-            "keep": True,
-        }
-    ]
-
-
-def test_timed_reference_repair_is_rechecked_during_translation_risk_review(
-    tmp_path: Path,
-) -> None:
-    path, _ = _workspace(tmp_path, ["bad timing here now"])
-    transcript = ws.read_transcript(path / "transcript.json")
-    words = transcript.segments[0].words
-    assert words is not None
-    for word in words:
-        word.start = transcript.segments[0].end
-        word.end = transcript.segments[0].end
-    ws.write_text_atomic(
-        path / "transcript.json",
-        transcript.model_dump_json(indent=2),
-    )
-    ws.write_reference_caption(
-        path,
-        """WEBVTT
-
-00:00:00.000 --> 00:00:01.500
-Use<00:00:00.300><c> Claude</c><00:00:00.600><c> Code</c><00:00:00.900><c> now.</c>
-""",
-    )
-    source_review = _next(path)
-    issue = next(
-        item
-        for item in source_review["detector_issues"]
-        if item["code"] == "collapsed_word_timestamps"
-    )
-    _apply(
-        path,
-        {
-            "batch_id": source_review["batch_id"],
-            "reviewed_segment_ids": source_review["selected_segment_ids"],
-            "issue_decisions": {
-                issue["id"]: {
-                    "action": "replace",
-                    "replacement": issue["replacement"],
-                    "reason": "The timed reference restores the damaged segment.",
-                }
-            },
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
-    _install_cues_and_worksheet(path, ["Use Claude Code now."])
-    translate = _next(path)
-    _apply(
-        path,
-        {
-            "batch_id": translate["batch_id"],
-            "policy_hash": translate["policy_hash"],
-            "translations": {"1": "现在使用 Claude Code。"},
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
-
-    risk = _next(path)
-
-    assert risk["action"] == "review_risks"
-    assert "timeline_repaired" in risk["items"][0]["risk_codes"]
-
-
-def test_balanced_risks_do_not_repeat_accepted_low_confidence_source_review(
-    tmp_path: Path,
-) -> None:
-    path, _ = _workspace(tmp_path, ["hello"])
-    transcript = ws.read_transcript(path / "transcript.json")
-    assert transcript.segments[0].words is not None
-    transcript.segments[0].words[0].prob = 0.3
-    ws.write_text_atomic(
-        path / "transcript.json", transcript.model_dump_json(indent=2)
-    )
-    _review_all_sources(path)
-    _install_cues_and_worksheet(path, ["hello"])
-    action = _next(path)
     _apply(
         path,
         {
             "batch_id": action["batch_id"],
             "policy_hash": action["policy_hash"],
-            "translations": {"1": "你好"},
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
-
-    assert _next(path)["action"] == "finish"
-
-
-def test_risk_review_can_fix_source_and_learn_reusable_glossary_alias(
-    tmp_path: Path,
-) -> None:
-    path, _ = _workspace(tmp_path, ["code x works?"])
-    _review_all_sources(path)
-    _install_cues_and_worksheet(path, ["code x works?"])
-    translate = _next(path)
-    _apply(
-        path,
-        {
-            "batch_id": translate["batch_id"],
-            "policy_hash": translate["policy_hash"],
-            "translations": {"1": "这可以工作。"},
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
-    risk = _next(path)
-    assert risk["action"] == "review_risks"
-    assert risk["response_schema"]["source_fixes"]
-    result = _apply(
-        path,
-        {
-            "batch_id": risk["batch_id"],
-            "policy_hash": risk["policy_hash"],
-            "decisions": {
-                "1": {
-                    "action": "revise",
-                    "target": "Codex 可以工作吗？",
-                    "reason": "Restore the question after correcting the product name.",
-                }
-            },
+            "translations": {"1": "欢迎"},
             "source_fixes": [
                 {
                     "cue_id": 1,
-                    "find": "code x",
-                    "replacement": "Codex",
-                    "evidence": "The surrounding discussion names the product Codex.",
+                    "find": "*Pewds*",
+                    "replacement": "",
+                    "reusable": False,
+                    "evidence": "the token is a non-speech subtitle artifact",
                 }
             ],
+            "glossary_updates": [],
+        },
+    )
+
+    cues = ws.read_cues(path / "cues.json")
+    worksheet = ws.read_translation(ws.worksheet_path(path, "zh"))
+    assert "*Pewds*" not in cues.cues[0].source
+    assert cues.cues[0].source.strip() == "welcome"
+    assert worksheet.items[0].source == cues.cues[0].source
+    assert _next(path)["action"] == "finish"
+
+
+def test_source_fix_automatically_records_and_promotes_glossary_candidate(
+    tmp_path: Path,
+) -> None:
+    path, _ = _workspace(tmp_path, ["Usu is difficult"])
+    _install_cues_and_worksheet(path, ["Usu is difficult"])
+    action = _next(path)
+
+    result = _apply(
+        path,
+        {
+            "batch_id": action["batch_id"],
+            "policy_hash": action["policy_hash"],
+            "translations": {"1": "osu! 很难"},
+            "source_fixes": [
+                {
+                    "cue_id": 1,
+                    "find": "Usu",
+                    "replacement": "osu!",
+                    "reusable": True,
+                    "evidence": "The title and neighboring discussion identify the game osu!.",
+                }
+            ],
+            "glossary_updates": [],
+        },
+    )
+
+    overlay = glossary_overlay.read_optional(path)
+    assert overlay is not None
+    assert result["glossary_candidates"] == 1
+    assert [(item.source, item.alias, item.reusable) for item in overlay.candidates] == [
+        ("osu!", "Usu", True)
+    ]
+    assert [(entry.term.source, entry.term.aliases) for entry in overlay.entries] == [
+        ("osu!", ["Usu"])
+    ]
+
+
+def test_glossary_update_does_not_require_a_same_batch_source_fix(
+    tmp_path: Path,
+) -> None:
+    path, _ = _workspace(tmp_path, ["code x works"])
+    _install_cues_and_worksheet(path, ["code x works"])
+    action = _next(path)
+
+    result = _apply(
+        path,
+        {
+            "batch_id": action["batch_id"],
+            "policy_hash": action["policy_hash"],
+            "translations": {"1": "Codex 可以工作"},
+            "source_fixes": [],
             "glossary_updates": [
                 {
                     "source": "Codex",
                     "aliases": ["code x"],
                     "keep": True,
                     "reusable": True,
-                    "evidence": "A recurring phonetic ASR spelling of the product name.",
+                    "evidence": "a reusable pronunciation observed in this video",
                 }
             ],
         },
     )
 
-    assert result["source_fixes"] == 1
-    assert ws.read_cues(path / "cues.json").cues[0].source == "Codex works?"
-    assert ws.read_translation(ws.worksheet_path(path, "zh")).items[0].source == (
-        "Codex works?"
-    )
-    assert ws.read_translation(ws.worksheet_path(path, "zh")).items[0].target == (
-        "Codex 可以工作吗？"
-    )
+    assert result["glossary_updates"] == 1
+    assert result["alias_normalized_cues"] == 1
     effective = glossary_overlay.merged(path)
     assert effective is not None
+    assert effective.terms[0].source == "Codex"
     assert effective.terms[0].aliases == ["code x"]
+    cues = ws.read_cues(path / "cues.json")
+    worksheet = ws.read_translation(ws.worksheet_path(path, "zh"))
+    assert cues.cues[0].source == "Codex works"
+    assert worksheet.items[0].source == "Codex works"
+    assert worksheet.glossary[0].aliases == ["code x"]
     assert _next(path)["action"] == "finish"
 
 
-def test_glossary_inconsistency_risk_requires_target_revision(
+def test_new_reusable_alias_normalizes_later_cues_without_retranslating_neighbor(
+    tmp_path: Path,
+) -> None:
+    sources = [f"Fallon appears in scene {index}" for index in range(1, 22)]
+    path, _ = _workspace(tmp_path, sources)
+    _install_cues_and_worksheet(path, sources)
+    first = _next(path)
+
+    result = _apply(
+        path,
+        {
+            "batch_id": first["batch_id"],
+            "policy_hash": first["policy_hash"],
+            "translations": {
+                str(item_id): f"法琳出现在第 {item_id} 个场景"
+                for item_id in first["selected_ids"]
+            },
+            "source_fixes": [],
+            "glossary_updates": [
+                {
+                    "source": "Falin",
+                    "aliases": ["Fallon"],
+                    "target": "法琳",
+                    "reusable": True,
+                    "evidence": "the recurring character uses the canonical name Falin",
+                }
+            ],
+        },
+    )
+
+    assert result["alias_normalized_cues"] == 21
+    cues = ws.read_cues(path / "cues.json")
+    assert all(cue.source.startswith("Falin ") for cue in cues.cues)
+    stage = ws.read_manifest(path).stages[Stage.TRANSLATE]
+    assert stage.status is StageStatus.RUNNING
+    assert stage.progress is not None
+    assert (stage.progress.done, stage.progress.total) == (20, 21)
+
+    second = _next(path)
+    assert second["selected_ids"] == [21]
+    assert second["glossary"] == [
+        {
+            "source": "Falin",
+            "target": "法琳",
+            "aliases": ["Fallon"],
+            "keep": False,
+        }
+    ]
+
+
+def test_semantic_warnings_are_recorded_but_do_not_block_finish(
     tmp_path: Path,
 ) -> None:
     path, _ = _workspace(tmp_path, ["Codex can do this"])
-    _review_all_sources(path)
-    glossary_overlay.apply_updates(
+    _write_overlay_updates(
         path,
         [
             agent_workflow.AgentGlossaryUpdate(
                 source="Codex",
                 target="Codex",
                 reusable=True,
-                evidence="Official product name must remain in the target.",
+                evidence="official product name",
             )
         ],
     )
     _install_cues_and_worksheet(path, ["Codex can do this"])
-    translate = _next(path)
-    _apply(
+    action = _next(path)
+
+    result = _apply(
         path,
         {
-            "batch_id": translate["batch_id"],
-            "policy_hash": translate["policy_hash"],
+            "batch_id": action["batch_id"],
+            "policy_hash": action["policy_hash"],
             "translations": {"1": "可以这样做"},
             "source_fixes": [],
             "glossary_updates": [],
+            "warnings": ["The product name may be intentionally omitted."],
         },
     )
-    risk = _next(path)
-    assert "glossary_inconsistent" in risk["items"][0]["risk_codes"]
 
-    with pytest.raises(OpenBBQError) as error:
-        _apply(
-            path,
-            {
-                "batch_id": risk["batch_id"],
-                "policy_hash": risk["policy_hash"],
-                "decisions": {"1": {"action": "accept"}},
-            },
-        )
-
-    assert error.value.code == "agent_risk_requires_revision"
-    assert error.value.context["ids"] == [1]
-    _apply(
-        path,
-        {
-            "batch_id": risk["batch_id"],
-            "policy_hash": risk["policy_hash"],
-            "decisions": {
-                "1": {
-                    "action": "revise",
-                    "target": "Codex 可以这样做",
-                    "reason": "Restore the required product name.",
-                }
-            },
-        },
-    )
+    assert result["warnings"] == 1
+    assert result["mechanical_warnings"]["term_ids"] == [1]
     assert _next(path)["action"] == "finish"
+    session = ws.read_agent_session_optional(path, "zh")
+    assert session is not None
+    assert session.warnings[0].code == "translation_advisory"
 
 
-def test_translation_discovered_alias_requires_a_current_cue_source_fix(
+def test_human_review_blocks_retranslation_and_can_replace_agent_evidence(
     tmp_path: Path,
 ) -> None:
-    path, _ = _workspace(tmp_path, ["code x works"])
-    _review_all_sources(path)
-    _install_cues_and_worksheet(path, ["code x works"])
-    action = _next(path)
+    path, _ = _workspace(tmp_path, ["hello"])
+    _install_cues_and_worksheet(path, ["hello"])
+    worksheet_path = ws.worksheet_path(path, "zh")
+    worksheet = ws.read_translation(worksheet_path)
+    worksheet.items[0].target = "人工精修译文"
+    ws.write_text_atomic(worksheet_path, worksheet.model_dump_json(indent=2))
+    review = reviewlib.ReviewSession.open(path, "zh")
 
-    with pytest.raises(OpenBBQError) as error:
-        _apply(
-            path,
-            {
-                "batch_id": action["batch_id"],
-                "policy_hash": action["policy_hash"],
-                "translations": {"1": "Codex 可以工作"},
-                "source_fixes": [],
-                "glossary_updates": [
-                    {
-                        "source": "Codex",
-                        "aliases": ["code x"],
-                        "keep": True,
-                        "reusable": True,
-                        "evidence": "confirmed recurring ASR spelling",
-                    }
-                ],
-            },
-        )
+    with pytest.raises(OpenBBQError) as incomplete:
+        _next(path)
+    assert incomplete.value.code == "review_incomplete"
+    assert ws.read_translation(worksheet_path).items[0].target == "人工精修译文"
 
-    assert error.value.code == "source_fix_requires_review"
+    snapshot = review.snapshot()
+    review.set_status(
+        1,
+        ReviewStatus.REVIEWED,
+        base_revision=snapshot.revision,
+        op_id="review-cue-1",
+    )
+
+    finish = _next(path)
+    assert finish["action"] == "finish"
+    assert finish["quality"] == "human-reviewed"
+    assert finish["human_reviewed"] is True
+    assert ws.read_translation(worksheet_path).items[0].target == "人工精修译文"
+    session = ws.read_agent_session_optional(path, "zh")
+    assert session is not None
+    assert session.translation_evidence == {}
+
+
+def test_starting_human_review_invalidates_an_active_finish_lease(
+    tmp_path: Path,
+) -> None:
+    path, _ = _workspace(tmp_path, ["hello"])
+    _install_cues_and_worksheet(path, ["hello"])
+    _translate_batch(path, _next(path))
+    finish = _next(path)
+    assert finish["action"] == "finish"
+
+    reviewlib.ReviewSession.open(path, "zh")
+
+    with pytest.raises(OpenBBQError) as incomplete:
+        _next(path)
+    assert incomplete.value.code == "review_incomplete"
+    session = ws.read_agent_session_optional(path, "zh")
+    assert session is not None
+    assert session.active_lease is None
 
 
 def test_agent_translation_batches_are_cli_enforced_to_20(tmp_path: Path) -> None:
     sources = [f"ordinary source {index}" for index in range(21)]
     path, _ = _workspace(tmp_path, sources)
-    _review_all_sources(path)
     _install_cues_and_worksheet(path, sources)
 
     first = _next(path)
-    assert first["action"] == "translate"
     assert first["selected_ids"] == list(range(1, 21))
     assert [item["id"] for item in first["items"]] == list(range(1, 21))
-    assert all("selected" not in item for item in first["items"])
-    assert all("target" not in item for item in first["items"])
-    assert first["neighbor_context"] == [
-        {"id": 21, "source": "ordinary source 20"}
-    ]
-    _apply(
-        path,
-        {
-            "batch_id": first["batch_id"],
-            "policy_hash": first["policy_hash"],
-            "translations": {
-                str(item_id): f"第{item_id}条内容"
-                for item_id in first["selected_ids"]
-            },
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
+    assert first["neighbor_context"] == [{"id": 21, "source": "ordinary source 20"}]
+    _translate_batch(path, first)
 
     second = _next(path)
     assert second["action"] == "translate"
@@ -1048,7 +832,7 @@ def test_agent_translation_batches_are_cli_enforced_to_20(tmp_path: Path) -> Non
         {
             "id": 20,
             "source": "ordinary source 19",
-            "target": "第20条内容",
+            "target": "第20条译文",
         }
     ]
 
@@ -1057,7 +841,6 @@ def test_translation_lease_becomes_stale_after_external_worksheet_change(
     tmp_path: Path,
 ) -> None:
     path, _ = _workspace(tmp_path, ["hello"])
-    _review_all_sources(path)
     _install_cues_and_worksheet(path, ["hello"])
     action = _next(path)
     worksheet_path = ws.worksheet_path(path, "zh")
@@ -1082,11 +865,10 @@ def test_translation_lease_becomes_stale_after_external_worksheet_change(
     assert session.active_lease is None
 
 
-def test_upstream_transcript_change_invalidates_translation_lease_and_reopens_source_review(
+def test_upstream_transcript_change_invalidates_translation_lease_and_rebuilds_cues(
     tmp_path: Path,
 ) -> None:
     path, _ = _workspace(tmp_path, ["hello"])
-    _review_all_sources(path)
     _install_cues_and_worksheet(path, ["hello"])
     translate = _next(path)
     transcript = ws.read_transcript(path / "transcript.json")
@@ -1095,25 +877,27 @@ def test_upstream_transcript_change_invalidates_translation_lease_and_reopens_so
 
     reopened = _next(path)
 
-    assert translate["batch_id"] != reopened["batch_id"]
-    assert reopened["action"] == "review_source"
-    assert reopened["selected_segment_ids"] == [0]
+    assert translate["batch_id"] != reopened.get("batch_id")
+    assert reopened["action"] == "run_command"
+    assert reopened["argv"][2] == "segment"
+    assert reopened["reason"] == "rebuild source cues because an input changed"
 
 
-def test_cue_scoped_source_fix_rolls_back_cues_when_worksheet_write_fails(
+def test_cue_scoped_source_fix_rolls_back_all_documents_on_write_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path, _ = _workspace(tmp_path, ["codex works"])
-    _review_all_sources(path)
     _install_cues_and_worksheet(path, ["codex works"])
     action = _next(path)
     cues_path = path / "cues.json"
     worksheet_path = ws.worksheet_path(path, "zh")
-    original_cues = cues_path.read_text(encoding="utf-8")
-    original_worksheet = worksheet_path.read_text(encoding="utf-8")
     overlay_path = glossary_overlay.path(path)
-    original_overlay = overlay_path.read_text(encoding="utf-8")
+    originals = {
+        cues_path: cues_path.read_text(encoding="utf-8"),
+        worksheet_path: worksheet_path.read_text(encoding="utf-8"),
+        overlay_path: overlay_path.read_text(encoding="utf-8"),
+    }
     real_write = ws.write_text_atomic
     failed = False
 
@@ -1138,6 +922,7 @@ def test_cue_scoped_source_fix_rolls_back_cues_when_worksheet_write_fails(
                         "cue_id": 1,
                         "find": "codex",
                         "replacement": "Codex",
+                        "reusable": True,
                         "evidence": "official casing",
                     }
                 ],
@@ -1153,23 +938,21 @@ def test_cue_scoped_source_fix_rolls_back_cues_when_worksheet_write_fails(
             },
         )
 
-    assert cues_path.read_text(encoding="utf-8") == original_cues
-    assert worksheet_path.read_text(encoding="utf-8") == original_worksheet
-    assert overlay_path.read_text(encoding="utf-8") == original_overlay
+    for target, original in originals.items():
+        assert target.read_text(encoding="utf-8") == original
 
 
 def test_workspace_lock_prevents_concurrent_next_from_creating_two_batches(
     tmp_path: Path,
 ) -> None:
     path, _ = _workspace(tmp_path, ["hello"])
+    _install_cues_and_worksheet(path, ["hello"])
 
     def call_next() -> str:
         with ws.agent_workspace_lock(path):
             session = ws.read_agent_session_optional(path, "zh")
             assert session is not None
-            action = agent_workflow.next_action(
-                path, ws.read_manifest(path), session
-            )
+            action = agent_workflow.next_action(path, ws.read_manifest(path), session)
             return str(action["batch_id"])
 
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -1181,8 +964,7 @@ def test_workspace_lock_prevents_concurrent_next_from_creating_two_batches(
 def test_glossary_overlay_is_immediate_and_publishes_without_midtask_global_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    home = tmp_path / "home"
-    monkeypatch.setenv("OPENBBQ_HOME", str(home))
+    monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path / "home"))
     base = Glossary(
         name="series",
         context="AI tooling",
@@ -1193,7 +975,7 @@ def test_glossary_overlay_is_immediate_and_publishes_without_midtask_global_writ
     workspace.mkdir()
     glossary_overlay.initialize(workspace, base_name="series")
 
-    glossary_overlay.apply_updates(
+    _write_overlay_updates(
         workspace,
         [
             agent_workflow.AgentGlossaryUpdate(
@@ -1209,12 +991,8 @@ def test_glossary_overlay_is_immediate_and_publishes_without_midtask_global_writ
     assert [term.source for term in glossarylib.load("series").terms] == ["OpenAI"]
     effective = glossary_overlay.merged(workspace, "series")
     assert effective is not None
-    assert [term.source for term in effective.terms] == [
-        "OpenAI",
-        "Codex",
-    ]
-    report = glossary_overlay.publish(workspace)
-    assert report.published is True
+    assert [term.source for term in effective.terms] == ["OpenAI", "Codex"]
+    assert glossary_overlay.publish(workspace).published is True
     assert [term.source for term in glossarylib.load("series").terms] == [
         "OpenAI",
         "Codex",
@@ -1222,13 +1000,11 @@ def test_glossary_overlay_is_immediate_and_publishes_without_midtask_global_writ
     assert glossary_overlay.publish(workspace).published is True
 
 
-def test_later_overlay_alias_patch_does_not_erase_an_existing_target(
-    tmp_path: Path,
-) -> None:
+def test_later_overlay_alias_patch_preserves_an_existing_target(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     glossary_overlay.initialize(workspace, base_name=None)
-    glossary_overlay.apply_updates(
+    _write_overlay_updates(
         workspace,
         [
             agent_workflow.AgentGlossaryUpdate(
@@ -1240,7 +1016,7 @@ def test_later_overlay_alias_patch_does_not_erase_an_existing_target(
             )
         ],
     )
-    glossary_overlay.apply_updates(
+    _write_overlay_updates(
         workspace,
         [
             agent_workflow.AgentGlossaryUpdate(
@@ -1260,7 +1036,7 @@ def test_later_overlay_alias_patch_does_not_erase_an_existing_target(
     assert term.aliases == ["codex"]
 
 
-def test_overlay_alias_patch_does_not_erase_base_glossary_translation_after_reload(
+def test_overlay_alias_patch_preserves_base_translation_after_reload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path / "home"))
@@ -1273,7 +1049,7 @@ def test_overlay_alias_patch_does_not_erase_base_glossary_translation_after_relo
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     glossary_overlay.initialize(workspace, base_name="products")
-    glossary_overlay.apply_updates(
+    _write_overlay_updates(
         workspace,
         [
             agent_workflow.AgentGlossaryUpdate(
@@ -1302,7 +1078,7 @@ def test_glossary_publish_conflict_does_not_overwrite_global_entry(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     glossary_overlay.initialize(workspace, base_name="series")
-    glossary_overlay.apply_updates(
+    _write_overlay_updates(
         workspace,
         [
             agent_workflow.AgentGlossaryUpdate(
@@ -1321,7 +1097,7 @@ def test_glossary_publish_conflict_does_not_overwrite_global_entry(
     assert glossarylib.load("series").terms[0].target == "智能体"
 
 
-def test_glossary_publish_merges_safe_alias_while_preserving_existing_note(
+def test_glossary_publish_merges_safe_alias_and_preserves_existing_note(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path / "home"))
@@ -1334,7 +1110,7 @@ def test_glossary_publish_merges_safe_alias_while_preserving_existing_note(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     glossary_overlay.initialize(workspace, base_name="series")
-    glossary_overlay.apply_updates(
+    _write_overlay_updates(
         workspace,
         [
             agent_workflow.AgentGlossaryUpdate(
@@ -1363,7 +1139,7 @@ def test_glossary_publish_permission_failure_is_non_blocking_and_retryable(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     glossary_overlay.initialize(workspace, base_name="series")
-    glossary_overlay.apply_updates(
+    _write_overlay_updates(
         workspace,
         [
             agent_workflow.AgentGlossaryUpdate(
@@ -1399,19 +1175,8 @@ def test_finish_is_media_idempotent_and_never_uses_compact_preset(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path, _ = _workspace(tmp_path, ["hello"])
-    _review_all_sources(path)
     _install_cues_and_worksheet(path, ["hello"])
-    translate = _next(path)
-    _apply(
-        path,
-        {
-            "batch_id": translate["batch_id"],
-            "policy_hash": translate["policy_hash"],
-            "translations": {"1": "你好"},
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
+    _translate_batch(path, _next(path))
     assert _next(path)["action"] == "finish"
     calls = {"export": 0, "burn": 0}
     presets: list[str] = []
@@ -1419,12 +1184,20 @@ def test_finish_is_media_idempotent_and_never_uses_compact_preset(
     def fake_export(_ctx, **kwargs) -> None:
         calls["export"] += 1
         presets.append(kwargs["ass_preset"].value)
-        # finish claims under the lock but must release it before media work.
         with ws.agent_workspace_lock(path):
             pass
         subtitle = path / "out" / "zh.ass"
         subtitle.parent.mkdir(parents=True, exist_ok=True)
-        subtitle.write_text("bilingual ass", encoding="utf-8")
+        subtitle.write_text(
+            exportlib.render_ass(
+                ws.read_cues(path / "cues.json"),
+                exportlib.ExportMode.BILINGUAL,
+                translation=ws.read_translation(path / "translation.zh.json"),
+                preset=kwargs["ass_preset"],
+                translation_lang="zh",
+            ),
+            encoding="utf-8",
+        )
         ws.record_artifact_provenance(
             path,
             subtitle,
@@ -1446,10 +1219,7 @@ def test_finish_is_media_idempotent_and_never_uses_compact_preset(
             path,
             video,
             Stage.BURN,
-            inputs=[
-                Path(ws.read_manifest(path).source.ref),
-                path / "out" / "zh.ass",
-            ],
+            inputs=[Path(ws.read_manifest(path).source.ref), path / "out" / "zh.ass"],
         )
         ws.record_stage(
             path,
@@ -1470,68 +1240,71 @@ def test_finish_is_media_idempotent_and_never_uses_compact_preset(
     finish_command(_ctx(), workspace=str(path), to="zh")
     second = json.loads(capsys.readouterr().out)
 
-    assert first["delivery_ready"] is True
-    assert second["delivery_ready"] is True
+    assert first["artifact_ready"] is True
+    assert first["quality"] == "draft"
+    assert first["human_reviewed"] is False
+    assert second["artifact_ready"] is True
     assert calls == {"export": 1, "burn": 1}
     assert presets == ["fansub"]
+    translate_stage = ws.read_manifest(path).stages[Stage.TRANSLATE]
+    assert translate_stage.status is StageStatus.DONE
+    assert translate_stage.progress is not None
+    assert (translate_stage.progress.done, translate_stage.progress.total) == (1, 1)
 
 
-def test_balanced_delivery_accepts_agent_evidence_and_never_falls_back_when_stale(
+def test_finish_replaces_a_fresh_but_wrong_export_recipe(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path, _ = _workspace(tmp_path, ["hello"])
-    _review_all_sources(path)
-    _install_cues_and_worksheet(path, ["hello"])
-    translate = _next(path)
-    _apply(
-        path,
-        {
-            "batch_id": translate["batch_id"],
-            "policy_hash": translate["policy_hash"],
-            "translations": {"1": "你好"},
-            "source_fixes": [],
-            "glossary_updates": [],
-        },
-    )
+    cues, _worksheet = _install_cues_and_worksheet(path, ["hello"])
+    _translate_batch(path, _next(path))
+    worksheet = ws.read_translation(path / "translation.zh.json")
     assert _next(path)["action"] == "finish"
     export_command(
         _ctx(),
         workspace=str(path),
-        to="zh",
-        mode=exportlib.ExportMode.BILINGUAL,
+        to=None,
+        mode=exportlib.ExportMode.SOURCE,
         fmt="ass",
         output="out/zh.ass",
         ass_preset=exportlib.AssPreset.FANSUB,
         allow_missing=False,
         allow_unreviewed=True,
-        allow_quality_warnings=False,
     )
     capsys.readouterr()
-    video = path / "out" / "zh-burned.mp4"
-    video.write_bytes(b"burned")
-    ws.record_artifact_provenance(
-        path,
-        video,
-        Stage.BURN,
-        inputs=[Path(ws.read_manifest(path).source.ref), path / "out" / "zh.ass"],
-    )
-    ws.record_stage(
-        path,
-        ws.read_manifest(path),
-        Stage.BURN,
-        StageState(status=StageStatus.DONE, artifact="out/zh-burned.mp4"),
+
+    def fake_burn(_ctx, **_kwargs) -> None:
+        video = path / "out" / "zh-burned.mp4"
+        video.write_bytes(b"burned")
+        ws.record_artifact_provenance(
+            path,
+            video,
+            Stage.BURN,
+            inputs=[Path(ws.read_manifest(path).source.ref), path / "out" / "zh.ass"],
+        )
+        ws.record_stage(
+            path,
+            ws.read_manifest(path),
+            Stage.BURN,
+            StageState(status=StageStatus.DONE, artifact="out/zh-burned.mp4"),
+        )
+
+    monkeypatch.setattr("openbbq.cli.commands.agent.burn_command", fake_burn)
+    monkeypatch.setattr(
+        "openbbq.cli.commands.agent.assess_delivery",
+        lambda *_args, **_kwargs: SimpleNamespace(ready=True, issues=[], next=None),
     )
 
-    ready = assess_delivery(path, ws.read_manifest(path), lang="zh")
-    assert ready.ready is True
-    assert ready.gates["translation_audit"] is True
+    finish_command(_ctx(), workspace=str(path), to="zh")
 
-    session = ws.read_agent_session_optional(path, "zh")
-    assert session is not None
-    session.translation_evidence[1].policy_hash = "stale"
-    ws.write_agent_session(path, session)
-    stale = assess_delivery(path, ws.read_manifest(path), lang="zh")
-    assert stale.ready is False
-    assert any(issue.code == "agent_session_stale" for issue in stale.issues)
-    assert not any(issue.code == "translation_audit_incomplete" for issue in stale.issues)
+    actual = (path / "out" / "zh.ass").read_text(encoding="utf-8")
+    expected = exportlib.render_ass(
+        cues,
+        exportlib.ExportMode.BILINGUAL,
+        translation=worksheet,
+        preset=exportlib.AssPreset.FANSUB,
+        translation_lang="zh",
+    )
+    assert actual == expected

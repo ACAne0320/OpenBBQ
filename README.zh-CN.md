@@ -2,11 +2,23 @@
 
 [English README](README.md) · [使用指南](docs/usage.zh-CN.md)
 
-**OpenBBQ** 是一个专为智能体（Agent）设计的用于视频翻译和字幕制作的命令行工具。
+**OpenBBQ** 是一个面向智能体（Agent）的视频翻译和字幕制作命令行工具。
 
 OpenBBQ 提供默认的 `agent init/next/apply/finish` facade，让不同 Agent 用一句提示词
-稳定执行同一套质量流程；同时保留视频下载、ASR、分段、翻译、校对、导出和烧录等
-细粒度命令，供专家调试与兼容使用。
+生成可编辑的双语字幕底稿。默认流程追求稳定的 70–80 分初稿：普通用户无需配置复杂
+流程即可使用，但它不会冒充经过专业人工审核的最终字幕。
+
+OpenBBQ 确定性地保证结构正确、翻译批次有界、产物新鲜和只导出/烧录一次。Agent
+负责翻译，并可在翻译时修正明显的单处 ASR 错误或学习可复用的 glossary 术语。
+低置信词、显示预算和 glossary 一致性只作为提示，不会制造强制审核队列。
+
+显式 `--glossary` 始终优先。否则，URL fetch 得到作者后，OpenBBQ 会自动绑定稳定的
+作者+目标语言 glossary。任务 overlay 中学到的术语会在交付后冲突安全地发布，并被
+同作者、同目标语言的后续视频复用；不需要模型选择 glossary。
+
+专业用户可以在同一 workspace 中运行 `openbbq review`，或把 ASS 导入 Aegisub /
+剪辑软件继续精修。人工修改具有最高权威，自动流程不会覆盖。细粒度 ASR、glossary、
+翻译、导出和烧录命令仍作为专家工具保留。
 
 ## Why OpenBBQ?
 
@@ -42,16 +54,26 @@ openbbq models pull large-v3-turbo
 openbbq doctor
 ```
 
-## 使用
+## 快速开始
 
-推荐的 agent 入口：
+安装 OpenBBQ 和 agent skill 后，只需向 Agent 发送一句提示词：
+
+> 帮我把这个视频制作成中英双语字幕视频：https://www.youtube.com/watch?v=...
+
+Agent 会自行完成完整流程，并返回可编辑的 ASS 字幕和烧录后的视频。提示词中不需要
+解释 ASR、分批翻译、glossary 维护、导出或烧录步骤。
+
+底层的 agent 入口是：
 
 ```bash
-openbbq --json agent init '<video-or-url>' --workspace workspaces/demo --to zh
+openbbq --json agent init '<video-or-url>' --workspace workspaces/demo --to zh [--glossary <name>]
 openbbq --json agent next --workspace workspaces/demo
 ```
 
-本地文件流程、YouTube 登录、ASS 预设、输出文件和完整命令说明见
+持续遵循 `agent next`，直到它返回 `done`。正常任务只包含机械命令、每批最多 20 条
+的翻译、一次 finish，默认不做视觉 QA。
+
+本地文件流程、YouTube 登录、专业审核、ASS 预设、输出文件和完整命令说明见
 [使用指南](docs/usage.zh-CN.md)。
 
 Agent 安装和随包发布的 OpenBBQ skill 说明见

@@ -34,7 +34,6 @@ from openbbq.schemas import (
     StageStatus,
     Transcript,
     Translation,
-    TranslationAudit,
 )
 
 MANIFEST_NAME = "manifest.json"
@@ -139,7 +138,9 @@ def write_texts_atomic(documents: dict[Path, str]) -> None:
     originals: dict[Path, str | None] = {}
     for path in documents:
         try:
-            originals[path] = path.read_text(encoding="utf-8") if path.exists() else None
+            originals[path] = (
+                path.read_text(encoding="utf-8") if path.exists() else None
+            )
         except OSError as error:
             raise OpenBBQError(
                 "atomic_write_failed",
@@ -287,50 +288,11 @@ def write_asr_review(workspace: Path, review: AsrReview) -> Path:
     return path
 
 
-def translation_audit_path(workspace: Path, lang: str) -> Path:
-    return workspace / ".openbbq" / f"translation-audit.{validate_lang(lang)}.json"
-
-
-def read_translation_audit_optional(
-    workspace: Path, lang: str
-) -> TranslationAudit | None:
-    path = translation_audit_path(workspace, lang)
-    if not path.is_file():
-        return None
-    try:
-        audit = TranslationAudit.model_validate_json(path.read_text(encoding="utf-8"))
-    except (OSError, ValidationError) as e:
-        raise OpenBBQError(
-            "invalid_translation_audit",
-            path=str(path),
-            fix=f"remove {path.name} and rerun openbbq translate audit {lang}",
-        ) from e
-    if audit.target_lang != lang:
-        raise OpenBBQError(
-            "invalid_translation_audit",
-            path=str(path),
-            target_lang=audit.target_lang,
-            expected=lang,
-        )
-    return audit
-
-
-def write_translation_audit(
-    workspace: Path, lang: str, audit: TranslationAudit
-) -> Path:
-    path = translation_audit_path(workspace, lang)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(path, audit.model_dump_json(indent=2) + "\n")
-    return path
-
-
 def agent_session_path(workspace: Path, lang: str) -> Path:
     return workspace / ".openbbq" / f"agent-session.{validate_lang(lang)}.json"
 
 
-def read_agent_session_optional(
-    workspace: Path, lang: str
-) -> AgentSession | None:
+def read_agent_session_optional(workspace: Path, lang: str) -> AgentSession | None:
     path = agent_session_path(workspace, lang)
     if not path.is_file():
         return None
@@ -340,7 +302,10 @@ def read_agent_session_optional(
         raise OpenBBQError(
             "invalid_agent_session",
             path=str(path),
-            fix=f"restore the session or rerun openbbq agent init --to {lang}",
+            fix=(
+                f"move or remove {path} and rerun "
+                f"`openbbq agent init --to {lang}`; or use a new workspace"
+            ),
         ) from error
     if session.target_lang != lang:
         raise OpenBBQError(
@@ -352,9 +317,7 @@ def read_agent_session_optional(
     return session
 
 
-def write_agent_session(
-    workspace: Path, session: AgentSession
-) -> Path:
+def write_agent_session(workspace: Path, session: AgentSession) -> Path:
     path = agent_session_path(workspace, session.target_lang)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_text_atomic(path, session.model_dump_json(indent=2) + "\n")
@@ -380,6 +343,37 @@ def agent_workspace_lock(workspace: Path):
             workspace=str(workspace),
             fix="wait for the other OpenBBQ agent command to finish and retry",
         ) from error
+
+
+@contextmanager
+def stage_execution_lock(workspace: Path, stage: Stage):
+    """Hold one mechanical stage lease for its complete process lifetime."""
+
+    lock_path = workspace / ".openbbq" / f"stage.{stage.value}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        handle = lock_path.open("a+")
+    except OSError as error:
+        raise OpenBBQError(
+            "stage_execution_lock_failed",
+            stage=stage.value,
+            workspace=str(workspace),
+            fix="wait for the active OpenBBQ command to finish and retry",
+        ) from error
+    with handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except OSError as error:
+            raise OpenBBQError(
+                "stage_execution_lock_failed",
+                stage=stage.value,
+                workspace=str(workspace),
+                fix="wait for the active OpenBBQ command to finish and retry",
+            ) from error
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def qa_path(workspace: Path) -> Path:
@@ -542,8 +536,7 @@ def refresh_artifact_provenance(
         raise OpenBBQError("invalid_provenance", artifact=key)
     record["sha256"] = _sha256(artifact)
     record["inputs"] = {
-        input_key: _sha256(_path_from_key(workspace, input_key))
-        for input_key in inputs
+        input_key: _sha256(_path_from_key(workspace, input_key)) for input_key in inputs
     }
     provenance_path = workspace / _PROVENANCE_PATH
     write_text_atomic(

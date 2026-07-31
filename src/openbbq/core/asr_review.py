@@ -28,8 +28,6 @@ from openbbq.schemas import (
 )
 
 DEFAULT_MAX_PROB = 0.5
-MAX_WORDS_PER_SECOND = 9.0
-MIN_DENSE_WORDS = 8
 MIN_REPEAT_SEGMENTS = 4
 MIN_REPEAT_TOKENS = 6
 MIN_REPEAT_SPAN_S = 5.0
@@ -37,7 +35,23 @@ MAX_DECISION_BATCH = 20
 MIN_COLLAPSED_WORDS = 3
 MIN_BOUNDARY_PILEUP_WORDS = 5
 REFERENCE_RECOVERY_SIMILARITY = 0.72
+REFERENCE_RECOVERY_SEQUENCE_SIMILARITY = 0.65
+REFERENCE_TIMING_REPAIR_MIN_SHIFT_S = 1.0
+REFERENCE_TIMING_REPAIR_PADDING_S = 6.0
+REFERENCE_TIMING_MAX_WORD_DURATION_S = 1.0
 _IDENTITY: Callable[[str], str] = lambda text: text  # noqa: E731
+
+# Only anomalies that would make the generated subtitle draft structurally
+# unreliable block segmentation. Low-confidence words and semantic suspicions
+# remain available to reviewers, but do not require a decision on the default
+# one-shot path.
+BLOCKING_ANOMALY_CODES = frozenset(
+    {
+        "collapsed_word_timestamps",
+        "reference_timeline_mismatch",
+        "repeated_segment_run",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -65,8 +79,6 @@ class Anomaly:
     id: str
     code: Literal[
         "repeated_segment_run",
-        "implausible_word_rate",
-        "metadata_entity_conflict",
         "collapsed_word_timestamps",
         "reference_timeline_mismatch",
     ]
@@ -77,7 +89,6 @@ class Anomaly:
     text: str
     previous_text: str | None
     next_text: str | None
-    words_per_second: float | None = None
     find: str | None = None
     replacement: str | None = None
     reference_text: str | None = None
@@ -108,6 +119,17 @@ class CheckReport:
     @property
     def ready(self) -> bool:
         return not self.stale and not self.unresolved_ids
+
+
+def blocking_unresolved_ids(report: CheckReport) -> list[str]:
+    """Return unresolved anomaly IDs that make segmentation unsafe."""
+
+    unresolved = set(report.unresolved_ids)
+    return [
+        anomaly.id
+        for anomaly in report.anomalies
+        if anomaly.id in unresolved and anomaly.code in BLOCKING_ANOMALY_CODES
+    ]
 
 
 def _validate_max_prob(max_prob: float) -> float:
@@ -171,10 +193,7 @@ _VTT_TIMING_RE = re.compile(
     r"(?P<end>(?:\d+:)?\d{2}:\d{2}[.,]\d{3})"
 )
 _VTT_TAG_RE = re.compile(r"<[^>]+>")
-_VTT_INLINE_TIME_RE = re.compile(
-    r"<(?P<time>(?:\d+:)?\d{2}:\d{2}[.,]\d{3})>"
-)
-_WORD_SPAN_RE = re.compile(r"[A-Za-z][A-Za-z'’-]*")
+_VTT_INLINE_TIME_RE = re.compile(r"<(?P<time>(?:\d+:)?\d{2}:\d{2}[.,]\d{3})>")
 
 
 def _vtt_seconds(value: str) -> float:
@@ -223,6 +242,13 @@ def parse_reference_captions(text: str) -> list[ReferenceCaption]:
             index += 1
             continue
         index += 1
+        # Some YouTube word-timed VTT files insert an empty spacer directly
+        # after the timing line. Skip it unless the next block has already
+        # started; otherwise the real caption text would be silently lost.
+        while index < len(lines) and not lines[index].strip():
+            index += 1
+        if index < len(lines) and _VTT_TIMING_RE.search(lines[index]):
+            continue
         body: list[str] = []
         while index < len(lines) and lines[index].strip():
             cleaned = html.unescape(_VTT_TAG_RE.sub("", lines[index])).strip()
@@ -264,6 +290,22 @@ def _timed_reference_chunk(
     ]
 
 
+def _discard_rolling_prefix(existing: list[Word], chunk: list[Word]) -> list[Word]:
+    """Remove carried words that a rolling caption repeats at a new timestamp."""
+
+    existing_keys = [
+        " ".join(_normalized_words(word.word)) or word.word.casefold()
+        for word in existing
+    ]
+    chunk_keys = [
+        " ".join(_normalized_words(word.word)) or word.word.casefold() for word in chunk
+    ]
+    for size in range(min(len(existing_keys), len(chunk_keys)), 0, -1):
+        if existing_keys[-size:] == chunk_keys[:size]:
+            return chunk[size:]
+    return chunk
+
+
 def parse_reference_words(text: str) -> list[Word]:
     """Extract word timing from YouTube's inline-timestamp WebVTT variant.
 
@@ -274,6 +316,7 @@ def parse_reference_words(text: str) -> list[Word]:
 
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     words: list[Word] = []
+    has_inline_timing = _VTT_INLINE_TIME_RE.search(text) is not None
     index = 0
     while index < len(lines):
         timing = _VTT_TIMING_RE.search(lines[index])
@@ -283,18 +326,21 @@ def parse_reference_words(text: str) -> list[Word]:
         cue_start = _vtt_seconds(timing.group("start"))
         cue_end = _vtt_seconds(timing.group("end"))
         index += 1
+        while index < len(lines) and not lines[index].strip():
+            index += 1
+        if index < len(lines) and _VTT_TIMING_RE.search(lines[index]):
+            continue
         while index < len(lines) and lines[index].strip():
             line = lines[index]
             markers = list(_VTT_INLINE_TIME_RE.finditer(line))
             if markers:
                 first = markers[0]
-                words.extend(
-                    _timed_reference_chunk(
+                prefix = _timed_reference_chunk(
                         line[: first.start()],
                         start=cue_start,
                         end=_vtt_seconds(first.group("time")),
-                    )
                 )
+                words.extend(_discard_rolling_prefix(words, prefix))
                 for marker_index, marker in enumerate(markers):
                     next_start = (
                         markers[marker_index + 1].start()
@@ -313,6 +359,13 @@ def parse_reference_words(text: str) -> list[Word]:
                             end=chunk_end,
                         )
                     )
+            elif has_inline_timing:
+                inferred = _timed_reference_chunk(
+                    line,
+                    start=cue_start,
+                    end=cue_end,
+                )
+                words.extend(_discard_rolling_prefix(words, inferred))
             index += 1
 
     deduplicated: list[Word] = []
@@ -339,162 +392,6 @@ def reference_caption_text(
     ]
     merged = _merge_rolling_texts(overlapping)
     return merged or None
-
-
-def _metadata_entity_anomalies(
-    transcript: Transcript,
-    reference_texts: tuple[str, ...],
-) -> list[Anomaly]:
-    anomalies: list[Anomaly] = []
-    seen: set[tuple[int, str, str]] = set()
-    transcript_entity_counts: dict[str, int] = {}
-    for segment in transcript.segments:
-        for token in _WORD_SPAN_RE.finditer(segment.text):
-            if token.group(0)[0].isupper():
-                key = token.group(0).casefold()
-                transcript_entity_counts[key] = transcript_entity_counts.get(key, 0) + 1
-    known_reference_tokens = {
-        token.group(0).casefold()
-        for reference in reference_texts
-        for token in _WORD_SPAN_RE.finditer(reference)
-        if token.group(0)[0].isupper()
-    }
-    for reference in reference_texts:
-        expected_tokens = list(_WORD_SPAN_RE.finditer(reference))
-        for expected_first, expected_last in zip(
-            expected_tokens, expected_tokens[1:], strict=False
-        ):
-            first_text = expected_first.group(0)
-            last_text = expected_last.group(0)
-            if (
-                len(first_text) < 4
-                or len(last_text) < 3
-                or not first_text[0].isupper()
-                or not last_text[0].isupper()
-            ):
-                continue
-            for segment_index, segment in enumerate(transcript.segments):
-                observed_tokens = list(_WORD_SPAN_RE.finditer(segment.text))
-                for observed_first, observed_last in zip(
-                    observed_tokens, observed_tokens[1:], strict=False
-                ):
-                    observed_first_text = observed_first.group(0)
-                    observed_last_text = observed_last.group(0)
-                    if (
-                        not observed_first_text[0].isupper()
-                        or not observed_last_text[0].isupper()
-                        or observed_last_text.casefold() != last_text.casefold()
-                        or observed_first_text.casefold() == first_text.casefold()
-                    ):
-                        continue
-                    similarity = SequenceMatcher(
-                        None,
-                        observed_first_text.casefold(),
-                        first_text.casefold(),
-                    ).ratio()
-                    # A shared proper-noun suffix from the title (for example
-                    # ``Fable Code`` vs ``Claude Code``) is useful review
-                    # evidence even when the first token is not phonetically
-                    # close. This remains a semantic issue, never an automatic
-                    # replacement.
-                    if not 0.3 <= similarity < 0.95:
-                        continue
-                    find = segment.text[observed_first.start() : observed_last.end()]
-                    replacement = reference[
-                        expected_first.start() : expected_last.end()
-                    ]
-                    key = (segment.id, find.casefold(), replacement.casefold())
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    previous, next_text = _anomaly_context(
-                        transcript, segment_index, segment_index
-                    )
-                    digest = hashlib.sha256(
-                        f"{segment.id}|{find.casefold()}|{replacement.casefold()}".encode()
-                    ).hexdigest()[:10]
-                    anomalies.append(
-                        Anomaly(
-                            id=f"a:metadata:{segment.id}:{digest}",
-                            code="metadata_entity_conflict",
-                            severity="severe",
-                            segment_ids=(segment.id,),
-                            start=segment.start,
-                            end=segment.end,
-                            text=segment.text,
-                            previous_text=previous,
-                            next_text=next_text,
-                            find=find,
-                            replacement=replacement,
-                            reference_text=reference,
-                        )
-                    )
-
-        # A canonical multiword product can also be referred to by its first
-        # token alone (``Claude Code`` -> ``Claude``). Surface a rare,
-        # similarly shaped capitalized token only when the canonical short
-        # form already occurs repeatedly in this transcript. This catches an
-        # isolated ``Fable`` beside many real ``Claude`` mentions without
-        # treating recurring project names such as ``Chase`` as misspellings.
-        if (
-            not 2 <= len(expected_tokens) <= 4
-            or not all(token.group(0)[0].isupper() for token in expected_tokens)
-        ):
-            continue
-        canonical = expected_tokens[0].group(0)
-        canonical_key = canonical.casefold()
-        if transcript_entity_counts.get(canonical_key, 0) < 2:
-            continue
-        for segment_index, segment in enumerate(transcript.segments):
-            observed_tokens = list(_WORD_SPAN_RE.finditer(segment.text))
-            if canonical_key not in {
-                observed.group(0).casefold() for observed in observed_tokens
-            }:
-                continue
-            for observed in observed_tokens:
-                observed_text = observed.group(0)
-                observed_key = observed_text.casefold()
-                if (
-                    len(observed_text) < 4
-                    or not observed_text[0].isupper()
-                    or observed_key in known_reference_tokens
-                    or transcript_entity_counts.get(observed_key, 0) != 1
-                ):
-                    continue
-                similarity = SequenceMatcher(
-                    None,
-                    observed_key,
-                    canonical_key,
-                ).ratio()
-                if not 0.3 <= similarity < 0.95:
-                    continue
-                key = (segment.id, observed_key, canonical_key)
-                if key in seen:
-                    continue
-                seen.add(key)
-                previous, next_text = _anomaly_context(
-                    transcript, segment_index, segment_index
-                )
-                digest = hashlib.sha256(
-                    f"{segment.id}|{observed_key}|{canonical_key}".encode()
-                ).hexdigest()[:10]
-                anomalies.append(
-                    Anomaly(
-                        id=f"a:metadata:{segment.id}:{digest}",
-                        code="metadata_entity_conflict",
-                        severity="severe",
-                        segment_ids=(segment.id,),
-                        start=segment.start,
-                        end=segment.end,
-                        text=segment.text,
-                        previous_text=previous,
-                        next_text=next_text,
-                        find=observed_text,
-                        replacement=canonical,
-                        reference_text=reference,
-                    )
-                )
-    return anomalies
 
 
 def _anomaly_context(
@@ -536,9 +433,7 @@ def _best_reference_match(
     )
     if not observed or not candidates:
         return (), 0.0
-    candidate_keys = [
-        " ".join(_normalized_words(word.word)) for word in candidates
-    ]
+    candidate_keys = [" ".join(_normalized_words(word.word)) for word in candidates]
     margin = max(2, min(8, len(observed) // 10))
     minimum = max(1, len(observed) - margin)
     maximum = min(len(candidates), len(observed) + margin)
@@ -562,19 +457,152 @@ def _best_reference_match(
     return candidates[best[2] : best[3]], best[0]
 
 
+def align_exact_reference_timing(
+    transcript: Transcript,
+    reference_words: list[Word] | tuple[Word, ...],
+) -> Transcript:
+    """Repair large local ASR timing drift without borrowing reference text.
+
+    Only a word-for-word normalized match is eligible. The ASR surfaces and
+    confidence values remain canonical; the timed reference contributes start
+    and end values only when the existing boundary differs by at least one
+    second. This targets visible alignment failures while leaving ordinary
+    sub-second decoder variance untouched.
+    """
+
+    reference = tuple(reference_words)
+    if not reference:
+        return transcript
+    segments: list[Segment] = []
+    for segment_index, segment in enumerate(transcript.segments):
+        source_words = segment.words or []
+        matched, _score = _best_reference_match(
+            segment,
+            reference,
+            padding=REFERENCE_TIMING_REPAIR_PADDING_S,
+        )
+        if len(source_words) != len(matched) or not matched:
+            segments.append(segment)
+            continue
+        if any(
+            _normalized_words(source.word) != _normalized_words(timed.word)
+            for source, timed in zip(source_words, matched, strict=True)
+        ):
+            segments.append(segment)
+            continue
+        if _normalized_words(segment.text) != tuple(
+            token for word in matched for token in _normalized_words(word.word)
+        ):
+            segments.append(segment)
+            continue
+        safe_timing = [
+            timed.model_copy(
+                update={
+                    "end": min(
+                        timed.end,
+                        timed.start + REFERENCE_TIMING_MAX_WORD_DURATION_S,
+                    )
+                }
+            )
+            for timed in matched
+        ]
+        boundary_shift = max(
+            abs(source_words[0].start - safe_timing[0].start),
+            abs(source_words[-1].end - safe_timing[-1].end),
+        )
+        if boundary_shift < REFERENCE_TIMING_REPAIR_MIN_SHIFT_S:
+            segments.append(segment)
+            continue
+        if any(
+            word.end <= word.start
+            or (index and word.start < safe_timing[index - 1].start)
+            for index, word in enumerate(safe_timing)
+        ):
+            segments.append(segment)
+            continue
+        retimed = [
+            source.model_copy(update={"start": timed.start, "end": timed.end})
+            for source, timed in zip(source_words, safe_timing, strict=True)
+        ]
+        previous = (
+            transcript.segments[segment_index - 1] if segment_index > 0 else None
+        )
+        following = (
+            transcript.segments[segment_index + 1]
+            if segment_index + 1 < len(transcript.segments)
+            else None
+        )
+        if (previous is not None and retimed[0].start < previous.end) or (
+            following is not None and retimed[-1].end > following.start
+        ):
+            segments.append(segment)
+            continue
+        segments.append(
+            segment.model_copy(
+                update={
+                    "start": retimed[0].start,
+                    "end": retimed[-1].end,
+                    "words": retimed,
+                }
+            )
+        )
+    return transcript.model_copy(update={"segments": segments})
+
+
 def _has_collapsed_timeline(segment: Segment) -> bool:
     words = segment.words or []
     if not words:
         return False
     collapsed = sum(word.end <= word.start + 1e-6 for word in words)
     boundary = sum(
-        abs(word.start - segment.end) <= 0.005
-        or abs(word.end - segment.end) <= 0.005
+        abs(word.start - segment.end) <= 0.005 or abs(word.end - segment.end) <= 0.005
         for word in words
     )
     return collapsed >= max(MIN_COLLAPSED_WORDS, (len(words) + 4) // 5) or (
         boundary >= max(MIN_BOUNDARY_PILEUP_WORDS, (len(words) + 3) // 4)
     )
+
+
+def _reference_word_keys(words: tuple[Word, ...]) -> list[str]:
+    return [
+        " ".join(_normalized_words(word.word)) or word.word.casefold() for word in words
+    ]
+
+
+def _text_word_keys(text: str) -> list[str]:
+    return [
+        " ".join(_normalized_words(word)) or word.casefold() for word in text.split()
+    ]
+
+
+def _trim_neighbor_overlap(
+    words: tuple[Word, ...],
+    transcript: Transcript,
+    segment_index: int,
+    *,
+    radius: int = 3,
+) -> tuple[Word, ...]:
+    """Keep a structural replacement from borrowing nearby segment content."""
+
+    trimmed = words
+    for previous_index in range(segment_index - 1, max(-1, segment_index - radius - 1), -1):
+        keys = _reference_word_keys(trimmed)
+        neighbor = _text_word_keys(transcript.segments[previous_index].text)
+        for size in range(min(len(keys) - 1, len(neighbor)), 2, -1):
+            if keys[:size] == neighbor[-size:]:
+                trimmed = trimmed[size:]
+                break
+    for next_index in range(
+        segment_index + 1,
+        min(len(transcript.segments), segment_index + radius + 1),
+    ):
+        keys = _reference_word_keys(trimmed)
+        neighbor = _text_word_keys(transcript.segments[next_index].text)
+        for size in range(min(len(keys) - 1, len(neighbor)), 2, -1):
+            if keys[-size:] == neighbor[:size]:
+                trimmed = trimmed[:-size]
+                break
+    return trimmed
 
 
 def _timeline_anomalies(
@@ -583,6 +611,7 @@ def _timeline_anomalies(
 ) -> list[Anomaly]:
     anomalies: list[Anomaly] = []
     recovering = False
+    reference_cursor: float | None = None
     for index, segment in enumerate(transcript.segments):
         collapsed = _has_collapsed_timeline(segment)
         window_reference = _reference_window(
@@ -594,29 +623,55 @@ def _timeline_anomalies(
             segment,
             reference_words,
         )
+        used_global_match = False
+        semantic_threshold = REFERENCE_RECOVERY_SIMILARITY
+        if (collapsed or recovering) and match_score < REFERENCE_RECOVERY_SIMILARITY:
+            search_reference = (
+                reference_words
+                if reference_cursor is None
+                else tuple(
+                    word
+                    for word in reference_words
+                    if word.start >= reference_cursor - 0.1
+                )
+            )
+            matched_reference, match_score = _best_reference_match(
+                segment,
+                search_reference,
+                padding=max(transcript.duration, 60.0),
+            )
+            used_global_match = True
+            if reference_cursor is not None:
+                semantic_threshold = REFERENCE_RECOVERY_SEQUENCE_SIMILARITY
+        semantic_reference = match_score >= semantic_threshold
         timed_reference = (
             matched_reference
-            if match_score >= REFERENCE_RECOVERY_SIMILARITY
+            if semantic_reference
             else window_reference
+            if reference_cursor is None
+            else ()
         )
-        code: Literal[
-            "collapsed_word_timestamps", "reference_timeline_mismatch"
-        ] | None = None
+        if timed_reference:
+            timed_reference = _trim_neighbor_overlap(
+                tuple(timed_reference), transcript, index
+            )
+        code: (
+            Literal["collapsed_word_timestamps", "reference_timeline_mismatch"] | None
+        ) = None
         if collapsed:
             code = "collapsed_word_timestamps"
             recovering = True
         elif recovering and (matched_reference or window_reference):
-            if match_score >= REFERENCE_RECOVERY_SIMILARITY:
+            if not used_global_match and match_score >= REFERENCE_RECOVERY_SIMILARITY:
                 recovering = False
+                reference_cursor = None
             else:
                 code = "reference_timeline_mismatch"
         if code is None:
             continue
         previous, next_text = _anomaly_context(transcript, index, index)
         reference_text = (
-            " ".join(word.word for word in timed_reference)
-            if timed_reference
-            else None
+            " ".join(word.word for word in timed_reference) if timed_reference else None
         )
         evidence_digest = hashlib.sha256(
             f"{code}|{reference_text or 'none'}".encode("utf-8")
@@ -637,30 +692,24 @@ def _timeline_anomalies(
                 reference_words=timed_reference,
             )
         )
+        if semantic_reference and timed_reference:
+            reference_cursor = timed_reference[-1].end
     return anomalies
 
 
 def extract_anomalies(
     transcript: Transcript,
     *,
-    reference_texts: list[str] | tuple[str, ...] = (),
     reference_words: list[Word] | tuple[Word, ...] = (),
 ) -> list[Anomaly]:
-    """Find high-precision segment failures that word probability misses.
+    """Find high-precision structural failures that word probability misses.
 
     The thresholds deliberately target decoder artifacts, not ordinary spoken
     repetition: a repeated run must contain a substantial sentence, span at
-    least five seconds, and occur four or more times consecutively. Implausible
-    density is reported only outside such a run to avoid duplicate review work.
+    least five seconds, and occur four or more times consecutively.
     """
 
-    anomalies: list[Anomaly] = _timeline_anomalies(
-        transcript, tuple(reference_words)
-    )
-    timeline_ids = {
-        segment_id for issue in anomalies for segment_id in issue.segment_ids
-    }
-    repeated_ids: set[int] = set()
+    anomalies: list[Anomaly] = _timeline_anomalies(transcript, tuple(reference_words))
     segments = transcript.segments
     index = 0
     while index < len(segments):
@@ -676,7 +725,6 @@ def extract_anomalies(
             and span >= MIN_REPEAT_SPAN_S
         ):
             ids = tuple(segment.id for segment in group)
-            repeated_ids.update(ids)
             previous, next_text = _anomaly_context(transcript, index, end - 1)
             anomalies.append(
                 Anomaly(
@@ -692,31 +740,6 @@ def extract_anomalies(
                 )
             )
         index = end
-
-    for index, segment in enumerate(segments):
-        if segment.id in repeated_ids or segment.id in timeline_ids:
-            continue
-        word_count = len(segment.words or []) or len(_normalized_words(segment.text))
-        duration = segment.end - segment.start
-        rate = word_count / duration if duration > 0 else float("inf")
-        if word_count < MIN_DENSE_WORDS or rate <= MAX_WORDS_PER_SECOND:
-            continue
-        previous, next_text = _anomaly_context(transcript, index, index)
-        anomalies.append(
-            Anomaly(
-                id=f"a:density:{segment.id}",
-                code="implausible_word_rate",
-                severity="severe",
-                segment_ids=(segment.id,),
-                start=segment.start,
-                end=segment.end,
-                text=segment.text,
-                previous_text=previous,
-                next_text=next_text,
-                words_per_second=round(rate, 3),
-            )
-        )
-    anomalies.extend(_metadata_entity_anomalies(transcript, tuple(reference_texts)))
     return sorted(anomalies, key=lambda issue: (issue.start, issue.id))
 
 
@@ -725,7 +748,6 @@ def check(
     review: AsrReview | None,
     *,
     max_prob: float | None = None,
-    reference_texts: list[str] | tuple[str, ...] = (),
     reference_words: list[Word] | tuple[Word, ...] = (),
 ) -> CheckReport:
     threshold = (
@@ -739,7 +761,6 @@ def check(
     fingerprint = transcript_hash(transcript)
     anomalies = extract_anomalies(
         transcript,
-        reference_texts=reference_texts,
         reference_words=reference_words,
     )
     stale = review is not None and (
@@ -845,7 +866,6 @@ def _text_key(text: str) -> str:
 
 _WORD_ISSUE_SEGMENT_RE = re.compile(r"^s(?P<segment>\d+):w(?P<word>\d+)$")
 _MANUAL_SEGMENT_RE = re.compile(r"^m:s(?P<segment>\d+):")
-_METADATA_SEGMENT_RE = re.compile(r"^a:metadata:(?P<segment>\d+):")
 
 
 def _decision_segment_id(issue_id: str) -> int | None:
@@ -854,7 +874,6 @@ def _decision_segment_id(issue_id: str) -> int | None:
     for pattern in (
         _WORD_ISSUE_SEGMENT_RE,
         _MANUAL_SEGMENT_RE,
-        _METADATA_SEGMENT_RE,
     ):
         match = pattern.match(issue_id)
         if match is not None:
@@ -899,23 +918,6 @@ def _validate_decision(issue: Issue | Anomaly, decision: AsrDecision) -> None:
             )
         return
 
-    if issue.code == "metadata_entity_conflict":
-        if decision.action not in {"accept", "replace"}:
-            raise OpenBBQError(
-                "asr_decision_invalid",
-                id=issue.id,
-                detail="metadata entity conflicts only support accept or replace",
-            )
-        if decision.action == "replace":
-            find = decision.find or ""
-            if not find or find.casefold() not in issue.text.casefold():
-                raise OpenBBQError(
-                    "asr_decision_invalid",
-                    id=issue.id,
-                    detail="metadata replacement find phrase is not in the segment",
-                )
-        return
-
     if issue.code in {
         "collapsed_word_timestamps",
         "reference_timeline_mismatch",
@@ -948,7 +950,6 @@ def merge_decisions(
     decisions: Mapping[str, AsrDecision],
     *,
     max_prob: float = DEFAULT_MAX_PROB,
-    reference_texts: list[str] | tuple[str, ...] = (),
     reference_words: list[Word] | tuple[Word, ...] = (),
 ) -> AsrReview:
     if len(decisions) > MAX_DECISION_BATCH:
@@ -963,7 +964,6 @@ def merge_decisions(
     issues: list[Issue | Anomaly] = [
         *extract_anomalies(
             transcript,
-            reference_texts=reference_texts,
             reference_words=reference_words,
         ),
         *extract_issues(transcript, max_prob=max_prob),
@@ -1325,7 +1325,6 @@ def apply_segment_decisions(
     transcript: Transcript,
     review: AsrReview | None,
     *,
-    reference_texts: list[str] | tuple[str, ...] = (),
     reference_words: list[Word] | tuple[Word, ...] = (),
 ) -> Transcript:
     """Apply anomaly drop/keep/replace decisions without mutating transcript.json."""
@@ -1336,7 +1335,6 @@ def apply_segment_decisions(
         issue.id: issue
         for issue in extract_anomalies(
             transcript,
-            reference_texts=reference_texts,
             reference_words=reference_words,
         )
     }
@@ -1410,7 +1408,6 @@ def resolved_transcript(
     transcript: Transcript,
     review: AsrReview | None,
     *,
-    reference_texts: list[str] | tuple[str, ...] = (),
     reference_words: list[Word] | tuple[Word, ...] = (),
 ) -> Transcript:
     """Return the current review view without mutating ``transcript.json``.
@@ -1425,7 +1422,6 @@ def resolved_transcript(
     reviewed = apply_segment_decisions(
         transcript,
         review,
-        reference_texts=reference_texts,
         reference_words=reference_words,
     )
     decisions_by_segment: dict[int, list[tuple[str, AsrDecision]]] = {}

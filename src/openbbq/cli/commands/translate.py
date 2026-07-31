@@ -3,22 +3,19 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated
 
 import typer
-from rich.console import RenderableType
-from rich.table import Table
 
+from ...core import glossary as glossarylib
 from ...core import glossary_overlay
 from ...core import translate as translatelib
-from ...core import translation_audit as auditlib
 from ...core import translation_rules
 from ...core import workspace as ws
 from ...errors import OpenBBQError
 from ...schemas import (
     GlossaryRef,
     Manifest,
-    OpenBBQModel,
     Progress,
     Stage,
     StageState,
@@ -121,8 +118,6 @@ class TranslateCheckResult(Result):
     zero_budget_ids: list[int]
     term_warnings: int
     term_issues: list[translatelib.TermIssue]
-    quality_warnings: int
-    quality_issues: list[translatelib.QualityIssue]
     ready: bool
 
     def render(self) -> str:
@@ -150,11 +145,6 @@ class TranslateCheckResult(Result):
         if self.zero_budget:
             shown = ", ".join(str(i) for i in self.zero_budget_ids)
             line += f"\n  [red]zero-budget cues: {shown}[/]"
-        if self.quality_warnings:
-            shown = ", ".join(
-                f"{issue.id}:{issue.code}" for issue in self.quality_issues
-            )
-            line += f"\n  [yellow]quality warnings: {shown}[/]"
         return line
 
 
@@ -207,7 +197,11 @@ def init(
             fix="edit it, or pass --force to regenerate (discards filled targets)",
         )
 
-    gloss = glossary_overlay.merged(path, glossary or manifest.glossary)
+    gloss = (
+        glossarylib.load_optional(glossary)
+        if glossary is not None
+        else glossary_overlay.merged(path, manifest.glossary)
+    )
     doc, generic = translatelib.build_worksheet(
         cues,
         gloss,
@@ -243,9 +237,7 @@ def init(
             generic_translation_rules=(
                 doc.brief.generic_translation_rules if doc.brief else True
             ),
-            policy_hash=(
-                translation_rules.policy_hash(doc.brief) if doc.brief else ""
-            ),
+            policy_hash=(translation_rules.policy_hash(doc.brief) if doc.brief else ""),
             elapsed_s=round(time.monotonic() - started, 2),
             next=f"openbbq translate apply {lang} <targets.json>",
         )
@@ -282,15 +274,10 @@ def apply(
         )
 
     worksheet = ws.read_translation(wpath)
-    before = worksheet.model_copy(deep=True)
-    existing_audit = ws.read_translation_audit_optional(path, lang)
     batch = translatelib.parse_targets(tpath.read_text(encoding="utf-8"))
     report = translatelib.apply_targets(worksheet, batch)
-    updated_audit = auditlib.record_overwrites(before, worksheet, existing_audit)
     # same shape init writes: indented, `"target": null` kept visible
     ws.write_text_atomic(wpath, worksheet.model_dump_json(indent=2))
-    if existing_audit is not None or updated_audit.flags or updated_audit.reviews:
-        ws.write_translation_audit(path, lang, updated_audit)
     _record_translate_progress(
         path,
         manifest,
@@ -314,7 +301,7 @@ def apply(
     )
 
 
-def _resolve_lang(path, manifest, explicit: str | None) -> str:
+def _resolve_lang(path: Path, explicit: str | None) -> str:
     """Explicit lang, else infer when exactly one worksheet is present."""
     if explicit is not None:
         return explicit
@@ -328,46 +315,6 @@ def _resolve_lang(path, manifest, explicit: str | None) -> str:
             fix="pass the language, e.g. translate check zh",
         )
     return present[0]
-
-
-def _optional_transcript(path: Path, manifest: Manifest):
-    state = manifest.stages.get(Stage.TRANSCRIBE)
-    if state is None or state.status is not StageStatus.DONE or not state.artifact:
-        return None
-    artifact = Path(state.artifact)
-    if not artifact.is_absolute():
-        artifact = path / artifact
-    return ws.read_transcript(artifact) if artifact.is_file() else None
-
-
-def _audit_context(
-    path: Path,
-    manifest: Manifest,
-    lang: str,
-    *,
-    coverage: Literal["risks", "all"] = "all",
-):
-    cpath = ws.require_artifact(path, manifest, Stage.SEGMENT, fix="openbbq segment")
-    cues = ws.read_cues(cpath)
-    wpath = ws.worksheet_path(path, lang)
-    if not wpath.is_file():
-        raise OpenBBQError(
-            "translation_not_found", lang=lang, fix=f"openbbq translate init {lang}"
-        )
-    worksheet = ws.read_translation(wpath)
-    audit_state = ws.read_translation_audit_optional(path, lang)
-    uncertain = auditlib.uncertain_cue_ids(
-        cues,
-        _optional_transcript(path, manifest),
-    )
-    risks = auditlib.audit_items(
-        cues,
-        worksheet,
-        audit_state,
-        uncertain_ids=uncertain,
-        coverage=coverage,
-    )
-    return cues, wpath, worksheet, audit_state, risks
 
 
 class TranslateBatchResult(Result):
@@ -427,8 +374,7 @@ def batch(
     """Read a bounded worksheet slice for context-safe Agent translation."""
     output: Output = ctx.obj
     path = ws.resolve_workspace(workspace)
-    manifest = ws.read_manifest(path)
-    resolved = _resolve_lang(path, manifest, lang)
+    resolved = _resolve_lang(path, lang)
     wpath = ws.worksheet_path(path, resolved)
     if not wpath.is_file():
         raise OpenBBQError(
@@ -467,264 +413,6 @@ def batch(
     )
 
 
-class TranslateAuditContextResult(OpenBBQModel):
-    id: int
-    source: str
-    target: str
-
-
-class TranslateAuditItemResult(OpenBBQModel):
-    id: int
-    source: str
-    target: str
-    used_chars: int
-    max_chars: int
-    risk_codes: list[str]
-    score: int
-    reviewed: bool
-    previous: TranslateAuditContextResult | None = None
-    next_item: TranslateAuditContextResult | None = None
-
-
-class TranslateAuditResult(Result):
-    lang: str
-    coverage: Literal["risks", "all"]
-    total_risks: int
-    reviewed: int
-    pending: int
-    selected_ids: list[int]
-    items: list[TranslateAuditItemResult]
-    next_offset: int | None = None
-    remaining: int
-    ready: bool
-
-    def render(self) -> RenderableType:
-        table = Table(show_header=True, header_style="bold", box=None)
-        table.add_column("id", justify="right")
-        table.add_column("risk")
-        table.add_column("budget", justify="right")
-        table.add_column("source", style="dim")
-        table.add_column("target")
-        for item in self.items:
-            table.add_row(
-                str(item.id),
-                ", ".join(item.risk_codes),
-                f"{item.used_chars}/{item.max_chars}",
-                item.source,
-                item.target,
-            )
-        return table
-
-
-class TranslateAuditApplyResult(Result):
-    lang: str
-    artifact: str
-    reviewed: int
-    revised: int
-    pending: int
-    ready: bool
-
-    def render(self) -> str:
-        return (
-            f"[green]✓[/] translation audit applied: {self.reviewed} · {self.lang}\n"
-            f"  {self.revised} revised · {self.pending} pending"
-        )
-
-
-def _audit_item_result(
-    risk: auditlib.RiskItem,
-    worksheet: Translation,
-    audit_state,
-    *,
-    require_context: bool,
-) -> TranslateAuditItemResult:
-    def context(item: auditlib.AuditContext | None):
-        if item is None:
-            return None
-        return TranslateAuditContextResult(
-            id=item.id,
-            source=item.source,
-            target=item.target,
-        )
-
-    by_id = {item.id: item for item in worksheet.items}
-    return TranslateAuditItemResult(
-        id=risk.id,
-        source=risk.source,
-        target=risk.target,
-        used_chars=risk.used_chars,
-        max_chars=risk.max_chars,
-        risk_codes=list(risk.risk_codes),
-        score=risk.score,
-        reviewed=(
-            auditlib.is_reviewed_in_context(worksheet, risk.id, audit_state)
-            if require_context
-            else auditlib.is_reviewed(by_id[risk.id], audit_state)
-        ),
-        previous=context(risk.previous),
-        next_item=context(risk.next),
-    )
-
-
-@app.command()
-def audit(
-    ctx: typer.Context,
-    lang: Annotated[
-        str | None,
-        typer.Argument(help="target language (inferred if only one worksheet)"),
-    ] = None,
-    workspace: Annotated[
-        str | None,
-        typer.Option("--workspace", "-w", help="workspace dir (default: cwd upward)"),
-    ] = None,
-    offset: Annotated[int, typer.Option("--offset", min=0)] = 0,
-    limit: Annotated[
-        int,
-        typer.Option("--limit", min=1, max=auditlib.MAX_DECISION_BATCH),
-    ] = 20,
-    only_unreviewed: Annotated[
-        bool,
-        typer.Option("--only-unreviewed/--all", help="exclude current reviewed risks"),
-    ] = True,
-    coverage: Annotated[
-        Literal["risks", "all"],
-        typer.Option("--coverage", help="review high risks only, or every cue"),
-    ] = "all",
-) -> None:
-    """Read a bounded semantic review batch; final delivery uses full coverage."""
-    output: Output = ctx.obj
-    path = ws.resolve_workspace(workspace)
-    manifest = ws.read_manifest(path)
-    resolved = _resolve_lang(path, manifest, lang)
-    _, _, worksheet, audit_state, risks = _audit_context(
-        path, manifest, resolved, coverage=coverage
-    )
-    require_context = coverage == "all"
-    pending = auditlib.pending_items(
-        risks,
-        worksheet,
-        audit_state,
-        require_context=require_context,
-    )
-    candidates = pending if only_unreviewed else risks
-    selected = candidates[offset : offset + limit]
-    next_offset = offset + len(selected) if offset + len(selected) < len(candidates) else None
-    reviewed_count = len(risks) - len(pending)
-    output.emit(
-        TranslateAuditResult(
-            lang=resolved,
-            coverage=coverage,
-            total_risks=len(risks),
-            reviewed=reviewed_count,
-            pending=len(pending),
-            selected_ids=[item.id for item in selected],
-            items=[
-                _audit_item_result(
-                    item,
-                    worksheet,
-                    audit_state,
-                    require_context=require_context,
-                )
-                for item in selected
-            ],
-            next_offset=next_offset,
-            remaining=max(len(candidates) - offset - len(selected), 0),
-            ready=not pending,
-            next=(
-                f"openbbq export --to {resolved} --mode bilingual --format ass"
-                if not pending
-                else f"openbbq translate audit-apply {resolved} <decisions.json>"
-            ),
-        )
-    )
-
-
-@app.command(name="audit-apply")
-def audit_apply(
-    ctx: typer.Context,
-    lang: Annotated[str, typer.Argument(help="target language code, e.g. zh")],
-    decisions: Annotated[
-        str,
-        typer.Argument(help="JSON object keyed by risky cue id"),
-    ],
-    workspace: Annotated[
-        str | None,
-        typer.Option("--workspace", "-w", help="workspace dir (default: cwd upward)"),
-    ] = None,
-    coverage: Annotated[
-        Literal["risks", "all"],
-        typer.Option("--coverage", help="review high risks only, or every cue"),
-    ] = "all",
-) -> None:
-    """Accept or revise a bounded translation-audit batch with reasons."""
-    output: Output = ctx.obj
-    path = ws.resolve_workspace(workspace)
-    manifest = ws.read_manifest(path)
-    cues, wpath, worksheet, audit_state, risks = _audit_context(
-        path, manifest, lang, coverage=coverage
-    )
-    decisions_path = Path(decisions).expanduser()
-    try:
-        parsed = auditlib.parse_decisions(decisions_path.read_text(encoding="utf-8"))
-    except OSError as error:
-        raise OpenBBQError(
-            "translation_audit_not_found",
-            path=str(decisions_path),
-            fix="write the audit decision JSON and try again",
-        ) from error
-    report = auditlib.apply_decisions(
-        cues,
-        worksheet,
-        audit_state,
-        risks,
-        parsed,
-        coverage=coverage,
-    )
-    if report.revised:
-        ws.write_text_atomic(wpath, worksheet.model_dump_json(indent=2))
-    artifact = ws.write_translation_audit(path, lang, report.audit)
-    if report.revised:
-        _record_translate_progress(
-            path,
-            manifest,
-            artifact=wpath.name,
-            filled=_filled_count(worksheet),
-            total=len(worksheet.items),
-            complete=False,
-        )
-    updated_risks = auditlib.audit_items(
-        cues,
-        worksheet,
-        report.audit,
-        uncertain_ids=auditlib.uncertain_cue_ids(
-            cues,
-            _optional_transcript(path, manifest),
-        ),
-        coverage=coverage,
-    )
-    pending = auditlib.pending_items(
-        updated_risks,
-        worksheet,
-        report.audit,
-        require_context=coverage == "all",
-    )
-    output.emit(
-        TranslateAuditApplyResult(
-            lang=lang,
-            artifact=str(artifact.relative_to(path)),
-            reviewed=report.reviewed,
-            revised=report.revised,
-            pending=len(pending),
-            ready=not pending,
-            next=(
-                f"openbbq export --to {lang} --mode bilingual --format ass"
-                if not pending
-                else f"openbbq translate audit {lang} --limit 20"
-            ),
-        )
-    )
-
-
 @app.command()
 def check(
     ctx: typer.Context,
@@ -744,7 +432,7 @@ def check(
     cpath = ws.require_artifact(path, manifest, Stage.SEGMENT, fix="openbbq segment")
     cues = ws.read_cues(cpath)
 
-    resolved = _resolve_lang(path, manifest, lang)
+    resolved = _resolve_lang(path, lang)
     wpath = ws.worksheet_path(path, resolved)
     if not wpath.is_file():
         raise OpenBBQError(
@@ -766,10 +454,8 @@ def check(
             zero_budget_ids=report.zero_budget[:_DETAIL_LIMIT],
             term_warnings=report.term_warnings,
             term_issues=report.term_issues[:_DETAIL_LIMIT],
-            quality_warnings=report.quality_warnings,
-            quality_issues=report.quality_issues[:_DETAIL_LIMIT],
             ready=report.ready,
-            next=f"openbbq translate audit {resolved} --limit 20"
+            next=f"openbbq export --to {resolved} --mode bilingual --format ass"
             if report.ready
             else f"openbbq translate batch {resolved} --limit 20",
         )

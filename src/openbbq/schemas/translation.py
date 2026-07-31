@@ -16,6 +16,7 @@ class GlossaryRef(OpenBBQModel):
 
     source: str
     target: str | None = None
+    aliases: list[str] = []
     note: str | None = None
     keep: bool = False
 

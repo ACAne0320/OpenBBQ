@@ -5,14 +5,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
-import pytest
 import typer
 
 from openbbq.cli.commands.export import export
 from openbbq.cli.output import Output
 from openbbq.core import export as exp
 from openbbq.core import review as reviewlib
-from openbbq.core import translation_audit as auditlib
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
@@ -28,7 +26,6 @@ from openbbq.schemas import (
     StageState,
     StageStatus,
     Translation,
-    TranslationAuditDecision,
     TranslationItem,
 )
 
@@ -296,7 +293,9 @@ def test_render_ass_fansub_preset_uses_emphasized_target_style() -> None:
     ) in out
 
 
-def test_render_ass_fansub_compact_reduces_stack_and_moves_it_above_lower_thirds() -> None:
+def test_render_ass_fansub_compact_reduces_stack_and_moves_it_above_lower_thirds() -> (
+    None
+):
     cues = _cues(Cue(id=1, start=0, end=1, source="Hello."))
     tr = _translation(_item(1, "Hello.", "你好。"))
     out = exp.render_ass(
@@ -380,28 +379,16 @@ def _with_worksheet(path: Path, doc: Translation, lang: str = "zh") -> None:
     ws.worksheet_path(path, lang).write_text(doc.model_dump_json())
 
 
-def _with_semantic_audit(
-    path: Path,
-    cues: Cues,
-    translation: Translation,
-    lang: str = "zh",
-) -> None:
-    items = auditlib.audit_items(cues, translation, None, coverage="all")
-    report = auditlib.apply_decisions(
-        cues,
-        translation,
-        None,
-        items,
-        {
-            item.id: TranslationAuditDecision(
-                action="accept",
-                reason="Test fixture confirms source meaning and target intent match.",
-            )
-            for item in items
-        },
-        coverage="all",
-    )
-    ws.write_translation_audit(path, lang, report.audit)
+def _with_complete_review(path: Path, lang: str = "zh") -> None:
+    session = reviewlib.ReviewSession.open(path, lang)
+    for item in session.snapshot().review.items:
+        snapshot = session.snapshot()
+        session.set_status(
+            item.id,
+            ReviewStatus.REVIEWED,
+            base_revision=snapshot.revision,
+            op_id=f"review-{item.id}",
+        )
 
 
 def test_export_missing_input_errors(tmp_path) -> None:
@@ -507,7 +494,7 @@ def test_export_to_joins_worksheet(tmp_path) -> None:
     translation = _translation(_item(1, "Hello.", "你好。"))
     _with_cues(path, manifest, cues)
     _with_worksheet(path, translation)
-    _with_semantic_audit(path, cues, translation)
+    _with_complete_review(path)
 
     export(_ctx(), workspace=str(path), to="zh")
 
@@ -520,72 +507,17 @@ def test_export_to_joins_worksheet(tmp_path) -> None:
     ws.require_fresh_artifact(path, srt, Stage.EXPORT)
 
 
-def test_export_blocks_translation_quality_issues_by_default(tmp_path) -> None:
+def test_export_requires_human_or_agent_evidence(tmp_path) -> None:
     path, manifest = _workspace(tmp_path)
     _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=2, source="Hello there")))
-    _with_worksheet(path, _translation(_item(1, "Hello there", "Hello there")))
+    _with_worksheet(path, _translation(_item(1, "Hello there", "你好")))
 
     try:
         export(_ctx(), workspace=str(path), to="zh")
     except OpenBBQError as err:
-        assert err.code == "translation_quality_failed"
-        assert err.context["quality_ids"] == [1]
+        assert err.code == "translation_evidence_missing"
     else:
         raise AssertionError("expected OpenBBQError")
-
-
-def test_export_can_explicitly_allow_translation_quality_warnings(tmp_path) -> None:
-    path, manifest = _workspace(tmp_path)
-    _with_cues(path, manifest, _cues(Cue(id=1, start=0, end=2, source="Hello there")))
-    _with_worksheet(path, _translation(_item(1, "Hello there", "Hello there")))
-
-    export(
-        _ctx(),
-        workspace=str(path),
-        to="zh",
-        allow_quality_warnings=True,
-    )
-
-    assert (path / "out" / "zh.srt").exists()
-
-
-def test_export_blocks_pending_translation_audit_then_accepts_current_review(
-    tmp_path,
-) -> None:
-    path, manifest = _workspace(tmp_path)
-    cues = _cues(
-        Cue(id=1, start=0, end=2, source="If it worked for them, why not me?")
-    )
-    translation = _translation(
-        _item(1, "If it worked for them, why not me?", "如果ta能成功，为什么我不行？")
-    )
-    _with_cues(path, manifest, cues)
-    _with_worksheet(path, translation)
-
-    with pytest.raises(OpenBBQError) as raised:
-        export(_ctx(), workspace=str(path), to="zh")
-    assert raised.value.code == "translation_audit_incomplete"
-    assert raised.value.context["ids"] == [1]
-
-    risks = auditlib.audit_items(cues, translation, None, coverage="all")
-    reviewed = auditlib.apply_decisions(
-        cues,
-        translation,
-        None,
-        risks,
-        {
-            1: TranslationAuditDecision(
-                action="accept",
-                reason="The source intentionally uses the neutral written form ta.",
-            )
-        },
-        coverage="all",
-    )
-    ws.write_translation_audit(path, "zh", reviewed.audit)
-
-    export(_ctx(), workspace=str(path), to="zh")
-
-    assert (path / "out" / "zh.srt").is_file()
 
 
 def test_export_provenance_detects_changed_translation(tmp_path) -> None:
@@ -594,7 +526,7 @@ def test_export_provenance_detects_changed_translation(tmp_path) -> None:
     translation = _translation(_item(1, "Hello there", "你好"))
     _with_cues(path, manifest, cues)
     _with_worksheet(path, translation)
-    _with_semantic_audit(path, cues, translation)
+    _with_complete_review(path)
     export(_ctx(), workspace=str(path), to="zh", fmt="ass")
     artifact = path / "out" / "zh.ass"
 
@@ -712,7 +644,6 @@ def test_export_blocks_incomplete_review_when_review_exists(tmp_path) -> None:
     translation = _translation(_item(1, "Hello.", "你好。"))
     _with_cues(path, manifest, cues)
     _with_worksheet(path, translation)
-    _with_semantic_audit(path, cues, translation)
     reviewlib.ReviewSession.open(path, "zh")
 
     try:
@@ -730,7 +661,6 @@ def test_export_allow_unreviewed_explicitly_bypasses_review_gate(tmp_path) -> No
     translation = _translation(_item(1, "Hello.", "你好。"))
     _with_cues(path, manifest, cues)
     _with_worksheet(path, translation)
-    _with_semantic_audit(path, cues, translation)
     reviewlib.ReviewSession.open(path, "zh")
 
     export(_ctx(), workspace=str(path), to="zh", allow_unreviewed=True)
@@ -746,7 +676,6 @@ def test_export_finalizes_translation_without_invalidating_current_review(
     translation = _translation(_item(1, "Hello.", "你好。"))
     _with_cues(path, manifest, cues)
     _with_worksheet(path, translation)
-    _with_semantic_audit(path, cues, translation)
     session = reviewlib.ReviewSession.open(path, "zh")
     snapshot = session.snapshot()
     session.set_status(

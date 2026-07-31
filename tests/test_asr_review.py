@@ -232,185 +232,6 @@ def test_keep_first_removes_only_duplicate_segments_from_a_repeat_run() -> None:
     assert [segment.id for segment in corrected.segments] == [1, 5]
 
 
-def test_implausible_word_rate_is_a_severe_segment_anomaly() -> None:
-    text = "one two three four five six seven eight nine ten"
-    transcript = _transcript(_timed_segment(3, 4.0, 5.0, text, text.split()))
-
-    anomalies = asr_review.extract_anomalies(transcript)
-
-    assert len(anomalies) == 1
-    assert anomalies[0].code == "implausible_word_rate"
-    assert anomalies[0].words_per_second == 10.0
-    assert anomalies[0].segment_ids == (3,)
-
-
-def test_metadata_entity_conflict_catches_high_confidence_name_misspelling() -> None:
-    transcript = _transcript(
-        _timed_segment(
-            4,
-            10,
-            15,
-            "Today I am talking with Jeffrey Litt about software.",
-            [
-                "Today",
-                "I",
-                "am",
-                "talking",
-                "with",
-                "Jeffrey",
-                "Litt",
-                "about",
-                "software",
-            ],
-        )
-    )
-
-    anomalies = asr_review.extract_anomalies(
-        transcript,
-        reference_texts=["A conversation with Geoffrey Litt"],
-    )
-
-    assert len(anomalies) == 1
-    assert anomalies[0].code == "metadata_entity_conflict"
-    assert anomalies[0].find == "Jeffrey Litt"
-    assert anomalies[0].replacement == "Geoffrey Litt"
-    assert anomalies[0].reference_text == "A conversation with Geoffrey Litt"
-
-
-def test_metadata_entity_conflict_surfaces_distant_but_structurally_matching_name() -> None:
-    transcript = _transcript(
-        _timed_segment(
-            4,
-            10,
-            15,
-            "Fable Code can run this workflow.",
-            ["Fable", "Code", "can", "run", "this", "workflow"],
-        )
-    )
-
-    anomalies = asr_review.extract_anomalies(
-        transcript,
-        reference_texts=["Claude Code workflow"],
-    )
-
-    assert len(anomalies) == 1
-    assert anomalies[0].code == "metadata_entity_conflict"
-    assert anomalies[0].find == "Fable Code"
-    assert anomalies[0].replacement == "Claude Code"
-
-
-def test_metadata_entity_conflict_surfaces_unknown_singleton_near_known_entity() -> None:
-    transcript = _transcript(
-        _timed_segment(
-            3,
-            5,
-            9,
-            "Claude Code created the initial plan.",
-            ["Claude", "Code", "created", "the", "initial", "plan"],
-        ),
-        _timed_segment(
-            4,
-            10,
-            15,
-            "Claude sent the plan to Codex, then Fable came up with it.",
-            [
-                "Claude",
-                "sent",
-                "the",
-                "plan",
-                "to",
-                "Codex",
-                "then",
-                "Fable",
-                "came",
-                "up",
-                "with",
-                "it",
-            ],
-        )
-    )
-
-    anomalies = asr_review.extract_anomalies(
-        transcript,
-        reference_texts=["Claude Code", "Codex"],
-    )
-
-    assert len(anomalies) == 1
-    assert anomalies[0].code == "metadata_entity_conflict"
-    assert anomalies[0].find == "Fable"
-    assert anomalies[0].replacement == "Claude"
-    assert anomalies[0].reference_text == "Claude Code"
-
-
-def test_metadata_entity_singleton_requires_canonical_name_in_same_segment() -> None:
-    transcript = _transcript(
-        _timed_segment(
-            4,
-            10,
-            15,
-            "Fable came up with the plan.",
-            ["Fable", "came", "up", "with", "the", "plan"],
-        )
-    )
-
-    assert (
-        asr_review.extract_anomalies(
-            transcript,
-            reference_texts=["Claude Code", "Codex"],
-        )
-        == []
-    )
-
-
-def test_metadata_entity_replacement_corrects_text_without_collapsing_segment() -> None:
-    transcript = _transcript(
-        _timed_segment(
-            4,
-            10,
-            15,
-            "Today I am talking with Jeffrey Litt about software.",
-            [
-                "Today",
-                "I",
-                "am",
-                "talking",
-                "with",
-                "Jeffrey",
-                "Litt",
-                "about",
-                "software",
-            ],
-        )
-    )
-    references = ["A conversation with Geoffrey Litt"]
-    issue = asr_review.extract_anomalies(transcript, reference_texts=references)[0]
-    review = asr_review.merge_decisions(
-        transcript,
-        None,
-        {
-            issue.id: AsrDecision(
-                action="replace",
-                reason="The video title confirms the guest's spelling.",
-                find="Jeffrey Litt",
-                replacement="Geoffrey Litt",
-            )
-        },
-        reference_texts=references,
-    )
-
-    reviewed = asr_review.apply_segment_decisions(
-        transcript,
-        review,
-        reference_texts=references,
-    )
-
-    assert len(reviewed.segments) == 1
-    assert reviewed.segments[0].start == 10
-    assert asr_review.corrector(review, segment_id=4)(reviewed.segments[0].text) == (
-        "Today I am talking with Geoffrey Litt about software."
-    )
-
-
 def test_reference_caption_parser_returns_only_overlapping_caption_text() -> None:
     captions = asr_review.parse_reference_captions(
         """WEBVTT
@@ -426,6 +247,85 @@ Geoffrey Litt joins us
     assert asr_review.reference_caption_text(captions, start=2.5, end=4.0) == (
         "Geoffrey Litt joins us"
     )
+
+
+def test_exact_reference_text_repairs_only_large_local_timing_drift() -> None:
+    surfaces = "Now this scene hits so hard in context.".split()
+    transcript = _transcript(
+        _timed_segment(
+            7,
+            462.5,
+            470.7,
+            "Now this scene hits so hard in context.",
+            surfaces,
+        )
+    )
+    reference = [
+        Word(
+            word=word,
+            start=468.1 + index * 0.35,
+            end=468.1 + (index + 1) * 0.35,
+            prob=1.0,
+        )
+        for index, word in enumerate(surfaces)
+    ]
+
+    aligned = asr_review.align_exact_reference_timing(transcript, reference)
+    segment = aligned.segments[0]
+
+    assert segment.text == transcript.segments[0].text
+    assert segment.start == reference[0].start
+    assert segment.end == reference[-1].end
+    assert segment.words is not None
+    assert [word.word for word in segment.words] == surfaces
+    assert [word.prob for word in segment.words] == [0.99] * len(surfaces)
+
+
+def test_exact_reference_timing_repair_cannot_cross_adjacent_segment_boundary() -> None:
+    first = _timed_segment(1, 10.0, 12.0, "But put it this way.", ["But", "put", "it", "this", "way."])
+    following = _timed_segment(2, 12.0, 14.0, "The next thought.", ["The", "next", "thought."])
+    reference = [
+        Word(word=word, start=11.5 + index * 0.3, end=11.8 + index * 0.3, prob=1.0)
+        for index, word in enumerate("But put it this way.".split())
+    ]
+
+    aligned = asr_review.align_exact_reference_timing(
+        _transcript(first, following), reference
+    )
+
+    assert aligned.segments[0] == first
+    assert aligned.segments[1] == following
+
+
+def test_reference_word_parser_accepts_youtube_spacer_after_timing() -> None:
+    words = asr_review.parse_reference_words(
+        """WEBVTT
+
+00:07:47.759 --> 00:07:51.270
+
+Now,<00:07:48.160><c> this</c><00:07:48.319><c> scene.</c>
+"""
+    )
+
+    assert [(word.word, word.start) for word in words] == [
+        ("Now,", 467.759),
+        ("this", 468.16),
+        ("scene.", 468.319),
+    ]
+
+
+def test_reference_caption_hold_does_not_create_a_false_timing_repair() -> None:
+    transcript = _transcript(
+        _timed_segment(1, 10.0, 11.0, "This happens.", ["This", "happens."])
+    )
+    reference = [
+        Word(word="This", start=10.1, end=10.5, prob=1.0),
+        Word(word="happens.", start=10.5, end=18.0, prob=1.0),
+    ]
+
+    aligned = asr_review.align_exact_reference_timing(transcript, reference)
+
+    assert aligned == transcript
 
 
 def test_reference_caption_evidence_unescapes_and_compacts_rolling_text() -> None:
@@ -461,6 +361,83 @@ Hello<00:00:01.000><c> world</c><00:00:02.000><c> again.</c>
     ]
 
 
+def test_reference_word_parser_discards_rolling_prefix_already_emitted() -> None:
+    words = asr_review.parse_reference_words(
+        """WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+Hello<00:00:01.000><c> world</c>
+
+00:00:02.000 --> 00:00:04.000
+Hello world<00:00:03.000><c> again</c><00:00:03.500><c> now.</c>
+"""
+    )
+
+    assert [word.word for word in words] == ["Hello", "world", "again", "now."]
+
+
+def test_reference_word_parser_keeps_novel_plain_line_in_word_timed_vtt() -> None:
+    words = asr_review.parse_reference_words(
+        """WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+This<00:00:01.000><c> is</c><00:00:01.500><c> a</c><00:00:01.800><c> natural</c>
+
+00:00:02.000 --> 00:00:03.000
+This is a natural
+outcome.
+"""
+    )
+
+    assert [word.word for word in words] == ["This", "is", "a", "natural", "outcome."]
+
+
+def test_collapsed_timeline_uses_semantic_reference_beyond_local_drift_window() -> None:
+    source = "That most people dream of if you seriously enjoy this game"
+    segment = _timed_segment(7, 10.0, 12.0, source, source.split())
+    assert segment.words is not None
+    for word in segment.words:
+        word.start = segment.end
+        word.end = segment.end
+    reference = [
+        Word(word=word, start=22.0 + index * 0.3, end=22.3 + index * 0.3, prob=1.0)
+        for index, word in enumerate(source.split())
+    ]
+
+    anomalies = asr_review.extract_anomalies(
+        _transcript(segment), reference_words=reference
+    )
+
+    assert len(anomalies) == 1
+    assert anomalies[0].replacement == source
+    assert anomalies[0].reference_words[0].start == 22.0
+
+
+def test_structural_reference_replacement_trims_future_neighbor_overlap() -> None:
+    source = "Alpha bridge then next stable phrase"
+    collapsed = _timed_segment(0, 0.0, 2.0, source, source.split())
+    assert collapsed.words is not None
+    for word in collapsed.words:
+        word.start = collapsed.end
+        word.end = collapsed.end
+    transcript = _transcript(
+        collapsed,
+        _timed_segment(1, 2.0, 4.0, "temporary damaged bridge", ["temporary", "damaged", "bridge"]),
+        _timed_segment(2, 4.0, 6.0, "next stable phrase continues", ["next", "stable", "phrase", "continues"]),
+    )
+    reference = [
+        Word(word=word, start=10.0 + index, end=11.0 + index, prob=1.0)
+        for index, word in enumerate(source.split())
+    ]
+
+    anomaly = asr_review.extract_anomalies(
+        transcript, reference_words=reference
+    )[0]
+
+    assert anomaly.replacement == "Alpha bridge then"
+    assert anomaly.reference_words[-1].word == "then"
+
+
 def test_collapsed_timestamps_and_following_drift_require_timed_replacement() -> None:
     reference = """WEBVTT
 
@@ -488,8 +465,16 @@ We<00:00:09.000><c> have</c><00:00:10.000><c> recovered</c><00:00:11.000><c> now
                 Word(word="up", start=4, end=4, prob=0.99),
             ],
         ),
-        _timed_segment(1, 4, 8, "Unrelated decoder text here", ["Unrelated", "decoder", "text", "here"]),
-        _timed_segment(2, 8, 12, "We have recovered now.", ["We", "have", "recovered", "now."]),
+        _timed_segment(
+            1,
+            4,
+            8,
+            "Unrelated decoder text here",
+            ["Unrelated", "decoder", "text", "here"],
+        ),
+        _timed_segment(
+            2, 8, 12, "We have recovered now.", ["We", "have", "recovered", "now."]
+        ),
     )
 
     anomalies = asr_review.extract_anomalies(
@@ -532,7 +517,9 @@ We<00:00:09.000><c> have</c><00:00:10.000><c> recovered</c><00:00:11.000><c> now
     )
 
 
-def test_adjacent_timed_reference_replacements_deduplicate_shared_boundary_word() -> None:
+def test_adjacent_timed_reference_replacements_deduplicate_shared_boundary_word() -> (
+    None
+):
     reference = """WEBVTT
 
 00:00:00.000 --> 00:00:04.500
@@ -735,7 +722,13 @@ def test_contextual_amendment_rejects_an_ambiguous_repeated_phrase() -> None:
         _segment(
             9,
             "hot tick and hot tick",
-            [("hot", 0.99), ("tick", 0.99), ("and", 0.99), ("hot", 0.99), ("tick", 0.99)],
+            [
+                ("hot", 0.99),
+                ("tick", 0.99),
+                ("and", 0.99),
+                ("hot", 0.99),
+                ("tick", 0.99),
+            ],
         )
     )
     amendment = asr_review.parse_amendments(
@@ -1007,7 +1000,7 @@ def test_check_command_is_read_only_and_reports_next_action(
     assert not ws.asr_review_path(path).exists()
 
 
-def test_batch_is_bounded_and_apply_unblocks_segment_with_correction(
+def test_low_confidence_review_is_optional_and_explicit_correction_still_applies(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     transcript = _transcript(
@@ -1026,9 +1019,11 @@ def test_batch_is_bounded_and_apply_unblocks_segment_with_correction(
     )
     path = _workspace(tmp_path, transcript)
 
-    with pytest.raises(OpenBBQError) as blocked:
-        segment_cmd(_ctx(), workspace=str(path))
-    assert blocked.value.code == "asr_review_incomplete"
+    segment_cmd(_ctx(), workspace=str(path))
+    initial = _payload(capsys)
+    assert initial["asr_advisory_ids"] == ["s0:w3", "s1:w0"]
+    cues = ws.read_cues(path / "cues.json")
+    assert cues.cues[0].source == "Thank you to Sean Hongxiu. Heva!"
 
     batch_cmd(_ctx(), workspace=str(path), offset=0, limit=1, only_unresolved=True)
     payload = _payload(capsys)
@@ -1062,6 +1057,7 @@ def test_batch_is_bounded_and_apply_unblocks_segment_with_correction(
     payload = _payload(capsys)
     assert payload["ready"] is True
     assert payload["applied"] == 2
+    assert ws.read_manifest(path).stages[Stage.SEGMENT].status is StageStatus.PENDING
 
     segment_cmd(_ctx(), workspace=str(path))
     _payload(capsys)

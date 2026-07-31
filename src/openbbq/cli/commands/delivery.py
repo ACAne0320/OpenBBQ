@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 
@@ -31,15 +31,17 @@ class DeliveryIssueResult(OpenBBQModel):
 
 
 class DeliveryCheckResult(Result):
-    ready: bool
+    artifact_ready: bool
+    quality: Literal["draft", "human-reviewed"]
+    human_reviewed: bool
     workspace: str
     lang: str | None = None
     gates: dict[str, bool]
     issues: list[DeliveryIssueResult]
 
     def render(self) -> str:
-        if self.ready:
-            return "[green]✓[/] delivery ready: every quality gate passed"
+        if self.artifact_ready:
+            return "[green]✓[/] artifact ready: delivery contracts passed"
         lines = ["[red]delivery blocked[/]"]
         lines.extend(f"  {issue.gate}: {issue.detail}" for issue in self.issues)
         return "\n".join(lines)
@@ -57,7 +59,7 @@ def check(
         typer.Option("--to", help="target language (inferred when exactly one exists)"),
     ] = None,
 ) -> None:
-    """Hard delivery gate: non-zero exit until every quality check passes."""
+    """Hard artifact gate: non-zero until deliverables are complete and fresh."""
     output: Output = ctx.obj
     path = ws.resolve_workspace(workspace)
     assessment = assess_delivery(path, ws.read_manifest(path), lang=to)
@@ -65,7 +67,9 @@ def check(
     if not assessment.ready:
         raise OpenBBQError(
             "delivery_not_ready",
-            ready=False,
+            artifact_ready=False,
+            quality=assessment.quality,
+            human_reviewed=assessment.human_reviewed,
             workspace=str(path),
             lang=assessment.lang,
             gates=assessment.gates,
@@ -74,7 +78,9 @@ def check(
         )
     output.emit(
         DeliveryCheckResult(
-            ready=True,
+            artifact_ready=True,
+            quality=assessment.quality,
+            human_reviewed=assessment.human_reviewed,
             workspace=str(path),
             lang=assessment.lang,
             gates=assessment.gates,

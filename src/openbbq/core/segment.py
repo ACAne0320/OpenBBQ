@@ -26,6 +26,34 @@ _SECONDARY = ",;:、；："
 _TRAILING_CLOSERS = "\"'”’」』）)】]}>"
 _MIN_COLLAPSED_WORDS = 3
 _MIN_BOUNDARY_PILEUP_WORDS = 5
+_STRONG_GLUE_LEFT = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "this",
+        "that",
+        "these",
+        "those",
+        "my",
+        "your",
+        "his",
+        "her",
+        "its",
+        "our",
+        "their",
+        "to",
+        "of",
+        "for",
+        "from",
+        "with",
+        "without",
+        "by",
+        "which",
+        "who",
+        "whose",
+    }
+)
 
 
 # --- language profiles --------------------------------------------------------
@@ -51,7 +79,7 @@ class LanguageProfile:
 # unless they exceed the real single-line screen budget or max duration.
 # Pass --max-chars-per-line / --max-cps / ... for broadcast-strict subtitling.
 LANGUAGE_PROFILES: dict[str, LanguageProfile] = {
-    "en": LanguageProfile(21, 90, 1, 1.0, 7.0, 0.083, 0.3, cjk=False),
+    "en": LanguageProfile(21, 110, 1, 1.0, 7.0, 0.083, 0.3, cjk=False),
     "zh": LanguageProfile(11, 32, 1, 1.0, 7.0, 0.083, 0.3, cjk=True),
     "ja": LanguageProfile(5, 30, 1, 1.0, 7.0, 0.083, 0.3, cjk=True),
     "ko": LanguageProfile(14, 32, 1, 1.0, 7.0, 0.083, 0.3, cjk=False),  # per-char
@@ -126,7 +154,10 @@ def pack_lines(tokens: list[str], profile: LanguageProfile) -> list[str]:
     lines: list[str] = []
     cur: list[str] = []
     for t in tokens:
-        if cur and count_chars(sep.join([*cur, t]), profile) > profile.max_chars_per_line:
+        if (
+            cur
+            and count_chars(sep.join([*cur, t]), profile) > profile.max_chars_per_line
+        ):
             lines.append(sep.join(cur))
             cur = [t]
         else:
@@ -199,8 +230,7 @@ def _collapsed_segment_ids(transcript: Transcript) -> list[int]:
             for word in words
         )
         if collapsed >= max(_MIN_COLLAPSED_WORDS, (len(words) + 4) // 5) or (
-            boundary
-            >= max(_MIN_BOUNDARY_PILEUP_WORDS, (len(words) + 3) // 4)
+            boundary >= max(_MIN_BOUNDARY_PILEUP_WORDS, (len(words) + 3) // 4)
         ):
             invalid.append(source_segment.id)
     return invalid
@@ -219,6 +249,24 @@ def _ends_with(text: str, marks: str) -> bool:
 def _reasonable_punctuation_split(k: int, n: int) -> bool:
     """Avoid splitting long sentences at a leading aside like "No," or "Well,"."""
     return n < 8 or (k >= 3 and n - k >= 3)
+
+
+def _readable_split(words: list[Word], k: int, profile: LanguageProfile) -> bool:
+    """Reject a boundary that would create a sub-minimum flash on either side."""
+
+    return (
+        _duration(words[:k]) >= profile.min_dur
+        and _duration(words[k:]) >= profile.min_dur
+    )
+
+
+def _break_penalty(words: list[Word], k: int, profile: LanguageProfile) -> int:
+    """Prefer boundaries that do not separate a strong glue word from its head."""
+
+    if profile.cjk:
+        return 0
+    left = words[k - 1].word.casefold().rstrip(".,;:!?" + _TRAILING_CLOSERS)
+    return 1 if left in _STRONG_GLUE_LEFT else 0
 
 
 def _fits(words: list[Word], profile: LanguageProfile) -> bool:
@@ -263,16 +311,20 @@ def _best_split(words: list[Word], profile: LanguageProfile) -> int:
         for i in range(n - 1)
         if _ends_with(words[i].word, _SECONDARY)
         and _reasonable_punctuation_split(i + 1, n)
+        and _readable_split(words, i + 1, profile)
     ]
     if punct_ks:
         return min(punct_ks, key=lambda k: abs(k - mid))
 
-    gap, gap_k = max(
-        ((words[i + 1].start - words[i].end, i + 1) for i in range(n - 1)),
-        key=lambda g: g[0],
-    )
-    if gap > profile.pause_threshold:
-        return gap_k
+    gaps = [
+        (words[i + 1].start - words[i].end, i + 1)
+        for i in range(n - 1)
+        if _readable_split(words, i + 1, profile)
+    ]
+    if gaps:
+        gap, gap_k = max(gaps, key=lambda candidate: candidate[0])
+        if gap > profile.pause_threshold:
+            return gap_k
 
     # Greedy fallback: split at the feasible word boundary nearest the character
     # midpoint, balancing the two pieces rather than cramming the first and
@@ -282,7 +334,9 @@ def _best_split(words: list[Word], profile: LanguageProfile) -> int:
     over_lines = not wrap_feasible(words, profile)
     over_dur = _duration(words) > profile.max_dur
     total = count_chars(_join(words, profile), profile)
-    best: tuple[int, int] | None = None  # (distance from midpoint, cand)
+    best: tuple[int, int, int, int] | None = (
+        None  # (short-side penalty, glue penalty, balance, cand)
+    )
     for cand in range(1, n):
         prefix = words[:cand]
         if over_lines and not wrap_feasible(prefix, profile):
@@ -290,10 +344,15 @@ def _best_split(words: list[Word], profile: LanguageProfile) -> int:
         if over_dur and _duration(prefix) > profile.max_dur:
             continue
         chars = count_chars(_join(prefix, profile), profile)
-        key = (abs(2 * chars - total), cand)  # 2*chars-total == 2*(chars - total/2)
+        key = (
+            0 if _readable_split(words, cand, profile) else 1,
+            _break_penalty(words, cand, profile),
+            abs(2 * chars - total),
+            cand,
+        )
         if best is None or key < best:
             best = key
-    return best[1] if best is not None else 1
+    return best[3] if best is not None else 1
 
 
 def split_long(words: list[Word], profile: LanguageProfile) -> list[list[Word]]:
@@ -304,9 +363,7 @@ def split_long(words: list[Word], profile: LanguageProfile) -> list[list[Word]]:
     return split_long(words[:k], profile) + split_long(words[k:], profile)
 
 
-def merge_short(
-    pieces: list[list[Word]], profile: LanguageProfile
-) -> list[list[Word]]:
+def merge_short(pieces: list[list[Word]], profile: LanguageProfile) -> list[list[Word]]:
     """③ Fold sub-min_dur pieces into the smaller-gap neighbor when it still fits."""
     result = [list(p) for p in pieces]
     i = 0

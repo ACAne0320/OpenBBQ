@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from pydantic import ValidationError
 
@@ -14,8 +16,11 @@ from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
     AgentGlossaryUpdate,
+    AgentCueSourceFix,
+    AgentSourceFix,
     AgentWarning,
     Glossary,
+    GlossaryCandidate,
     GlossaryOverlay,
     GlossaryOverlayEntry,
     Term,
@@ -37,11 +42,6 @@ def validate_name(name: str) -> str:
 
 def path(workspace: Path) -> Path:
     return workspace / _OVERLAY_PATH
-
-
-def glossary_hash(glossary: Glossary) -> str:
-    payload = glossary.model_dump_json(exclude_none=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def read_optional(workspace: Path) -> GlossaryOverlay | None:
@@ -83,11 +83,36 @@ def initialize(
                 context = base.context
     overlay = GlossaryOverlay(
         base_name=base_name,
-        base_hash=glossary_hash(base) if base is not None else None,
         context=context,
     )
     write(workspace, overlay)
     return overlay
+
+
+def rebind(workspace: Path, base: Glossary) -> GlossaryOverlay:
+    """Move an existing task overlay to an explicitly selected base glossary.
+
+    Learned entries are preserved only when they merge cleanly with the new
+    base. Validation happens before the sidecar is replaced, so a conflicting
+    explicit selection cannot leave manifest and overlay ownership split.
+    """
+
+    overlay = read_optional(workspace)
+    if overlay is None:
+        return initialize(
+            workspace,
+            base_name=base.name,
+            context=base.context,
+        )
+    candidate = overlay.model_copy(
+        update={
+            "base_name": validate_name(base.name),
+            "context": base.context or overlay.context,
+        }
+    )
+    merged_overlay(workspace, candidate, base.name)
+    write(workspace, candidate)
+    return candidate
 
 
 def _base_for_overlay(overlay: GlossaryOverlay) -> Glossary:
@@ -122,11 +147,7 @@ def merged_overlay(
             manifest=base_name,
             fix="run openbbq agent next to repair the glossary selection",
         )
-    if (
-        overlay.base_name is None
-        and overlay.context is None
-        and not overlay.entries
-    ):
+    if overlay.base_name is None and overlay.context is None and not overlay.entries:
         return None
     base = _base_for_overlay(overlay)
     if overlay.context is not None:
@@ -140,28 +161,13 @@ def merged_overlay(
     return result
 
 
-def apply_updates(
-    workspace: Path,
-    updates: list[AgentGlossaryUpdate],
-) -> tuple[GlossaryOverlay, list[str]]:
-    """Merge reusable updates into the workspace overlay atomically.
-
-    Occurrence-only observations stay represented by source fixes and are not
-    promoted into a cross-cue alias map.
-    """
-
-    updated, ignored = prepare_updates(workspace, updates)
-    write(workspace, updated)
-    return updated, ignored
-
-
 def prepare_updates(
     workspace: Path,
     updates: list[AgentGlossaryUpdate],
 ) -> tuple[GlossaryOverlay, list[str]]:
     """Validate and merge updates without writing the overlay sidecar.
 
-    Agent semantic applies use this to commit the overlay together with source
+    Agent batch applies use this to commit the overlay together with source
     and translation documents, so a later file-write failure cannot leak a
     partially learned global alias into the workspace.
     """
@@ -204,6 +210,62 @@ def prepare_updates(
     base = _base_for_overlay(updated)
     glossarylib.upsert_terms(base, [_entry_patch(entry) for entry in updated.entries])
     return updated, ignored
+
+
+def prepare_updates_with_candidates(
+    workspace: Path,
+    updates: list[AgentGlossaryUpdate],
+    source_fixes: Sequence[AgentSourceFix | AgentCueSourceFix],
+    *,
+    origin: Literal["review_source", "translate"],
+) -> tuple[GlossaryOverlay, list[str], int]:
+    """Turn every non-deletion source fix into an auditable glossary candidate.
+
+    The agent makes only the semantic reuse decision on the source fix itself.
+    OpenBBQ derives the canonical term and alias, promotes reusable candidates
+    into the task overlay immediately, and still defers global publication to
+    successful delivery.
+    """
+
+    if origin not in {"review_source", "translate"}:
+        raise ValueError(f"unsupported glossary candidate origin: {origin}")
+    generated_updates: list[AgentGlossaryUpdate] = []
+    candidates: list[GlossaryCandidate] = []
+    for fix in source_fixes:
+        if not fix.replacement:
+            continue
+        item_id = fix.segment_id if isinstance(fix, AgentSourceFix) else fix.cue_id
+        digest = hashlib.sha256(
+            f"{origin}\0{item_id}\0{fix.find}\0{fix.replacement}".encode("utf-8")
+        ).hexdigest()[:16]
+        candidates.append(
+            GlossaryCandidate(
+                id=f"gc:{digest}",
+                source=fix.replacement,
+                alias=fix.find,
+                evidence=fix.evidence,
+                origin=origin,
+                item_id=item_id,
+                reusable=fix.reusable,
+            )
+        )
+        if fix.reusable:
+            generated_updates.append(
+                AgentGlossaryUpdate(
+                    source=fix.replacement,
+                    aliases=[fix.find],
+                    reusable=True,
+                    evidence=fix.evidence,
+                )
+            )
+
+    updated, ignored = prepare_updates(workspace, [*updates, *generated_updates])
+    if candidates:
+        by_id = {candidate.id: candidate for candidate in updated.candidates}
+        for candidate in candidates:
+            by_id[candidate.id] = candidate
+        updated = updated.model_copy(update={"candidates": list(by_id.values())})
+    return updated, ignored, len(candidates)
 
 
 def _entry_patch(entry: GlossaryOverlayEntry) -> Term:

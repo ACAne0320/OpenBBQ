@@ -2,14 +2,21 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 from rich.console import Group, RenderableType
 from rich.table import Table
 
 from ...core import workspace as ws
-from ...schemas import Manifest, OpenBBQModel, SourceType, Stage, StageState, StageStatus
+from ...schemas import (
+    Manifest,
+    OpenBBQModel,
+    SourceType,
+    Stage,
+    StageState,
+    StageStatus,
+)
 from ..delivery import assess_delivery
 from ..output import Output
 from ..results import Result
@@ -45,7 +52,9 @@ class StatusResult(Result):
     thumbnail: str | None = None
     worksheets: list[str]
     stages: dict[Stage, StatusStage]  # the work log — only stages actually run
-    delivery_ready: bool
+    artifact_ready: bool
+    quality: Literal["draft", "human-reviewed"]
+    human_reviewed: bool
     delivery_lang: str | None = None
     delivery_issues: list[str]
 
@@ -65,7 +74,9 @@ class StatusResult(Result):
                 stage: StatusStage.of(state, now)
                 for stage, state in manifest.stages.items()
             },
-            delivery_ready=delivery.ready,
+            artifact_ready=delivery.artifact_ready,
+            quality=delivery.quality,
+            human_reviewed=delivery.human_reviewed,
             delivery_lang=delivery.lang,
             delivery_issues=[issue.code for issue in delivery.issues],
         )
@@ -81,9 +92,11 @@ class StatusResult(Result):
             head += f"\n  author: {self.author}"
         if self.thumbnail is not None:
             head += f"\n  cover: {self.thumbnail}"
-        delivery = "ready" if self.delivery_ready else "blocked"
+        delivery = "ready" if self.artifact_ready else "blocked"
         if self.delivery_lang is not None:
             delivery += f" · {self.delivery_lang}"
+        if self.artifact_ready:
+            delivery += f" · {self.quality}"
         head += f"\n  delivery: {delivery}"
         if self.delivery_issues:
             head += f"\n  delivery issues: {', '.join(self.delivery_issues[:5])}"
