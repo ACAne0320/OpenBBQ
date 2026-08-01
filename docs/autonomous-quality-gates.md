@@ -75,7 +75,10 @@ reusable glossary alias may affect later matching occurrences.
 New worksheets use `openbbq/translation@2`. Each worksheet embeds a reproducible
 brief with source/target language, title, author, target-language rules, and
 available glossary context. Each `translate` action contains at most 20 selected
-cues plus neighbor context for disambiguation.
+cues plus neighbor context for disambiguation. If a timed reference caption has
+a short local substitution inside an otherwise close cue alignment, only that
+cue receives compact advisory `reference_evidence`. This avoids repeating the
+full reference or asking the agent to rediscover workspace files.
 
 The response supplies the exact translations and may also include:
 
@@ -86,7 +89,8 @@ The response supplies the exact translations and may also include:
 A cue-scoped source fix updates `cues.json` and the worksheet source atomically,
 then invalidates only evidence affected by that change. The agent should leave
 uncertain source text alone and translate it conservatively rather than forcing
-a guess.
+a guess. Reusable fixes should identify the smallest stable term/alias instead
+of preserving surrounding grammar in the glossary.
 
 The task stores reusable learning in `.openbbq/glossary-overlay.json`. For a URL
 without an explicit glossary, the author and target language deterministically

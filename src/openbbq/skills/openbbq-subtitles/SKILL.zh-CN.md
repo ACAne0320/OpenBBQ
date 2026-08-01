@@ -31,9 +31,12 @@ openbbq --json agent next --workspace '<ws>'
    ```
 
    原样返回 `batch_id`、`policy_hash` 和完整的当前 ID 集合。neighbor cue 只作上下文，
-   不得把内容移到其他 ID。原文明显错误时，按 schema 提交 cue-scoped `source_fix`；
-   只需判断其中必填的 `reusable: true/false`。OpenBBQ 会自动记录 glossary candidate
-   并提升可复用修正，不要再把同一修正重复写入 `glossary_updates`。
+   不得把内容移到其他 ID。部分 cue 可能带有局部 `reference_evidence`；它只是在时间上
+   对齐的参考字幕分歧，不是权威原文。结合上下文与 glossary 判断，只有修正确认无疑时
+   才提交 cue-scoped `source_fix`，否则保守翻译当前 source 并给出 warning。若
+   `reusable: true`，`find`/`replacement` 必须是最小稳定术语，不能包含无关语法。
+   OpenBBQ 会自动记录 glossary candidate 并提升可复用修正，不要再把同一修正重复写入
+   `glossary_updates`。
 3. `review_source` 是罕见例外：仅在 `agent next` 报告确定性修复无法解决的结构性 ASR
    blocker 时处理。严格按 schema 和 ID 响应，apply 一次后继续。
 4. `finish`：服从其 execution policy，只执行一次返回的
@@ -52,6 +55,8 @@ openbbq --json agent next --workspace '<ws>'
 - 只翻译当前 cue；neighbor 只用于消歧，不能跨 ID 搬移内容。
 - 含义和对齐优先于激进压缩。若不确定是否为 ASR 错误，翻译当前原文并提交 warning，
   不要臆造修正。
+- 优先使用 action 已提供的标题、作者、glossary 和局部参考证据。普通歧义不要自行联网
+  搜索或重新运行 ASR；保留 warning 交给后续人工精修。
 
 不要手改 workspace 数据、创建并行 lease、运行视觉 QA 或使用 `fansub-compact`。fetch、
 transcribe 和 finish 是长任务，应给出合理执行时间。

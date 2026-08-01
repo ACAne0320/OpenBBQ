@@ -48,6 +48,7 @@ from openbbq.schemas import (
     Translation,
     TranslationEvidence,
     TranslationItem,
+    Word,
 )
 
 MAX_AGENT_BATCH = 20
@@ -606,10 +607,13 @@ def _translation_state_hash(
 
 
 def _translation_batch_payload(
+    cues: Cues,
     worksheet: Translation,
     selected_ids: list[int],
+    reference_words: list[Word] | tuple[Word, ...],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[GlossaryRef]]:
     indexes = {item.id: index for index, item in enumerate(worksheet.items)}
+    cues_by_id = {cue.id: cue for cue in cues.cues}
     selected_indexes = {indexes[item_id] for item_id in selected_ids}
     neighbor_indexes: set[int] = set()
     for index in selected_indexes:
@@ -629,6 +633,24 @@ def _translation_batch_payload(
         }
         if item.target is not None:
             payload["target"] = item.target
+        cue = cues_by_id[item.id]
+        reference = asrlib.reference_disagreement_evidence(
+            item.source,
+            start=cue.start,
+            end=cue.end,
+            reference_words=reference_words,
+        )
+        if reference is not None:
+            payload["reference_evidence"] = {
+                "reference_text": reference.reference_text,
+                "differences": [
+                    {
+                        "source": difference.source,
+                        "reference": difference.reference,
+                    }
+                    for difference in reference.differences
+                ],
+            }
         items.append(payload)
     neighbors: list[dict[str, Any]] = []
     for index in sorted(neighbor_indexes):
@@ -639,6 +661,11 @@ def _translation_batch_payload(
         neighbors.append(payload)
     included_indexes = selected_indexes | neighbor_indexes
     texts = [worksheet.items[index].source for index in sorted(included_indexes)]
+    texts.extend(
+        item["reference_evidence"]["reference_text"]
+        for item in items
+        if "reference_evidence" in item
+    )
     refs = [
         ref
         for ref in worksheet.glossary
@@ -996,9 +1023,9 @@ def next_action(
                     "source_fixes": [
                         {
                             "segment_id": "selected segment id",
-                            "find": "exact occurrence phrase",
-                            "replacement": "correct phrase; may be empty to delete noise",
-                            "reusable": "true only for a stable recurring name or term; otherwise false",
+                            "find": "smallest exact source span needed for this occurrence",
+                            "replacement": "smallest corrected span; may be empty to delete noise",
+                            "reusable": "true only for a stable recurring name or term; when true, find/replacement must exclude surrounding grammar",
                             "evidence": "short contextual evidence",
                         }
                     ],
@@ -1064,11 +1091,58 @@ def next_action(
     if missing_evidence:
         selected_ids = missing_evidence[:MAX_AGENT_BATCH]
         items, neighbor_context, refs = _translation_batch_payload(
-            worksheet, selected_ids
+            cues, worksheet, selected_ids, reference_words
         )
         state_hash = _translation_state_hash(
             workspace, manifest, cues, worksheet, policy
         )
+        translate_payload: dict[str, Any] = {
+            "policy_hash": policy,
+            "brief": brief.model_dump(mode="json", exclude_none=True),
+            "selected_ids": selected_ids,
+            "items": items,
+            "neighbor_context": neighbor_context,
+            "glossary": [
+                ref.model_dump(mode="json", exclude_none=True) for ref in refs
+            ],
+            "response_schema": {
+                "batch_id": "exact batch_id",
+                "policy_hash": policy,
+                "translations": {
+                    str(item_id): "target text" for item_id in selected_ids
+                },
+                "source_fixes": [
+                    {
+                        "cue_id": "selected cue id",
+                        "find": "smallest exact source span needed for this occurrence",
+                        "replacement": "smallest corrected span; may be empty to delete noise",
+                        "occurrence": 1,
+                        "reusable": "true only for a stable recurring name or term; when true, find/replacement must exclude surrounding grammar",
+                        "evidence": "short contextual evidence",
+                    }
+                ],
+                "warnings": [
+                    "optional concise uncertainty that should not block the draft"
+                ],
+                "glossary_updates": [
+                    {
+                        "source": "new canonical term not already represented by a source_fix",
+                        "aliases": ["optional reusable alternate form"],
+                        "target": "optional canonical translation",
+                        "keep": False,
+                        "note": "optional translation or casing rule",
+                        "reusable": True,
+                        "evidence": "why this generalizes",
+                    }
+                ],
+            },
+        }
+        if any("reference_evidence" in item for item in items):
+            translate_payload["reference_policy"] = [
+                "reference_evidence is a local advisory hint, not canonical source",
+                "use context and glossary to decide; submit source_fix only when the correction is clear",
+                "when uncertain, translate the current source conservatively and return a warning instead of searching or rerunning ASR",
+            ]
         payload = _new_lease(
             session,
             action="translate",
@@ -1076,47 +1150,7 @@ def next_action(
             issue_ids=[],
             source_hash=state_hash,
             policy_hash=policy,
-            payload={
-                "policy_hash": policy,
-                "brief": brief.model_dump(mode="json", exclude_none=True),
-                "selected_ids": selected_ids,
-                "items": items,
-                "neighbor_context": neighbor_context,
-                "glossary": [
-                    ref.model_dump(mode="json", exclude_none=True) for ref in refs
-                ],
-                "response_schema": {
-                    "batch_id": "exact batch_id",
-                    "policy_hash": policy,
-                    "translations": {
-                        str(item_id): "target text" for item_id in selected_ids
-                    },
-                    "source_fixes": [
-                        {
-                            "cue_id": "selected cue id",
-                            "find": "exact source phrase",
-                            "replacement": "correct phrase; may be empty to delete noise",
-                            "occurrence": 1,
-                            "reusable": "true only for a stable recurring name or term; otherwise false",
-                            "evidence": "short contextual evidence",
-                        }
-                    ],
-                    "warnings": [
-                        "optional concise uncertainty that should not block the draft"
-                    ],
-                    "glossary_updates": [
-                        {
-                            "source": "new canonical term not already represented by a source_fix",
-                            "aliases": ["optional reusable alternate form"],
-                            "target": "optional canonical translation",
-                            "keep": False,
-                            "note": "optional translation or casing rule",
-                            "reusable": True,
-                            "evidence": "why this generalizes",
-                        }
-                    ],
-                },
-            },
+            payload=translate_payload,
         )
         ws.write_agent_session(workspace, session)
         return payload

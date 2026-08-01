@@ -282,8 +282,12 @@ def test_exact_reference_text_repairs_only_large_local_timing_drift() -> None:
 
 
 def test_exact_reference_timing_repair_cannot_cross_adjacent_segment_boundary() -> None:
-    first = _timed_segment(1, 10.0, 12.0, "But put it this way.", ["But", "put", "it", "this", "way."])
-    following = _timed_segment(2, 12.0, 14.0, "The next thought.", ["The", "next", "thought."])
+    first = _timed_segment(
+        1, 10.0, 12.0, "But put it this way.", ["But", "put", "it", "this", "way."]
+    )
+    following = _timed_segment(
+        2, 12.0, 14.0, "The next thought.", ["The", "next", "thought."]
+    )
     reference = [
         Word(word=word, start=11.5 + index * 0.3, end=11.8 + index * 0.3, prob=1.0)
         for index, word in enumerate("But put it this way.".split())
@@ -343,6 +347,54 @@ def test_reference_caption_evidence_unescapes_and_compacts_rolling_text() -> Non
     assert asr_review.reference_caption_text(captions, start=2.0, end=3.0) == (
         ">> Thanks for coming to the design engineering track at AI."
     )
+
+
+def test_reference_disagreement_evidence_keeps_only_local_substitutions() -> None:
+    source = (
+        "improving your combo, improving your accuracy, improving your miscount, "
+        "adding mods to your scores"
+    )
+    reference_text = source.replace("miscount", "miss count")
+    reference = [
+        Word(
+            word=word,
+            start=index * 0.25,
+            end=(index + 1) * 0.25,
+            prob=1.0,
+        )
+        for index, word in enumerate(reference_text.split())
+    ]
+
+    evidence = asr_review.reference_disagreement_evidence(
+        source,
+        start=0.0,
+        end=len(reference) * 0.25,
+        reference_words=reference,
+    )
+
+    assert evidence is not None
+    assert [(item.source, item.reference) for item in evidence.differences] == [
+        ("miscount", "miss count")
+    ]
+    assert "miss count" in evidence.reference_text
+
+
+def test_reference_disagreement_evidence_ignores_boundary_drift() -> None:
+    reference = [
+        Word(word=word, start=index, end=index + 1, prob=1.0)
+        for index, word in enumerate(
+            "music this source is otherwise exactly aligned".split()
+        )
+    ]
+
+    evidence = asr_review.reference_disagreement_evidence(
+        "this source is otherwise exactly aligned",
+        start=0.0,
+        end=7.0,
+        reference_words=reference,
+    )
+
+    assert evidence is None
 
 
 def test_reference_word_parser_preserves_inline_youtube_timestamps() -> None:
@@ -422,17 +474,23 @@ def test_structural_reference_replacement_trims_future_neighbor_overlap() -> Non
         word.end = collapsed.end
     transcript = _transcript(
         collapsed,
-        _timed_segment(1, 2.0, 4.0, "temporary damaged bridge", ["temporary", "damaged", "bridge"]),
-        _timed_segment(2, 4.0, 6.0, "next stable phrase continues", ["next", "stable", "phrase", "continues"]),
+        _timed_segment(
+            1, 2.0, 4.0, "temporary damaged bridge", ["temporary", "damaged", "bridge"]
+        ),
+        _timed_segment(
+            2,
+            4.0,
+            6.0,
+            "next stable phrase continues",
+            ["next", "stable", "phrase", "continues"],
+        ),
     )
     reference = [
         Word(word=word, start=10.0 + index, end=11.0 + index, prob=1.0)
         for index, word in enumerate(source.split())
     ]
 
-    anomaly = asr_review.extract_anomalies(
-        transcript, reference_words=reference
-    )[0]
+    anomaly = asr_review.extract_anomalies(transcript, reference_words=reference)[0]
 
     assert anomaly.replacement == "Alpha bridge then"
     assert anomaly.reference_words[-1].word == "then"

@@ -45,10 +45,14 @@ Repeat these steps until `done`:
 
    Echo `batch_id` and `policy_hash` exactly and submit the complete current ID
    set. Neighbor cues are context only. Keep translations aligned to their IDs.
-   If the source is clearly wrong, include the cue-scoped `source_fix` defined
-   by the schema and judge only its required `reusable: true/false` field.
-   OpenBBQ records the glossary candidate and promotes reusable corrections;
-   do not duplicate that correction in `glossary_updates`.
+   Some cues may include local `reference_evidence`; it is a timed caption
+   disagreement, not authoritative source. Decide from context and glossary,
+   and include a cue-scoped `source_fix` only when the correction is clear.
+   Otherwise translate the current source conservatively and add a warning.
+   For `reusable: true`, `find` and `replacement` must be the smallest stable
+   term without surrounding grammar. OpenBBQ records the glossary candidate
+   and promotes reusable corrections; do not duplicate that correction in
+   `glossary_updates`.
 3. `review_source` is exceptional. Handle it only when `agent next` reports a
    structural ASR blocker that deterministic repair could not resolve. Respond
    to the exact schema and IDs, apply it once, then continue.
@@ -73,6 +77,9 @@ active action; repeated calls return the same lease. Continue while
 - Prefer meaning and alignment over aggressive shortening. If unsure about a
   possible ASR error, translate the current source and include a warning instead
   of inventing a correction.
+- Use the supplied title, author, glossary, and local reference evidence first.
+  Do not search the web or rerun ASR for ordinary ambiguity; leave a warning
+  for later human refinement.
 
 Do not hand-edit workspace data, create parallel leases, run visual QA, or use
 `fansub-compact`. Long-running fetch, transcription, and finish commands need

@@ -17,7 +17,10 @@ verdicts.
    leaking across languages. There is no
    model-driven glossary selection step.
 2. Normal `translate` batches receive the available glossary context, selected
-   cues, and neighbor cues.
+   cues, and neighbor cues. When a timed reference caption has a short local
+   substitution inside an otherwise close alignment, the affected cue also
+   receives compact `reference_evidence`. The reference is advisory; it is not
+   copied into every prompt and never becomes canonical by itself.
 3. A translation response may include cue-scoped `source_fixes` when context
    makes an ASR error clear. Source and worksheet copies update atomically.
 4. It may include `glossary_updates` only for a canonical term, official
@@ -37,6 +40,8 @@ need a forced correction.
 ## Safety Rules
 
 - Source fixes are occurrence-scoped.
+- A reusable source fix uses the smallest stable term and alias, without
+  surrounding grammar.
 - Only an explicit reusable alias may affect matching text beyond that
   occurrence.
 - Common or ambiguous words must not become global aliases merely to satisfy a
@@ -64,6 +69,8 @@ review; there is no separate full-coverage AI audit.
 - An obvious cue-scoped error can be fixed without changing the same word
   elsewhere.
 - Translation receives explicit glossary context and pending note-only terms.
+- Local reference evidence can reveal a likely ASR spelling without requiring
+  file discovery, web search, or another transcription pass.
 - Reusable aliases affect later matching work, while uncertain guesses do not.
 - Publication is idempotent, conflict-safe, and never blocks an otherwise valid
   draft.

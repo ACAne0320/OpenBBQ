@@ -500,6 +500,61 @@ def test_translation_v1_migrates_in_place_and_preserves_targets(tmp_path: Path) 
     assert migrated.items[0].target == "已有译文"
 
 
+def test_translate_exposes_only_local_reference_disagreement_and_matching_glossary(
+    tmp_path: Path,
+) -> None:
+    source = (
+        "improving your combo improving your accuracy improving your miscount "
+        "adding mods to your scores"
+    )
+    reference = source.replace("miscount", "miss count")
+    path, _ = _workspace(tmp_path, [source])
+    _write_overlay_updates(
+        path,
+        [
+            agent_workflow.AgentGlossaryUpdate(
+                source="miss count",
+                target="失误数",
+                reusable=True,
+                evidence="stable domain term",
+            )
+        ],
+    )
+    _install_cues_and_worksheet(path, [source])
+    timed_words = "".join(
+        f"<00:00:{index * 0.100:06.3f}><c> {word}</c>"
+        for index, word in enumerate(reference.split(), start=1)
+    )
+    ws.write_reference_caption(
+        path,
+        "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\n" + timed_words + "\n",
+    )
+
+    action = _next(path)
+
+    assert action["action"] == "translate"
+    assert action["items"][0]["reference_evidence"]["differences"] == [
+        {"source": "miscount", "reference": "miss count"}
+    ]
+    assert action["reference_policy"]
+    assert action["glossary"] == [
+        {
+            "source": "miss count",
+            "target": "失误数",
+            "aliases": [],
+            "keep": False,
+        }
+    ]
+    assert (
+        "smallest exact source span"
+        in action["response_schema"]["source_fixes"][0]["find"]
+    )
+    assert (
+        "surrounding grammar"
+        in action["response_schema"]["source_fixes"][0]["reusable"]
+    )
+
+
 def test_translate_requires_exact_ids_policy_and_syncs_cue_scoped_source_fix(
     tmp_path: Path,
 ) -> None:
@@ -625,9 +680,9 @@ def test_source_fix_automatically_records_and_promotes_glossary_candidate(
     overlay = glossary_overlay.read_optional(path)
     assert overlay is not None
     assert result["glossary_candidates"] == 1
-    assert [(item.source, item.alias, item.reusable) for item in overlay.candidates] == [
-        ("osu!", "Usu", True)
-    ]
+    assert [
+        (item.source, item.alias, item.reusable) for item in overlay.candidates
+    ] == [("osu!", "Usu", True)]
     assert [(entry.term.source, entry.term.aliases) for entry in overlay.entries] == [
         ("osu!", ["Usu"])
     ]

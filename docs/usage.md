@@ -72,6 +72,13 @@ Translation may also submit:
 - reusable `glossary_updates`;
 - a concise warning when the model is uncertain.
 
+When available, a cue may include compact `reference_evidence` for a short
+local disagreement with the timed reference caption. Treat it as advisory and
+decide using the supplied context and glossary. Ordinary ambiguity should not
+trigger web search or another ASR run; leave the source unchanged and return a
+warning. A reusable source fix should contain the smallest stable term and
+alias, not surrounding grammar.
+
 Ordinary low-confidence ASR words, display budgets, and glossary consistency
 are advisory. Hard gates are limited to valid schemas and timing, complete IDs,
 non-empty source/target content, current hashes, atomic updates, fresh
@@ -166,7 +173,8 @@ language resolve to the same glossary, without relying on model judgment.
 Local-file tasks without an explicit glossary keep only their task overlay.
 
 During translation, OpenBBQ provides the bound glossary context and relevant
-selected or neighboring terms. Reusable discoveries go to the task-local
+selected or neighboring terms, including terms matched by local reference
+evidence. Reusable discoveries go to the task-local
 `.openbbq/glossary-overlay.json`. Base glossary plus overlay are used during
 the task; the global library is updated only after successful delivery.
 

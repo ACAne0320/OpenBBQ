@@ -62,6 +62,11 @@ glossary。重复调用 `next` 会返回同一活动 lease。`apply` 必须带�
 - 真正可复用的 `glossary_updates`；
 - 模型不确定时的简短 warning。
 
+若存在可靠的时间对齐参考字幕，个别 cue 可能带有简短 `reference_evidence`，只展示局部
+分歧。它是提示而非权威原文，应结合已提供的上下文和 glossary 判断。普通歧义不应触发
+联网搜索或重跑 ASR；保持 source 不变并返回 warning。可复用 source fix 应只包含最小
+稳定术语与 alias，不要带入周边语法。
+
 普通低置信 ASR 词、显示预算和 glossary 一致性都只作为提示。硬门禁只覆盖：schema
 与时间轴有效、ID 完整、原文/译文非空、hash 当前、更新原子、产物 provenance
 新鲜，以及最终文件非空。
@@ -150,8 +155,8 @@ openbbq --json agent init '<source>' --workspace workspaces/demo --to zh --gloss
 得到同一 glossary，同时避免不同目标语言共用单一 `target` 字段，不依赖
 模型判断。本地文件如果没有显式 glossary，则只使用任务 overlay。
 
-翻译时，OpenBBQ 会提供已绑定的 glossary context，以及 selected/neighbor cue 中
-相关的术语。可复用发现保存在任务级 `.openbbq/glossary-overlay.json`。任务中立即
+翻译时，OpenBBQ 会提供已绑定的 glossary context，以及 selected/neighbor cue 或局部
+参考证据命中的相关术语。可复用发现保存在任务级 `.openbbq/glossary-overlay.json`。任务中立即
 使用 base + overlay，但只在成功交付后更新全局库。
 
 发布过程不会覆盖已有 owner 或字段。冲突、缺少绑定或权限失败会保留 overlay，并返回

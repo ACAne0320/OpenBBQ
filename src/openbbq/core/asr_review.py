@@ -39,6 +39,8 @@ REFERENCE_RECOVERY_SEQUENCE_SIMILARITY = 0.65
 REFERENCE_TIMING_REPAIR_MIN_SHIFT_S = 1.0
 REFERENCE_TIMING_REPAIR_PADDING_S = 6.0
 REFERENCE_TIMING_MAX_WORD_DURATION_S = 1.0
+REFERENCE_EVIDENCE_MIN_SIMILARITY = 0.85
+REFERENCE_EVIDENCE_MAX_DIFF_TOKENS = 3
 _IDENTITY: Callable[[str], str] = lambda text: text  # noqa: E731
 
 # Only anomalies that would make the generated subtitle draft structurally
@@ -100,6 +102,18 @@ class ReferenceCaption:
     start: float
     end: float
     text: str
+
+
+@dataclass(frozen=True)
+class ReferenceDifference:
+    source: str
+    reference: str
+
+
+@dataclass(frozen=True)
+class ReferenceEvidence:
+    reference_text: str
+    differences: tuple[ReferenceDifference, ...]
 
 
 @dataclass(frozen=True)
@@ -336,9 +350,9 @@ def parse_reference_words(text: str) -> list[Word]:
             if markers:
                 first = markers[0]
                 prefix = _timed_reference_chunk(
-                        line[: first.start()],
-                        start=cue_start,
-                        end=_vtt_seconds(first.group("time")),
+                    line[: first.start()],
+                    start=cue_start,
+                    end=_vtt_seconds(first.group("time")),
                 )
                 words.extend(_discard_rolling_prefix(words, prefix))
                 for marker_index, marker in enumerate(markers):
@@ -457,6 +471,65 @@ def _best_reference_match(
     return candidates[best[2] : best[3]], best[0]
 
 
+def reference_disagreement_evidence(
+    text: str,
+    *,
+    start: float,
+    end: float,
+    reference_words: list[Word] | tuple[Word, ...],
+) -> ReferenceEvidence | None:
+    """Return compact advisory evidence for a well-aligned local substitution.
+
+    Reference captions are useful hints, not canonical source.  Only short
+    replacements inside an otherwise close timed alignment are exposed.  Cue
+    boundary insertions/deletions and broadly divergent text stay hidden so an
+    agent is not encouraged to chase caption drift or perform another ASR pass.
+    """
+
+    if not text.strip() or not reference_words:
+        return None
+    matched, similarity = _best_reference_match(
+        Segment(id=0, start=start, end=end, text=text),
+        tuple(reference_words),
+    )
+    if similarity < REFERENCE_EVIDENCE_MIN_SIMILARITY:
+        return None
+    source_tokens = _normalized_words(text)
+    reference_tokens = tuple(
+        token for word in matched for token in _normalized_words(word.word)
+    )
+    if not source_tokens or not reference_tokens:
+        return None
+    opcodes = SequenceMatcher(None, source_tokens, reference_tokens).get_opcodes()
+    if any(tag in {"insert", "delete"} for tag, *_ in opcodes):
+        return None
+    differences: list[ReferenceDifference] = []
+    for tag, source_start, source_end, reference_start, reference_end in opcodes:
+        if tag == "equal":
+            continue
+        source_span = source_tokens[source_start:source_end]
+        reference_span = reference_tokens[reference_start:reference_end]
+        if (
+            not source_span
+            or not reference_span
+            or len(source_span) > REFERENCE_EVIDENCE_MAX_DIFF_TOKENS
+            or len(reference_span) > REFERENCE_EVIDENCE_MAX_DIFF_TOKENS
+        ):
+            return None
+        differences.append(
+            ReferenceDifference(
+                source=" ".join(source_span),
+                reference=" ".join(reference_span),
+            )
+        )
+    if not differences:
+        return None
+    return ReferenceEvidence(
+        reference_text=" ".join(word.word for word in matched),
+        differences=tuple(differences),
+    )
+
+
 def align_exact_reference_timing(
     transcript: Transcript,
     reference_words: list[Word] | tuple[Word, ...],
@@ -524,9 +597,7 @@ def align_exact_reference_timing(
             source.model_copy(update={"start": timed.start, "end": timed.end})
             for source, timed in zip(source_words, safe_timing, strict=True)
         ]
-        previous = (
-            transcript.segments[segment_index - 1] if segment_index > 0 else None
-        )
+        previous = transcript.segments[segment_index - 1] if segment_index > 0 else None
         following = (
             transcript.segments[segment_index + 1]
             if segment_index + 1 < len(transcript.segments)
@@ -585,7 +656,9 @@ def _trim_neighbor_overlap(
     """Keep a structural replacement from borrowing nearby segment content."""
 
     trimmed = words
-    for previous_index in range(segment_index - 1, max(-1, segment_index - radius - 1), -1):
+    for previous_index in range(
+        segment_index - 1, max(-1, segment_index - radius - 1), -1
+    ):
         keys = _reference_word_keys(trimmed)
         neighbor = _text_word_keys(transcript.segments[previous_index].text)
         for size in range(min(len(keys) - 1, len(neighbor)), 2, -1):
