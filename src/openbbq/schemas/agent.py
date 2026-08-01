@@ -107,6 +107,7 @@ class TranslationEvidence(OpenBBQModel):
     glossary_hash: str
     policy_hash: str
     batch_id: str
+    generation_mode: str | None = None
 
 
 class AgentWarning(OpenBBQModel):

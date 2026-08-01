@@ -199,6 +199,7 @@ def _translate_batch(
         {
             "batch_id": action["batch_id"],
             "policy_hash": action["policy_hash"],
+            "generation_mode": action["generation_policy"]["mode"],
             "translations": {
                 str(item_id): f"第{item_id}条译文" for item_id in action["selected_ids"]
             },
@@ -226,6 +227,9 @@ def test_ordinary_transcript_goes_directly_to_segment(tmp_path: Path) -> None:
             "cpu_fallback": "not_applicable",
             "reason_code": "workspace_local_operation",
             "concurrency": "wait_and_reuse_completed_stage",
+            "process_session": "poll_until_exit",
+            "empty_output": "not_completion_if_session_id_present",
+            "retry": "never_rerun_argv_while_session_id_present",
         },
         "terminal": False,
         "must_continue": True,
@@ -325,6 +329,52 @@ def test_structural_source_review_lease_is_bounded_idempotent_and_strict(
     assert set(second["selected_segment_ids"]).isdisjoint(first["selected_segment_ids"])
 
 
+def test_source_review_keeps_every_mixed_issue_attached_to_visible_evidence(
+    tmp_path: Path,
+) -> None:
+    repeated = "this decoder hallucination contains enough words to repeat"
+    path, _ = _workspace(tmp_path, [repeated] * 25 + ["damaged timeline words"])
+    transcript = ws.read_transcript(path / "transcript.json")
+    damaged = transcript.segments[-1]
+    assert damaged.words is not None
+    for word in damaged.words:
+        word.start = damaged.end
+        word.end = damaged.end
+    ws.write_text_atomic(path / "transcript.json", transcript.model_dump_json(indent=2))
+    ws.write_reference_caption(
+        path,
+        "WEBVTT\n\n00:00:00.000 --> 00:00:52.000\n"
+        "This is the timed reference evidence for the affected source span.\n",
+    )
+
+    action = _next(path)
+
+    assert action["action"] == "review_source"
+    assert len(action["selected_segment_ids"]) <= 20
+    visible = set(action["selected_segment_ids"])
+    assert {item["id"] for item in action["segments"]} == visible
+    assert {item["code"] for item in action["detector_issues"]} == {
+        "repeated_segment_run",
+        "collapsed_word_timestamps",
+    }
+    assert all(
+        visible.intersection(issue["segment_ids"])
+        for issue in action["detector_issues"]
+    )
+    assert all(
+        set(issue["evidence_segment_ids"]).issubset(visible)
+        for issue in action["detector_issues"]
+    )
+    repeat_issue = next(
+        issue
+        for issue in action["detector_issues"]
+        if issue["code"] == "repeated_segment_run"
+    )
+    assert len(repeat_issue["segment_ids"]) == 25
+    assert len(repeat_issue["evidence_segment_ids"]) == 1
+    assert repeat_issue["reference_caption"]
+
+
 def test_new_session_skips_glossary_selection_and_returns_mechanical_argv(
     tmp_path: Path,
 ) -> None:
@@ -351,6 +401,9 @@ def test_new_session_skips_glossary_selection_and_returns_mechanical_argv(
             "cpu_fallback": "not_applicable",
             "reason_code": "workspace_local_operation",
             "concurrency": "wait_and_reuse_completed_stage",
+            "process_session": "poll_until_exit",
+            "empty_output": "not_completion_if_session_id_present",
+            "retry": "never_rerun_argv_while_session_id_present",
         },
         "terminal": False,
         "must_continue": True,
@@ -378,6 +431,9 @@ def test_fetch_and_transcribe_commands_declare_host_execution_policy(
         "cpu_fallback": "not_applicable",
         "reason_code": "host_network_and_auth_state",
         "concurrency": "wait_and_reuse_completed_stage",
+        "process_session": "poll_until_exit",
+        "empty_output": "not_completion_if_session_id_present",
+        "retry": "never_rerun_argv_while_session_id_present",
     }
 
     video = tmp_path / "source.mp4"
@@ -405,6 +461,9 @@ def test_fetch_and_transcribe_commands_declare_host_execution_policy(
         "cpu_fallback": "only_after_outside_gpu_failure",
         "reason_code": "native_gpu_and_model_cache",
         "concurrency": "wait_and_reuse_completed_stage",
+        "process_session": "poll_until_exit",
+        "empty_output": "not_completion_if_session_id_present",
+        "retry": "never_rerun_argv_while_session_id_present",
     }
 
 
@@ -562,6 +621,16 @@ def test_translate_requires_exact_ids_policy_and_syncs_cue_scoped_source_fix(
     _install_cues_and_worksheet(path, ["codex is useful"])
     action = _next(path)
     assert action["action"] == "translate"
+    assert action["generation_policy"]["mode"] == "current_agent"
+    assert action["generation_policy"]["external_translation_services"] == (
+        "forbidden"
+    )
+    assert action["generation_policy"]["external_llm_services"] == "forbidden"
+    assert action["generation_policy"]["automation"] == "serialization_only"
+    assert "Do not call an external translation service" in action[
+        "generation_policy"
+    ]["instruction"]
+    assert action["response_schema"]["generation_mode"] == "current_agent"
     assert len(action["selected_ids"]) <= 20
     assert action["response_schema"]["warnings"]
 
@@ -571,6 +640,7 @@ def test_translate_requires_exact_ids_policy_and_syncs_cue_scoped_source_fix(
             {
                 "batch_id": action["batch_id"],
                 "policy_hash": "wrong",
+                "generation_mode": action["generation_policy"]["mode"],
                 "translations": {"1": "Codex 很有用"},
                 "source_fixes": [],
                 "glossary_updates": [],
@@ -583,6 +653,7 @@ def test_translate_requires_exact_ids_policy_and_syncs_cue_scoped_source_fix(
         {
             "batch_id": action["batch_id"],
             "policy_hash": action["policy_hash"],
+            "generation_mode": action["generation_policy"]["mode"],
             "translations": {"1": "Codex 很有用"},
             "source_fixes": [
                 {
@@ -612,9 +683,76 @@ def test_translate_requires_exact_ids_policy_and_syncs_cue_scoped_source_fix(
 
     finish = _next(path)
     assert finish["action"] == "finish"
+    assert finish["execution"]["process_session"] == "poll_until_exit"
+    assert finish["execution"]["empty_output"] == (
+        "not_completion_if_session_id_present"
+    )
+    assert finish["execution"]["retry"] == (
+        "never_rerun_argv_while_session_id_present"
+    )
     assert finish["quality"] == "draft"
     assert finish["human_reviewed"] is False
     assert _next(path) == finish
+
+
+def test_translate_requires_current_agent_generation_mode(tmp_path: Path) -> None:
+    path, _ = _workspace(tmp_path, ["translate this directly"])
+    _install_cues_and_worksheet(path, ["translate this directly"])
+    action = _next(path)
+    base_response = {
+        "batch_id": action["batch_id"],
+        "policy_hash": action["policy_hash"],
+        "translations": {"1": "请直接翻译"},
+        "source_fixes": [],
+        "glossary_updates": [],
+    }
+
+    with pytest.raises(OpenBBQError) as missing:
+        _apply(path, base_response)
+    assert missing.value.code == "translation_generation_mode_required"
+    assert _next(path) == action
+
+    with pytest.raises(OpenBBQError) as mismatched:
+        _apply(path, {**base_response, "generation_mode": "external_service"})
+    assert mismatched.value.code == "translation_generation_mode_mismatch"
+    assert _next(path) == action
+
+    applied = _apply(
+        path,
+        {
+            **base_response,
+            "generation_mode": action["generation_policy"]["mode"],
+        },
+    )
+    assert applied["generation_mode"] == "current_agent"
+    session = ws.read_agent_session_optional(path, "zh")
+    assert session is not None
+    assert session.translation_evidence[1].generation_mode == "current_agent"
+
+
+def test_translate_allows_pre_generation_policy_lease_to_finish(
+    tmp_path: Path,
+) -> None:
+    path, _ = _workspace(tmp_path, ["legacy active lease"])
+    _install_cues_and_worksheet(path, ["legacy active lease"])
+    action = _next(path)
+    session = ws.read_agent_session_optional(path, "zh")
+    assert session is not None and session.active_lease is not None
+    session.active_lease.payload.pop("generation_policy")
+    ws.write_agent_session(path, session)
+
+    applied = _apply(
+        path,
+        {
+            "batch_id": action["batch_id"],
+            "policy_hash": action["policy_hash"],
+            "translations": {"1": "旧活动批次"},
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+
+    assert applied["generation_mode"] == "current_agent"
 
 
 def test_cue_scoped_source_fix_allows_empty_replacement_to_delete_noise(
@@ -629,6 +767,7 @@ def test_cue_scoped_source_fix_allows_empty_replacement_to_delete_noise(
         {
             "batch_id": action["batch_id"],
             "policy_hash": action["policy_hash"],
+            "generation_mode": action["generation_policy"]["mode"],
             "translations": {"1": "欢迎"},
             "source_fixes": [
                 {
@@ -651,6 +790,38 @@ def test_cue_scoped_source_fix_allows_empty_replacement_to_delete_noise(
     assert _next(path)["action"] == "finish"
 
 
+def test_translate_source_fix_cannot_delete_an_entire_cue(tmp_path: Path) -> None:
+    path, _ = _workspace(tmp_path, ["duplicate"])
+    _install_cues_and_worksheet(path, ["duplicate"])
+    action = _next(path)
+
+    with pytest.raises(OpenBBQError) as raised:
+        _apply(
+            path,
+            {
+                "batch_id": action["batch_id"],
+                "policy_hash": action["policy_hash"],
+                "generation_mode": action["generation_policy"]["mode"],
+                "translations": {"1": "重复"},
+                "source_fixes": [
+                    {
+                        "cue_id": 1,
+                        "find": "duplicate",
+                        "replacement": "",
+                        "reusable": False,
+                        "evidence": "the whole cue duplicates the previous boundary",
+                    }
+                ],
+                "glossary_updates": [],
+            },
+        )
+
+    assert raised.value.code == "source_fix_requires_review"
+    assert ws.read_cues(path / "cues.json").cues[0].source == "duplicate"
+    assert ws.read_translation(ws.worksheet_path(path, "zh")).items[0].target is None
+    assert _next(path) == action
+
+
 def test_source_fix_automatically_records_and_promotes_glossary_candidate(
     tmp_path: Path,
 ) -> None:
@@ -663,6 +834,7 @@ def test_source_fix_automatically_records_and_promotes_glossary_candidate(
         {
             "batch_id": action["batch_id"],
             "policy_hash": action["policy_hash"],
+            "generation_mode": action["generation_policy"]["mode"],
             "translations": {"1": "osu! 很难"},
             "source_fixes": [
                 {
@@ -700,6 +872,7 @@ def test_glossary_update_does_not_require_a_same_batch_source_fix(
         {
             "batch_id": action["batch_id"],
             "policy_hash": action["policy_hash"],
+            "generation_mode": action["generation_policy"]["mode"],
             "translations": {"1": "Codex 可以工作"},
             "source_fixes": [],
             "glossary_updates": [
@@ -741,6 +914,7 @@ def test_new_reusable_alias_normalizes_later_cues_without_retranslating_neighbor
         {
             "batch_id": first["batch_id"],
             "policy_hash": first["policy_hash"],
+            "generation_mode": first["generation_policy"]["mode"],
             "translations": {
                 str(item_id): f"法琳出现在第 {item_id} 个场景"
                 for item_id in first["selected_ids"]
@@ -801,6 +975,7 @@ def test_semantic_warnings_are_recorded_but_do_not_block_finish(
         {
             "batch_id": action["batch_id"],
             "policy_hash": action["policy_hash"],
+            "generation_mode": action["generation_policy"]["mode"],
             "translations": {"1": "可以这样做"},
             "source_fixes": [],
             "glossary_updates": [],
@@ -909,6 +1084,7 @@ def test_translation_lease_becomes_stale_after_external_worksheet_change(
             {
                 "batch_id": action["batch_id"],
                 "policy_hash": action["policy_hash"],
+                "generation_mode": action["generation_policy"]["mode"],
                 "translations": {"1": "你好"},
                 "source_fixes": [],
                 "glossary_updates": [],
@@ -971,6 +1147,7 @@ def test_cue_scoped_source_fix_rolls_back_all_documents_on_write_failure(
             {
                 "batch_id": action["batch_id"],
                 "policy_hash": action["policy_hash"],
+                "generation_mode": action["generation_policy"]["mode"],
                 "translations": {"1": "Codex 可以工作"},
                 "source_fixes": [
                     {

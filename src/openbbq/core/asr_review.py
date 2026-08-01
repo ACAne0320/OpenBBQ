@@ -22,6 +22,7 @@ from openbbq.schemas import (
     AsrAmendment,
     AsrDecision,
     AsrReview,
+    Cue,
     Segment,
     Transcript,
     Word,
@@ -41,6 +42,8 @@ REFERENCE_TIMING_REPAIR_PADDING_S = 6.0
 REFERENCE_TIMING_MAX_WORD_DURATION_S = 1.0
 REFERENCE_EVIDENCE_MIN_SIMILARITY = 0.85
 REFERENCE_EVIDENCE_MAX_DIFF_TOKENS = 3
+REFERENCE_SPEECH_GAP_MIN_DURATION_S = 5.0
+REFERENCE_SPEECH_GAP_MIN_WORDS = 6
 _IDENTITY: Callable[[str], str] = lambda text: text  # noqa: E731
 
 # Only anomalies that would make the generated subtitle draft structurally
@@ -114,6 +117,13 @@ class ReferenceDifference:
 class ReferenceEvidence:
     reference_text: str
     differences: tuple[ReferenceDifference, ...]
+
+
+@dataclass(frozen=True)
+class ReferenceSpeechGap:
+    start: float
+    end: float
+    word_count: int
 
 
 @dataclass(frozen=True)
@@ -406,6 +416,52 @@ def reference_caption_text(
     ]
     merged = _merge_rolling_texts(overlapping)
     return merged or None
+
+
+def reference_speech_gaps(
+    cues: list[Cue],
+    reference_words: list[Word] | tuple[Word, ...],
+    *,
+    duration: float,
+) -> list[ReferenceSpeechGap]:
+    """Find long subtitle holes that contain substantial timed speech.
+
+    Timed reference captions are supporting evidence, not canonical text. This
+    check therefore does not compare wording and cannot rewrite cues; it only
+    rejects a structurally empty span when the reference establishes that
+    several spoken words occur there.
+    """
+
+    if not reference_words:
+        return []
+    ordered = sorted(cues, key=lambda cue: (cue.start, cue.end, cue.id))
+    end = max(duration, max(word.end for word in reference_words))
+    candidates: list[tuple[float, float]] = []
+    cursor = 0.0
+    for cue in ordered:
+        if cue.start > cursor:
+            candidates.append((cursor, cue.start))
+        cursor = max(cursor, cue.end)
+    if end > cursor:
+        candidates.append((cursor, end))
+
+    gaps: list[ReferenceSpeechGap] = []
+    for start, stop in candidates:
+        if stop - start < REFERENCE_SPEECH_GAP_MIN_DURATION_S:
+            continue
+        words = [
+            word for word in reference_words if word.start < stop and word.end > start
+        ]
+        if len(words) < REFERENCE_SPEECH_GAP_MIN_WORDS:
+            continue
+        gaps.append(
+            ReferenceSpeechGap(
+                start=start,
+                end=stop,
+                word_count=len(words),
+            )
+        )
+    return gaps
 
 
 def _anomaly_context(
@@ -782,7 +838,8 @@ def extract_anomalies(
     least five seconds, and occur four or more times consecutively.
     """
 
-    anomalies: list[Anomaly] = _timeline_anomalies(transcript, tuple(reference_words))
+    timeline_anomalies = _timeline_anomalies(transcript, tuple(reference_words))
+    repeated_anomalies: list[Anomaly] = []
     segments = transcript.segments
     index = 0
     while index < len(segments):
@@ -799,21 +856,59 @@ def extract_anomalies(
         ):
             ids = tuple(segment.id for segment in group)
             previous, next_text = _anomaly_context(transcript, index, end - 1)
-            anomalies.append(
+            issue_end = group[-1].end
+            next_boundary = (
+                segments[end].start if end < len(segments) else transcript.duration
+            )
+            trailing_reference = _reference_window(
+                tuple(reference_words),
+                start=issue_end,
+                end=next_boundary,
+            )
+            if len(trailing_reference) >= REFERENCE_SPEECH_GAP_MIN_WORDS:
+                issue_end = next_boundary
+            timed_reference = tuple(
+                word.model_copy(deep=True)
+                for word in reference_words
+                if word.start >= group[0].start and word.end <= issue_end
+            )
+            reference_text = (
+                " ".join(word.word for word in timed_reference)
+                if timed_reference
+                else None
+            )
+            repeated_anomalies.append(
                 Anomaly(
                     id=f"a:repeat:{ids[0]}-{ids[-1]}",
                     code="repeated_segment_run",
                     severity="severe",
                     segment_ids=ids,
                     start=group[0].start,
-                    end=group[-1].end,
+                    end=issue_end,
                     text=group[0].text,
                     previous_text=previous,
                     next_text=next_text,
+                    replacement=reference_text,
+                    reference_text=reference_text,
+                    reference_words=timed_reference,
                 )
             )
         index = end
-    return sorted(anomalies, key=lambda issue: (issue.start, issue.id))
+    repeated_ids = {
+        segment_id for issue in repeated_anomalies for segment_id in issue.segment_ids
+    }
+    # A repeated run is the authoritative issue for its whole span. Keeping
+    # nested per-segment timeline issues would ask the reviewer for overlapping
+    # replacement/drop decisions and could create duplicate replacement cues.
+    timeline_anomalies = [
+        issue
+        for issue in timeline_anomalies
+        if repeated_ids.isdisjoint(issue.segment_ids)
+    ]
+    return sorted(
+        [*timeline_anomalies, *repeated_anomalies],
+        key=lambda issue: (issue.start, issue.id),
+    )
 
 
 def check(

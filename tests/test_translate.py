@@ -363,6 +363,21 @@ def test_check_source_drift() -> None:
     assert exc.value.code == "source_drift"
 
 
+def test_check_rejects_blank_source_cue() -> None:
+    cues = _cues(Cue(id=1, start=0.0, end=1.0, source=""))
+    worksheet = Translation(
+        source_lang="en",
+        target_lang="zh",
+        params=EN_PARAMS,
+        items=[_item(1, "", "残留译文")],
+    )
+
+    with pytest.raises(OpenBBQError) as exc:
+        tr.check(cues, worksheet, "zh")
+
+    assert exc.value.code == "empty_source_cues"
+
+
 def test_check_lang_mismatch_filename() -> None:
     cues = _cues(Cue(id=1, start=0, end=1, source="hi"))
     doc = _ws_doc(_item(1, "hi", "你好"), target_lang="ja")

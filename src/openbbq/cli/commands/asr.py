@@ -9,6 +9,7 @@ from rich.console import RenderableType
 from rich.table import Table
 
 from ...core import asr_review as reviewlib
+from ...core import agent_workflow
 from ...core import workspace as ws
 from ...errors import OpenBBQError
 from ...schemas import AsrReview, OpenBBQModel, Stage
@@ -208,6 +209,20 @@ def _write_review_and_invalidate(path: Path, review: AsrReview) -> Path:
     return artifact
 
 
+def _reject_active_agent_lease(path: Path) -> None:
+    for lang in agent_workflow.session_languages(path):
+        session = ws.read_agent_session_optional(path, lang)
+        if session is None or session.active_lease is None:
+            continue
+        raise OpenBBQError(
+            "agent_lease_active",
+            lang=lang,
+            action=session.active_lease.action,
+            batch_id=session.active_lease.batch_id,
+            fix=f"continue with openbbq agent next --workspace {path}",
+        )
+
+
 @app.command()
 def check(
     ctx: typer.Context,
@@ -353,6 +368,7 @@ def apply(
     """Merge explicit accept/replace/drop/keep_first ASR decisions."""
     output: Output = ctx.obj
     path, transcript, review, _, reference_words = _load(workspace)
+    _reject_active_agent_lease(path)
     decisions_path = Path(decisions).expanduser()
     try:
         raw = decisions_path.read_text(encoding="utf-8")
@@ -412,6 +428,7 @@ def amend(
 
     output: Output = ctx.obj
     path, transcript, review, _, reference_words = _load(workspace)
+    _reject_active_agent_lease(path)
     amendments_path = Path(amendments).expanduser()
     try:
         raw = amendments_path.read_text(encoding="utf-8")

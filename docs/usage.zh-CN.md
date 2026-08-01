@@ -32,7 +32,8 @@ openbbq --json agent next --workspace workspaces/demo
 
 按返回的 action 执行：
 
-- `run_command`：原样执行返回的 `argv`；
+- `run_command`：原样执行返回的 `argv`；若返回 process/session ID，轮询同一 session
+  直到得到 exit code，不能因空 stdout 或外层 tool/cell 结束而重跑命令；
 - `review_source`：仅在结构性 ASR 问题阻塞分段时，提交完整的有界响应；
 - `translate`：翻译所有 selected ID，并提交响应；
 - `finish`：执行其中的 `argv`；
@@ -55,12 +56,23 @@ fetch → extract → transcribe → validate/segment
 `--glossary` 始终优先；否则 URL 任务会在 fetch 得到作者后绑定稳定的作者+目标语言
 glossary。重复调用 `next` 会返回同一活动 lease。`apply` 必须带精确的 `batch_id`、
 `policy_hash` 和完整 ID 集合；source 或 worksheet 过期时会被拒绝。
+较长的重复 ASR run 会用一个可见 segment 代表 detector issue 列出的全部相同受影响
+ID；若存在覆盖整个区间的时间对齐参考字幕，也会一并提供。活动 lease 存在时，专家
+ASR 写命令不能修改该 review。
+
+每个 `translate` action 还包含 `generation_policy`。当前译文必须由正在执行工作流的
+agent 根据所给 source、上下文、glossary 和规则直接生成；不得调用外部翻译服务、外部
+LLM 或自动翻译脚本。脚本只能保存和提交 agent 已生成的结果。`agent apply` 必须原样
+回显 `generation_mode`。
 
 翻译响应还可以提交：
 
 - 明显 ASR 错误的 cue-scoped `source_fixes`；
 - 真正可复用的 `glossary_updates`；
 - 模型不确定时的简短 warning。
+
+翻译阶段的 source fix 可以删除 cue 内的局部噪声，但不能删除整条 cue；涉及分段或
+边界的结构调整应留在 source review 中处理。
 
 若存在可靠的时间对齐参考字幕，个别 cue 可能带有简短 `reference_evidence`，只展示局部
 分歧。它是提示而非权威原文，应结合已提供的上下文和 glossary 判断。普通歧义不应触发
@@ -69,7 +81,7 @@ glossary。重复调用 `next` 会返回同一活动 lease。`apply` 必须带�
 
 普通低置信 ASR 词、显示预算和 glossary 一致性都只作为提示。硬门禁只覆盖：schema
 与时间轴有效、ID 完整、原文/译文非空、hash 当前、更新原子、产物 provenance
-新鲜，以及最终文件非空。
+新鲜、最终文件非空，以及存在大量时间对齐参考语音的长字幕空洞。
 
 `finish` 只导出和烧录一次；横屏使用 `fansub`，竖屏使用 `mobile`。默认不运行视觉
 QA，也不选择 `fansub-compact`。正常 `done` 响应包含：

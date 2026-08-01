@@ -309,6 +309,11 @@ def test_subtitle_skill_documents_draft_happy_path_in_both_languages() -> None:
         assert "reference_evidence" in content
         assert "search the web" in content or "自行联网" in content
         assert "smallest stable" in content or "最小稳定" in content
+        assert "generation_policy" in content
+        assert "generation_mode" in content
+        assert "external translation" in content or "外部翻译" in content
+        assert "process/session ID" in content
+        assert "empty stdout" in content or "空 stdout" in content
 
 
 def test_subtitle_skill_keeps_finish_single_pass_and_translation_id_contract() -> None:

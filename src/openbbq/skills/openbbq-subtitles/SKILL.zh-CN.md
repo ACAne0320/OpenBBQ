@@ -22,7 +22,9 @@ openbbq --json agent next --workspace '<ws>'
    `outside_required` 必须在宿主机/沙箱外运行，`inside_allowed` 可在当前环境运行。
    fetch 可能需要宿主机网络与认证状态。transcribe 必须执行返回的沙箱外 GPU 命令并保留
    `--gpu`；只有该 GPU 命令确实失败且 `execution.cpu_fallback` 允许时，才可改用
-   `--cpu` 重试。除此之外不要增加、删除或重排参数。
+   `--cpu` 重试。除此之外不要增加、删除或重排参数。若 harness 返回仍在运行的
+   process/session ID，必须保留并轮询同一 session 直到得到 exit code；存在 session ID
+   时，空 stdout 或外层 tool/cell 结束都不代表命令完成，不得重新执行 `argv`。
 2. `translate`：服从 action 返回的 `brief` 和 glossary context，精确翻译每个
    `selected_id`，按 `response_schema` 生成一次响应并提交：
 
@@ -30,15 +32,20 @@ openbbq --json agent next --workspace '<ws>'
    openbbq --json agent apply --workspace '<ws>' response.json
    ```
 
-   原样返回 `batch_id`、`policy_hash` 和完整的当前 ID 集合。neighbor cue 只作上下文，
-   不得把内容移到其他 ID。部分 cue 可能带有局部 `reference_evidence`；它只是在时间上
+   服从 `generation_policy`：译文必须由当前 agent 根据本批 source、上下文、glossary
+   和规则直接生成。不得调用外部翻译服务或外部 LLM；脚本只能序列化和提交当前 agent
+   已经生成的译文，不能生成译文本身。原样返回 `batch_id`、`policy_hash`、
+   `generation_mode` 和完整的当前 ID 集合。neighbor cue 只作上下文，不得把内容移到
+   其他 ID。部分 cue 可能带有局部 `reference_evidence`；它只是在时间上
    对齐的参考字幕分歧，不是权威原文。结合上下文与 glossary 判断，只有修正确认无疑时
    才提交 cue-scoped `source_fix`，否则保守翻译当前 source 并给出 warning。若
    `reusable: true`，`find`/`replacement` 必须是最小稳定术语，不能包含无关语法。
    OpenBBQ 会自动记录 glossary candidate 并提升可复用修正，不要再把同一修正重复写入
    `glossary_updates`。
 3. `review_source` 是罕见例外：仅在 `agent next` 报告确定性修复无法解决的结构性 ASR
-   blocker 时处理。严格按 schema 和 ID 响应，apply 一次后继续。
+   blocker 时处理。重复 run 可能用一个可见 segment 代表 issue 中列出的全部相同受影响
+   ID；若整段 `reference_caption` 显示实际存在不同的连续语音，应替换该 issue，而不是
+   丢弃整段。严格按 schema 和 ID 响应，apply 一次后继续。
 4. `finish`：服从其 execution policy，只执行一次返回的
    `openbbq agent finish`。它会一次导出双语 ASS、一次烧录视频并验证产物。
 5. `done`：交付返回的字幕、视频路径和 warning，并原样报告返回的
@@ -51,10 +58,13 @@ openbbq --json agent next --workspace '<ws>'
 ## 翻译原则
 
 - 服从本批 `brief`、glossary context 和目标语言规则。
+- 由当前 agent 直接生成译文，不要调用外部翻译服务、外部 LLM 或自动翻译脚本。
 - 译文自然、忠实，保留否定、数字、实体、条件和关键关系。
 - 只翻译当前 cue；neighbor 只用于消歧，不能跨 ID 搬移内容。
 - 含义和对齐优先于激进压缩。若不确定是否为 ASR 错误，翻译当前原文并提交 warning，
   不要臆造修正。
+- 翻译阶段的 source fix 可以删除局部噪声，但不能删掉整条 cue；结构或边界调整应留给
+  source review。
 - 优先使用 action 已提供的标题、作者、glossary 和局部参考证据。普通歧义不要自行联网
   搜索或重新运行 ASR；保留 warning 交给后续人工精修。
 

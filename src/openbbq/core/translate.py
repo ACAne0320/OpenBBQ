@@ -310,6 +310,13 @@ def verify_integrity(cues: Cues, worksheet: Translation, lang: str) -> None:
             "id_mismatch", fix="cues changed; re-init the worksheet (--force)"
         )
     source_of = {c.id: c.source for c in cues.cues}
+    blank_source_ids = [cue.id for cue in cues.cues if not cue.source.strip()]
+    if blank_source_ids:
+        raise OpenBBQError(
+            "empty_source_cues",
+            ids=blank_source_ids[:20],
+            fix="repair or re-segment the source cues before translating",
+        )
     for it in worksheet.items:
         if it.source != source_of[it.id]:
             raise OpenBBQError(

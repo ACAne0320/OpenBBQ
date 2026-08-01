@@ -20,7 +20,7 @@ from openbbq.core import segment as segmentlib
 from openbbq.core import translate as translatelib
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
-from openbbq.schemas import Cues, Manifest, Stage, Transcript, Translation
+from openbbq.schemas import Cues, Manifest, Stage, Transcript, Translation, Word
 
 
 @dataclass(frozen=True)
@@ -252,6 +252,7 @@ def assess_delivery(
         issues.append(lang_issue)
 
     transcript: Transcript | None = None
+    reference_words: list[Word] = []
     transcript_path = _artifact(
         path,
         manifest,
@@ -339,6 +340,17 @@ def assess_delivery(
                 if media_end is None
                 else [cue.id for cue in cues.cues if cue.end > media_end + 0.5]
             )
+            reference_gaps = asrlib.reference_speech_gaps(
+                cues.cues,
+                reference_words,
+                duration=(
+                    transcript.duration
+                    if transcript is not None
+                    else media_end
+                    if media_end is not None
+                    else max((cue.end for cue in cues.cues), default=0.0)
+                ),
+            )
             if invalid_cues:
                 issues.append(
                     DeliveryIssue(
@@ -364,7 +376,23 @@ def assess_delivery(
                         fix="openbbq extract-audio, then continue with openbbq agent next",
                     )
                 )
-            if not invalid_cues and not beyond_media:
+            if reference_gaps:
+                issues.append(
+                    DeliveryIssue(
+                        code="reference_speech_gap",
+                        gate="segment",
+                        detail=(
+                            "segmented subtitles omit timed reference speech in: "
+                            + ", ".join(
+                                f"{gap.start:.3f}s-{gap.end:.3f}s "
+                                f"({gap.word_count} words)"
+                                for gap in reference_gaps[:20]
+                            )
+                        ),
+                        fix=f"openbbq agent next --workspace {path}",
+                    )
+                )
+            if not invalid_cues and not beyond_media and not reference_gaps:
                 try:
                     ws.require_fresh_artifact(path, cues_path, Stage.SEGMENT)
                 except OpenBBQError as error:

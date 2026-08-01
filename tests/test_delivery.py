@@ -145,6 +145,7 @@ def _workspace(
                 {
                     "batch_id": action["batch_id"],
                     "policy_hash": action["policy_hash"],
+                    "generation_mode": action["generation_policy"]["mode"],
                     "translations": {"1": target},
                     "source_fixes": [],
                     "glossary_updates": [],
@@ -443,9 +444,37 @@ def test_delivery_rejects_cues_beyond_source_media_duration(
 
     assert assessment.ready is False
     assert assessment.gates["segment"] is False
-    assert "cues_exceed_media_duration" in {
-        issue.code for issue in assessment.issues
-    }
+    assert "cues_exceed_media_duration" in {issue.code for issue in assessment.issues}
+
+
+def test_delivery_rejects_long_cue_gap_containing_timed_reference_speech(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _workspace(tmp_path, agent_draft=False)
+    cues_path = path / "cues.json"
+    cues = ws.read_cues(cues_path)
+    cues.cues = [
+        Cue(id=1, start=0.0, end=2.0, source="Opening sentence."),
+        Cue(id=2, start=12.0, end=14.0, source="Closing sentence."),
+    ]
+    ws.write_text_atomic(cues_path, cues.model_dump_json(indent=2))
+    ws.refresh_artifact_provenance(path, cues_path, Stage.SEGMENT)
+    ws.write_reference_caption(
+        path,
+        "WEBVTT\n\n00:00:03.000 --> 00:00:10.000\n"
+        "<00:00:03.000><c>there are several clearly timed spoken words "
+        "inside this otherwise empty subtitle gap</c>\n",
+    )
+    monkeypatch.setattr(media, "media_duration", lambda _path: 15.0)
+
+    assessment = assess_delivery(path, ws.read_manifest(path), lang="zh")
+
+    assert assessment.ready is False
+    assert assessment.gates["segment"] is False
+    gap_issue = next(
+        issue for issue in assessment.issues if issue.code == "reference_speech_gap"
+    )
+    assert "2.000s-12.000s" in gap_issue.detail
 
 
 def test_media_duration_is_unknown_when_ffprobe_is_unavailable(

@@ -38,7 +38,9 @@ openbbq --json agent next --workspace workspaces/demo
 
 Handle the returned action as follows:
 
-- `run_command`: execute the returned `argv` exactly;
+- `run_command`: execute the returned `argv` exactly; if it returns a
+  process/session ID, poll that same session until it returns an exit code and
+  never rerun the command because stdout is empty or an outer tool/cell ended;
 - `review_source`: only when a structural ASR problem blocks segmentation,
   submit the complete bounded response to `agent apply`;
 - `translate`: translate every selected ID and submit the response to
@@ -65,12 +67,26 @@ binds a stable author-and-target glossary after fetch discovers the author.
 Repeated `next` calls return the same active lease.
 `apply` requires the exact `batch_id`, `policy_hash`, and complete ID set, and
 rejects stale source or worksheet content.
+For a long repeated ASR run, one visible segment may represent all identical
+affected IDs listed by the detector issue. A timed reference caption over that
+whole span is included when available. Expert ASR write commands cannot mutate
+the review while this lease is active.
+
+Every `translate` action also carries a `generation_policy`. The agent running
+the workflow must generate each translation directly from the supplied source,
+context, glossary, and rules. It must not call an external translation service,
+external LLM, or automatic translation script. Automation may only serialize
+and submit text the agent has already generated. `agent apply` must echo the
+action's `generation_mode`.
 
 Translation may also submit:
 
 - cue-scoped `source_fixes` for obvious ASR mistakes;
 - reusable `glossary_updates`;
 - a concise warning when the model is uncertain.
+
+A translation-stage source fix may remove local noise, but it must not delete
+the entire cue. Structural or boundary changes belong in source review.
 
 When available, a cue may include compact `reference_evidence` for a short
 local disagreement with the timed reference caption. Treat it as advisory and
@@ -82,7 +98,8 @@ alias, not surrounding grammar.
 Ordinary low-confidence ASR words, display budgets, and glossary consistency
 are advisory. Hard gates are limited to valid schemas and timing, complete IDs,
 non-empty source/target content, current hashes, atomic updates, fresh
-provenance, and non-empty final artifacts.
+provenance, non-empty final artifacts, and long subtitle gaps that contain
+substantial timed reference speech.
 
 `finish` exports and burns once, using `fansub` for landscape or `mobile` for
 portrait. It does not run visual QA or choose `fansub-compact`. A normal `done`

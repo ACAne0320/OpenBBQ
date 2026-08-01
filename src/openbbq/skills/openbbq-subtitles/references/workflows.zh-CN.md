@@ -8,6 +8,9 @@
 必须遵守 `agent next` 返回的机器可读 `execution` 策略。fetch、GPU 转录和 finish
 通常需要在 host 环境执行。不要把要求 GPU 的转录静默替换成沙箱 CPU；只有声明的
 host/GPU 路径确实失败，并且返回策略允许 fallback 时，才使用 CPU。
+若长命令返回 process/session ID，应使用 harness 的进程续跑接口轮询该 ID，直到得到
+exit code。不要把外层 tool/cell 的结束或暂时为空的 stdout 当作底层进程完成，也不要
+在原 session 仍运行时重复执行命令。
 
 YouTube 认证命令：
 
@@ -32,6 +35,9 @@ openbbq translate init zh --workspace <workspace>
 openbbq --json translate batch zh --workspace <workspace> --limit 20 --only-missing
 openbbq translate apply zh --workspace <workspace> <targets.json>
 ```
+
+不要把这些写命令与活动 agent lease 混用。尤其是 `asr apply` 与 `asr amend` 会被
+拒绝，必须先通过 `agent apply` 提交当前 lease 的 `review_source` 响应。
 
 本地输入跳过 `fetch`。如果要导出一个明确未人工审校的底层 draft，必须显式表达这个
 选择：

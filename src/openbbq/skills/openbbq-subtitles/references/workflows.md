@@ -11,6 +11,10 @@ Fetch, GPU transcription, and finish commonly require host execution. Do not
 silently replace a requested GPU transcription with sandbox CPU; use CPU only
 after the declared host/GPU path genuinely fails and the returned policy permits
 fallback.
+When a long command returns a process/session ID, use the harness process-resume
+interface to poll that ID until it returns an exit code. Do not treat an outer
+tool/cell completing or temporarily empty stdout as process completion, and do
+not rerun the command while its original session is live.
 
 For YouTube authentication:
 
@@ -35,6 +39,10 @@ openbbq translate init zh --workspace <workspace>
 openbbq --json translate batch zh --workspace <workspace> --limit 20 --only-missing
 openbbq translate apply zh --workspace <workspace> <targets.json>
 ```
+
+Do not mix these write commands with an active agent lease. In particular,
+`asr apply` and `asr amend` are rejected until the leased `review_source`
+response is submitted through `agent apply`.
 
 Local inputs skip `fetch`. To export an intentionally unreviewed low-level
 draft, make that choice explicit:

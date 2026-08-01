@@ -17,6 +17,7 @@ from openbbq.cli.commands.asr import check as check_cmd
 from openbbq.cli.commands.segment import segment as segment_cmd
 from openbbq.cli.output import Output
 from openbbq.core import asr_review
+from openbbq.core import agent_workflow
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
@@ -194,6 +195,138 @@ def test_repeated_long_segment_run_is_one_severe_anomaly_and_can_be_dropped() ->
 
     assert asr_review.check(transcript, review).ready is True
     assert asr_review.apply_segment_decisions(transcript, review).segments == []
+
+
+def test_repeated_run_supersedes_overlapping_per_segment_timeline_anomalies() -> None:
+    text = "This repeated decoder failure contains enough words to be structural."
+    transcript = _transcript(
+        *[
+            _timed_segment(index, index * 2.0, index * 2.0 + 2.0, text, text.split())
+            for index in range(4)
+        ]
+    )
+    for segment in transcript.segments:
+        assert segment.words is not None
+        for word in segment.words:
+            word.start = segment.end
+            word.end = segment.end
+    reference = [
+        Word(word=word, start=index * 0.5, end=index * 0.5 + 0.4, prob=1.0)
+        for index, word in enumerate(
+            "Actual continuous speech replaces the repeated decoder failure entirely".split()
+        )
+    ]
+
+    anomalies = asr_review.extract_anomalies(
+        transcript,
+        reference_words=reference,
+    )
+
+    assert [issue.code for issue in anomalies] == ["repeated_segment_run"]
+    assert anomalies[0].segment_ids == (0, 1, 2, 3)
+
+
+def test_repeated_run_recovery_extends_through_reference_backed_trailing_gap() -> None:
+    repeated = "This repeated decoder failure contains enough words to be structural."
+    following = "Normal ASR resumes here after the missing speech."
+    transcript = _transcript(
+        *[
+            _timed_segment(
+                index, index * 2.0, index * 2.0 + 2.0, repeated, repeated.split()
+            )
+            for index in range(4)
+        ],
+        _timed_segment(4, 12.0, 14.0, following, following.split()),
+    )
+    reference_text = (
+        "Actual continuous speech replaces the repeated decoder output and "
+        "continues through the otherwise missing trailing interval with several "
+        "more confirmed spoken words"
+    )
+    reference = [
+        Word(
+            word=word,
+            start=index * (11.5 / len(reference_text.split())),
+            end=(index + 1) * (11.5 / len(reference_text.split())),
+            prob=1.0,
+        )
+        for index, word in enumerate(reference_text.split())
+    ]
+
+    issue = next(
+        anomaly
+        for anomaly in asr_review.extract_anomalies(
+            transcript,
+            reference_words=reference,
+        )
+        if anomaly.code == "repeated_segment_run"
+    )
+
+    assert issue.end == 12.0
+    assert issue.replacement == reference_text
+    assert issue.reference_words == tuple(reference)
+
+    review = asr_review.merge_decisions(
+        transcript,
+        None,
+        {
+            issue.id: AsrDecision(
+                action="replace",
+                replacement=issue.replacement,
+                reason="Timed reference restores the whole structural failure span.",
+            )
+        },
+        reference_words=reference,
+    )
+    corrected = asr_review.apply_segment_decisions(
+        transcript,
+        review,
+        reference_words=reference,
+    )
+    assert corrected.segments[0].end == 11.5
+    assert corrected.segments[1].start == 12.0
+
+
+def test_repeated_run_reference_excludes_words_crossing_neighbor_boundaries() -> None:
+    repeated = "This repeated decoder failure contains enough words to be structural."
+    following = "Normal ASR resumes here after the missing speech."
+    transcript = _transcript(
+        *[
+            _timed_segment(
+                index, 2.0 + index * 2.0, 4.0 + index * 2.0, repeated, repeated.split()
+            )
+            for index in range(4)
+        ],
+        _timed_segment(4, 14.0, 16.0, following, following.split()),
+    )
+    actual = [f"actual{index}" for index in range(24)]
+    step = 11.5 / len(actual)
+    reference = [
+        Word(word="carry", start=1.8, end=2.2, prob=1.0),
+        *[
+            Word(
+                word=word,
+                start=2.2 + index * step,
+                end=2.2 + (index + 1) * step,
+                prob=1.0,
+            )
+            for index, word in enumerate(actual)
+        ],
+        Word(word="following", start=13.9, end=14.2, prob=1.0),
+    ]
+
+    issue = next(
+        anomaly
+        for anomaly in asr_review.extract_anomalies(
+            transcript,
+            reference_words=reference,
+        )
+        if anomaly.code == "repeated_segment_run"
+    )
+
+    assert issue.end == 14.0
+    assert issue.replacement == " ".join(actual)
+    assert issue.reference_words == tuple(reference[1:-1])
 
 
 def test_keep_first_removes_only_duplicate_segments_from_a_repeat_run() -> None:
@@ -1174,3 +1307,48 @@ def test_amend_command_persists_agent_found_high_confidence_correction(
     segment_cmd(_ctx(), workspace=str(path))
     _payload(capsys)
     assert ws.read_cues(path / "cues.json").cues[0].source == "Here is my hot take."
+
+
+def test_expert_asr_writes_cannot_bypass_an_active_agent_review_lease(
+    tmp_path: Path,
+) -> None:
+    repeated = "This repeated decoder output has enough words to be structural."
+    transcript = _transcript(
+        *[
+            _timed_segment(
+                index, index * 2.0, index * 2.0 + 2.0, repeated, repeated.split()
+            )
+            for index in range(4)
+        ]
+    )
+    path = _workspace(tmp_path, transcript)
+    audio = path / "media" / "audio.16k.wav"
+    audio.parent.mkdir()
+    audio.write_bytes(b"audio")
+    manifest = ws.read_manifest(path)
+    manifest.stages[Stage.EXTRACT_AUDIO] = StageState(
+        status=StageStatus.DONE,
+        artifact="media/audio.16k.wav",
+    )
+    ws.write_manifest(path, manifest)
+    session = agent_workflow.create_session(path, "zh")
+    action = agent_workflow.next_action(path, ws.read_manifest(path), session)
+    assert action["action"] == "review_source"
+
+    decisions = tmp_path / "decisions.json"
+    decisions.write_text("{}", encoding="utf-8")
+    amendments = tmp_path / "amendments.json"
+    amendments.write_text('{"amendments": []}', encoding="utf-8")
+
+    with pytest.raises(OpenBBQError) as apply_error:
+        apply_cmd(
+            _ctx(),
+            decisions=str(decisions),
+            workspace=str(path),
+            max_prob=0.5,
+        )
+    assert apply_error.value.code == "agent_lease_active"
+
+    with pytest.raises(OpenBBQError) as amend_error:
+        amend_cmd(_ctx(), amendments=str(amendments), workspace=str(path))
+    assert amend_error.value.code == "agent_lease_active"

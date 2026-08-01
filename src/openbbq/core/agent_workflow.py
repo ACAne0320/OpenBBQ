@@ -25,6 +25,7 @@ from openbbq.core import glossary as glossarylib
 from openbbq.core import glossary_overlay
 from openbbq.core import review as reviewlib
 from openbbq.core import translate as translatelib
+from openbbq.core import translation_generation
 from openbbq.core import translation_rules
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
@@ -131,27 +132,34 @@ def _workspace_argv(workspace: Path, *parts: str) -> list[str]:
 
 def _execution_policy(command: str) -> dict[str, str]:
     if command == "fetch":
-        return {
+        policy = {
             "sandbox": "outside_required",
             "accelerator": "none",
             "cpu_fallback": "not_applicable",
             "reason_code": "host_network_and_auth_state",
             "concurrency": "wait_and_reuse_completed_stage",
         }
-    if command == "transcribe":
-        return {
+    elif command == "transcribe":
+        policy = {
             "sandbox": "outside_required",
             "accelerator": "gpu",
             "cpu_fallback": "only_after_outside_gpu_failure",
             "reason_code": "native_gpu_and_model_cache",
             "concurrency": "wait_and_reuse_completed_stage",
         }
+    else:
+        policy = {
+            "sandbox": "inside_allowed",
+            "accelerator": "none",
+            "cpu_fallback": "not_applicable",
+            "reason_code": "workspace_local_operation",
+            "concurrency": "wait_and_reuse_completed_stage",
+        }
     return {
-        "sandbox": "inside_allowed",
-        "accelerator": "none",
-        "cpu_fallback": "not_applicable",
-        "reason_code": "workspace_local_operation",
-        "concurrency": "wait_and_reuse_completed_stage",
+        **policy,
+        "process_session": "poll_until_exit",
+        "empty_output": "not_completion_if_session_id_present",
+        "retry": "never_rerun_argv_while_session_id_present",
     }
 
 
@@ -333,6 +341,35 @@ def _source_state_hash(workspace: Path, manifest: Manifest) -> str:
 
 def _issue_segment_ids(issue: asrlib.Anomaly) -> list[int]:
     return [int(value) for value in issue.segment_ids]
+
+
+def _review_issue_segment_ids(issue: asrlib.Anomaly) -> list[int]:
+    """Return the source views needed to decide one structural issue.
+
+    A repeated run is one compact issue: every affected segment has identical
+    source text, while the issue itself carries the full ID span and boundary
+    context. Showing one representative keeps the semantic batch bounded and
+    leaves room for later, unrelated timeline issues in the same lease.
+    """
+
+    ids = _issue_segment_ids(issue)
+    return ids[:1] if issue.code == "repeated_segment_run" else ids
+
+
+def _source_review_batch(
+    issues: list[asrlib.Anomaly],
+) -> tuple[list[asrlib.Anomaly], list[int]]:
+    selected_issues: list[asrlib.Anomaly] = []
+    selected_ids: set[int] = set()
+    for issue in issues:
+        issue_ids = set(_review_issue_segment_ids(issue))
+        if selected_issues and len(selected_ids | issue_ids) > MAX_AGENT_BATCH:
+            break
+        selected_issues.append(issue)
+        selected_ids.update(issue_ids)
+        if len(selected_ids) >= MAX_AGENT_BATCH:
+            break
+    return selected_issues, sorted(selected_ids)
 
 
 def _issue_payload(issue: asrlib.Anomaly) -> dict[str, Any]:
@@ -715,6 +752,21 @@ def draft_gate(
         blocking = asrlib.blocking_unresolved_ids(asr)
         if blocking:
             problems.append(f"structural ASR issues are unresolved: {blocking[:20]}")
+        speech_gaps = asrlib.reference_speech_gaps(
+            cues.cues,
+            reference_words,
+            duration=transcript.duration,
+        )
+        if speech_gaps:
+            problems.append(
+                "segmented source omits timed reference speech: "
+                + str(
+                    [
+                        f"{gap.start:.3f}s-{gap.end:.3f}s ({gap.word_count} words)"
+                        for gap in speech_gaps[:20]
+                    ]
+                )
+            )
 
     try:
         translatelib.verify_integrity(cues, worksheet, session.target_lang)
@@ -934,12 +986,9 @@ def next_action(
     )
     blocking_ids = set(asrlib.blocking_unresolved_ids(asr))
     if blocking_ids:
-        issues = [issue for issue in asr.anomalies if issue.id in blocking_ids][
-            :MAX_AGENT_BATCH
-        ]
-        selected_ids = sorted(
-            {segment_id for issue in issues for segment_id in _issue_segment_ids(issue)}
-        )[:MAX_AGENT_BATCH]
+        issues, selected_ids = _source_review_batch(
+            [issue for issue in asr.anomalies if issue.id in blocking_ids]
+        )
         selected_id_set = set(selected_ids)
         selected = [view for view in views if view.id in selected_id_set]
         by_index = {view.id: index for index, view in enumerate(views)}
@@ -990,6 +1039,7 @@ def next_action(
                 "policy": [
                     "resolve only the listed structural ASR blockers",
                     "accept repeated speech only when the neighboring context shows it is intentional",
+                    "a repeated_segment_run uses one visible representative for all identical affected segment_ids; if its span-level reference_caption contains different continuous speech, replace the issue with that caption instead of dropping the span",
                     "timeline anomalies require a timed replacement or an explicit drop",
                     "optional source_fixes are occurrence-scoped; set reusable only when the correction is a stable term for future related videos",
                 ],
@@ -1000,7 +1050,16 @@ def next_action(
                 },
                 "segments": selected_payload,
                 "neighbor_context": neighbor_context,
-                "detector_issues": [_issue_payload(issue) for issue in issues],
+                "detector_issues": [
+                    {
+                        **_issue_payload(issue),
+                        "evidence_segment_ids": _review_issue_segment_ids(issue),
+                        "reference_caption": _reference_caption_for(
+                            workspace, start=issue.start, end=issue.end
+                        ),
+                    }
+                    for issue in issues
+                ],
                 "glossary": _relevant_glossary_payload(
                     workspace,
                     manifest,
@@ -1089,6 +1148,7 @@ def next_action(
         ]
     )
     if missing_evidence:
+        generation_policy = translation_generation.resolve_policy()
         selected_ids = missing_evidence[:MAX_AGENT_BATCH]
         items, neighbor_context, refs = _translation_batch_payload(
             cues, worksheet, selected_ids, reference_words
@@ -1098,6 +1158,7 @@ def next_action(
         )
         translate_payload: dict[str, Any] = {
             "policy_hash": policy,
+            "generation_policy": generation_policy.payload(),
             "brief": brief.model_dump(mode="json", exclude_none=True),
             "selected_ids": selected_ids,
             "items": items,
@@ -1108,6 +1169,7 @@ def next_action(
             "response_schema": {
                 "batch_id": "exact batch_id",
                 "policy_hash": policy,
+                "generation_mode": generation_policy.mode,
                 "translations": {
                     str(item_id): "target text" for item_id in selected_ids
                 },
@@ -1115,7 +1177,7 @@ def next_action(
                     {
                         "cue_id": "selected cue id",
                         "find": "smallest exact source span needed for this occurrence",
-                        "replacement": "smallest corrected span; may be empty to delete noise",
+                        "replacement": "smallest corrected span; may be empty to delete noise but must leave the cue non-empty",
                         "occurrence": 1,
                         "reusable": "true only for a stable recurring name or term; when true, find/replacement must exclude surrounding grammar",
                         "evidence": "short contextual evidence",
@@ -1196,9 +1258,8 @@ def next_action(
                 workspace, "agent", "finish", "--to", session.target_lang
             ),
             "execution": {
+                **_execution_policy("finish"),
                 "sandbox": "outside_required",
-                "accelerator": "none",
-                "cpu_fallback": "not_applicable",
                 "reason_code": "media_encode_and_glossary_publish",
             },
             "outputs": {
@@ -1226,6 +1287,7 @@ class _SourceResponse(OpenBBQModel):
 class _TranslateResponse(OpenBBQModel):
     batch_id: str
     policy_hash: str
+    generation_mode: str | None = None
     translations: dict[int, str]
     source_fixes: list[AgentCueSourceFix] = Field(default_factory=list)
     glossary_updates: list[AgentGlossaryUpdate] = Field(default_factory=list)
@@ -1406,6 +1468,27 @@ def _apply_translate(
     lease: AgentLease,
     response: _TranslateResponse,
 ) -> dict[str, Any]:
+    expected_generation_mode = translation_generation.expected_mode(lease.payload)
+    if expected_generation_mode is not None and response.generation_mode is None:
+        raise OpenBBQError(
+            "translation_generation_mode_required",
+            expected=expected_generation_mode,
+            fix="echo generation_mode from the active translate action",
+        )
+    generation_mode = (
+        response.generation_mode
+        or expected_generation_mode
+        or translation_generation.CURRENT_AGENT_MODE
+    )
+    if (
+        expected_generation_mode is not None
+        and generation_mode != expected_generation_mode
+    ):
+        raise OpenBBQError(
+            "translation_generation_mode_mismatch",
+            expected=expected_generation_mode,
+            received=generation_mode,
+        )
     if response.policy_hash != lease.policy_hash:
         raise OpenBBQError(
             "agent_policy_hash_mismatch",
@@ -1460,6 +1543,16 @@ def _apply_translate(
         if cue is None:
             raise OpenBBQError("unknown_cue_ids", ids=[fix.cue_id])
         corrected = _replace_occurrence(cue.source, fix)
+        if not corrected.strip():
+            raise OpenBBQError(
+                "source_fix_requires_review",
+                cue_id=fix.cue_id,
+                detail="a translation-stage source fix cannot remove an entire cue",
+                fix=(
+                    "keep the cue unchanged in this batch; whole-cue or timeline "
+                    "changes require source review"
+                ),
+            )
         cue.source = corrected
         item_by_id[fix.cue_id].source = corrected
         source_changed_ids.add(fix.cue_id)
@@ -1520,6 +1613,7 @@ def _apply_translate(
             ),
             policy_hash=response.policy_hash,
             batch_id=lease.batch_id,
+            generation_mode=generation_mode,
         )
     known_warnings = {(warning.code, warning.detail) for warning in session.warnings}
     session.warnings.extend(
@@ -1543,6 +1637,7 @@ def _apply_translate(
     )
     return {
         "applied": "translate",
+        "generation_mode": generation_mode,
         "translated": len(lease.selected_ids),
         "source_fixes": len(response.source_fixes),
         "glossary_candidates": candidate_count,

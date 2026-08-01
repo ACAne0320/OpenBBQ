@@ -32,6 +32,11 @@ one-shot path.
 - `finish`: permission to export and burn once;
 - `done`: fresh deliverables, `quality`, `human_reviewed`, and warnings.
 
+Every mechanical execution policy requires harnesses to preserve a returned
+process/session ID and poll the same process until exit. Empty stdout or the end
+of an outer tool/cell is not process completion while that ID remains live, and
+the same argv must not be started again.
+
 There is no model-driven glossary-selection dialogue, risk-review queue, or
 full-coverage AI audit. An explicit glossary passed to `agent init` wins.
 Otherwise, a URL task binds a stable author-and-target glossary after fetch
@@ -54,6 +59,7 @@ corrupt, stale, or unsafe to continue:
 
 - readable schemas and files;
 - valid, monotonic cue timing with positive durations;
+- no long cue gap containing substantial timed reference speech;
 - exact and complete leased ID sets;
 - non-empty source cues and translations;
 - current source, worksheet, policy, and glossary hashes;
@@ -69,6 +75,12 @@ force the model to invent a correction.
 timing or repetition that prevents valid segmentation. It is not a review of
 every transcript segment. Source fixes are occurrence-scoped; only an explicit
 reusable glossary alias may affect later matching occurrences.
+
+A long repeated run is one detector issue and uses one visible representative
+segment; the issue still lists every affected segment ID and carries span-level
+reference-caption evidence when available. While an agent lease is active,
+expert `asr apply` and `asr amend` writes are rejected so they cannot silently
+bypass the leased decision.
 
 ## Translation And Glossary Learning
 
@@ -86,11 +98,20 @@ The response supplies the exact translations and may also include:
 - `glossary_updates` for a term or alias that is genuinely reusable;
 - concise `warnings` when the agent is uncertain.
 
+The `translate` action carries a separate `generation_policy`. The current
+agent must generate the target text directly with its own language reasoning;
+external translation services, external LLMs, and translation-generating
+scripts are forbidden. Automation is limited to serializing and submitting
+translations the agent already produced. The response echoes the required
+`generation_mode`, which is recorded with translation evidence.
+
 A cue-scoped source fix updates `cues.json` and the worksheet source atomically,
 then invalidates only evidence affected by that change. The agent should leave
 uncertain source text alone and translate it conservatively rather than forcing
-a guess. Reusable fixes should identify the smallest stable term/alias instead
-of preserving surrounding grammar in the glossary.
+a guess. A translation-stage fix may remove local noise but cannot delete the
+entire cue; structural or boundary changes belong in source review. Reusable
+fixes should identify the smallest stable term/alias instead of preserving
+surrounding grammar in the glossary.
 
 The task stores reusable learning in `.openbbq/glossary-overlay.json`. For a URL
 without an explicit glossary, the author and target language deterministically
