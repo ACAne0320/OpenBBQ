@@ -1,95 +1,116 @@
 ---
-title: Agents and JSON
-description: Drive the one-shot workflow through one machine-readable next-action interface.
+title: Working with agents
+description: Let Claude Code, Codex, or scripts drive OpenBBQ — machine-readable output, the packaged skill, and the house rules.
 ---
 
-## Install the packaged skill
+OpenBBQ is built to be driven, not just run. You can work every command by hand, or hand the tongs to an AI agent like [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex) and let it cook. This page is the contract between the driver and the CLI: how output stays machine-readable, how to install the packaged skill that teaches an agent the whole workflow, and the rules agents are expected to follow.
 
-```bash
-openbbq skill install --agent all
-```
+## Default: follow the Agent facade
 
-Use `--force` after upgrading OpenBBQ. Product-specific targets include
-`codex`, `claude`, and the shared `agents` directory. `openbbq skill show`
-prints the packaged instructions without installing them.
-
-## Start once
+For a one-prompt draft, initialize once and let `agent next` decide every step:
 
 ```bash
 openbbq --json agent init '<source>' --workspace workspaces/demo --to zh
-```
-
-An explicit `--glossary NAME` is optional. Without one, URL tasks wait for
-fetched author metadata and bind a stable author-and-target glossary. Local
-files without an explicit glossary use only their task overlay.
-
-## Follow only `agent next`
-
-```bash
 openbbq --json agent next --workspace workspaces/demo
 ```
 
-Do not infer a parallel checklist. After every successful command or apply,
-call `agent next` again. Only `done` with `terminal: true` completes the task.
+Run the returned `argv` exactly for `run_command`; submit the complete response
+with `agent apply` for `review_source` or `translate`; run the returned finish
+command for `finish`; deliver the reported artifacts for `done`. Call `agent
+next` again after every successful action.
 
-### `run_command`
+Do not guess the next command or create a second translation batch. The active
+lease pins the selected ids and content hashes, so repeating `next` is safe and
+an incomplete or stale apply is rejected. Translation actions also carry the
+generation rules, glossary context, and any local reference evidence the Agent
+needs. The full protocol is explained in [Workflow model](/en/docs/getting-started/workflow).
 
-Execute the returned `argv` exactly. The response includes an `execution`
-object describing whether the command may run in the current sandbox or must
-run on the host. It also states whether CPU fallback is allowed.
+## Machine-readable output
 
-Fetch, GPU transcription, and finish often need host access. Do not replace a
-host GPU transcription with sandbox CPU unless the host attempt actually fails
-and the returned policy permits fallback.
-
-### `translate`
-
-Translate every `selected_id` in the active batch, never more than 20 cues.
-Follow the returned `brief`, glossary context, and target-language rules.
-Neighbor cues are context only.
-
-Write a response matching `response_schema`, then apply it:
+JSON is a structured text format that programs read easily. Pass the root `--json` flag — before the command name — and every command answers with one compact JSON object:
 
 ```bash
-openbbq --json agent apply --workspace workspaces/demo response.json
+openbbq --json status --workspace workspaces/demo
+openbbq --json export --workspace workspaces/demo --to zh --mode bilingual
 ```
 
-The response echoes the exact `batch_id` and `policy_hash`. It must contain the
-complete selected ID set. If the current source is clearly wrong, include the
-cue-scoped `source_fix` defined by the schema and mark only whether it is
-reusable. OpenBBQ creates the glossary candidate automatically; do not duplicate
-the same correction in `glossary_updates`.
+When the output is not going to an interactive terminal (a TTY — the window where you type commands), as with Codex or CI, OpenBBQ emits that compact JSON automatically. Agents should still pass `--json` explicitly, to declare the contract instead of relying on detection.
 
-### `review_source`
+Human progress and long-task hints go to stderr — a separate side channel for messages — or to the workspace manifest, so the machine-readable stream always stays parseable.
 
-This action is exceptional. It appears only when a structural ASR problem could
-not be repaired deterministically. Submit the complete requested batch using
-the returned schema, apply once, and continue.
+## Exit and error behavior
 
-### `finish` and `done`
+- Success emits a result object and exits 0.
+- A domain failure — the command understood you, but the work failed — emits a structured error with an `error` code, context, and often a `fix`. Follow the `fix`; do not parse the human prose or invent recovery commands.
+- CLI usage errors (wrong flags, missing arguments) use the `usage` code.
+- Unexpected failures use the `internal` code.
 
-Run the returned `openbbq agent finish` command once. It exports, burns, checks
-delivery, and publishes eligible glossary learning. At `done`, return the
-subtitle and video paths and report `quality`, `human_reviewed`, and warnings
-verbatim.
+## Poll long work
 
-## Machine-readable behavior
+`fetch`, `transcribe`, and `burn` can take minutes. They write stage progress into the workspace `manifest.json`, so a second process can watch without interrupting:
 
-Place the root `--json` before the command name. Successful commands emit one
-JSON object. Domain errors include a stable error code and usually an exact
-`fix`. Long-running commands update workspace state; repeated mechanical calls
-wait and reuse a completed stage.
+```bash
+openbbq --json status --workspace workspaces/demo
+```
 
-Active semantic leases are persistent and hash-bound. Repeating `next` is safe;
-submitting partial, stale, or mismatched responses is rejected atomically.
+If a running stage shows no heartbeat for 60 seconds or more, `status` marks it stale — treat that as "go look", not "it finished".
 
-## Operational boundaries
+## Teach the agent the whole workflow
 
-- Ask before installing system dependencies, downloading large models, or
-  writing browser login state.
-- Keep `OPENBBQ_HOME`, model caches, and the workspace writable.
-- Do not hand-edit Agent session state or create parallel leases.
-- Do not run visual QA or choose `fansub-compact` unless the user explicitly
-  requests that expert work.
-- Treat the automatic result as an editable draft. Use `openbbq review`,
-  Aegisub, or an NLE for professional finishing.
+OpenBBQ ships a packaged skill — a ready-made instruction file an agent reads to learn the entire subtitle workflow. Install it with one command:
+
+```bash
+openbbq skill install
+```
+
+The default target is the shared agents directory, `~/.agents/skills/`. Pick a different home per agent:
+
+| Command | Installs into |
+| --- | --- |
+| `openbbq skill install` (or `--agent agents`) | `~/.agents/skills/` |
+| `openbbq skill install --agent claude` | `~/.claude/skills/` |
+| `openbbq skill install --agent codex` | `~/.codex/skills/` |
+| `openbbq skill install --agent all` | every supported target |
+
+Use `--target PATH` for a custom parent directory, and `--force` to overwrite an installed copy.
+
+Two skills are packaged:
+
+- `openbbq-subtitles` (the default) — the full workflow, from raw video to cooked subtitles.
+- `bilibili-cover-safe-area` — turn a video thumbnail into a cover that fits Bilibili's upload layout.
+
+Select one with `--name`:
+
+```bash
+openbbq skill install --name bilibili-cover-safe-area
+```
+
+To read a skill without installing anything, print it:
+
+```bash
+openbbq skill show
+openbbq skill show --language zh-CN
+openbbq skill show --name bilibili-cover-safe-area --language en
+```
+
+## Bounded context
+
+Long videos mean hundreds of subtitle lines — too much for an agent to hold in its head at once. The review-style commands serve their items in small pages (offset/limit), so the agent works one focused batch at a time:
+
+- `openbbq asr batch` — doubtful listening, a few items at a time; see [Transcription and listening checks](/en/docs/guides/transcription)
+- `openbbq translate batch` — lines waiting for translation; see [Translation and review](/en/docs/guides/translation)
+- `openbbq glossary audit` — terminology review; see [Glossaries](/en/docs/guides/glossaries)
+
+## House rules for agents
+
+- Ask before installing system dependencies, downloading large models, or writing browser login state.
+- Keep `OPENBBQ_HOME` and workspace paths writable.
+- Keep translation batches bounded, and run `openbbq translate check` between manual batches.
+- Never use `translate init --force` unless discarding existing work is intentional.
+- Preview exported subtitles before publishing or burning.
+
+## Where next?
+
+- [Workspaces and stages](/en/docs/concepts/workspaces) — what the agent is actually operating on.
+- [Quality gates](/en/docs/concepts/quality-gates) — where OpenBBQ stops and waits for a decision.
+- [CLI reference](/en/docs/reference/cli) — every command and option.

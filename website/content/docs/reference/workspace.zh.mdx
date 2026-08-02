@@ -1,33 +1,41 @@
 ---
-title: Workspace 与文件
-description: 磁盘产物、manifest 状态、共享存储和环境变量。
+title: 工作区文件
+description: 工作区里每个文件的用途，以及共享存储和环境变量。
 ---
 
-## Workspace 结构
+一个视频对应一个工作区文件夹。流水线的每一步都会把结果存成可以直接打开查看的普通文件。本页讲每个文件的作用；[CLI 参考](/zh/docs/reference/cli)列出产生它们的命令。
 
-完整处理后的 workspace 通常包含：
+## 工作区结构
+
+完整处理后的工作区通常包含：
 
 ```text
 workspace/
 ├── manifest.json
 ├── media/
-│   ├── <下载媒体>
+│   ├── <下载的媒体>
 │   ├── <封面>
 │   └── audio.16k.wav
 ├── transcript.json
 ├── cues.json
 ├── translation.zh.json
+├── review.zh.json
 ├── .openbbq/
-│   ├── agent-session.zh.json
-│   ├── glossary-overlay.json
+│   ├── asr-review.json
+│   ├── translation-audit.zh.json
+│   ├── qa.json
 │   ├── artifacts.json
-│   └── review/                 # 仅在浏览器审核后出现
+│   └── review/
+│       ├── journal.json
+│       ├── checkpoints/
+│       └── cache/
 └── out/
+    ├── en.srt
     ├── zh.ass
     └── zh-burned.mp4
 ```
 
-只有命令实际生成的产物才会出现。本地来源保留在原绝对路径；URL 媒体保存在 `media/`。
+只有命令实际生成的产物才会出现。本地来源保留在原绝对路径；从 URL 下载的媒体放在 `media/` 下。
 
 ## `manifest.json`
 
@@ -37,61 +45,56 @@ workspace/
 - 来源类型和引用。
 - 能获取到的标题、作者和封面。
 - 绑定的术语表名称。
-- 阶段状态、产物路径、进度心跳、更新时间和错误。
+- 每个阶段的状态、产物、进度心跳、更新时间和错误。
 
-不要把 manifest 当成管线配置文件；它是由 OpenBBQ 命令维护并校验的工作日志。
+它是由各命令维护并校验的工作日志——不是流水线配置文件。
 
 ## `transcript.json`
 
-ASR 输出，包括检测或指定的语言、媒体时长、后端/模型信息、segment，以及后端能提供的词级时间和概率。
+识别器听到的内容：检测或指定的语言、媒体时长、后端与模型信息、听写段，以及后端能提供的词级时间和置信度。
 
-通过 `transcribe` 重新生成；格式错误或不兼容文件会返回 `invalid_transcript`。
+用 `transcribe` 重新生成。格式错误或不兼容的文件会被拒绝，报 `invalid_transcript`。
 
 ## `cues.json`
 
-根据 transcript 确定性生成的原文字幕时间轴，包含：
+由听写稿确定性生成的字幕行时间轴，包含：
 
 - 原语言。
 - 本次使用的切分参数。
-- 稳定 cue id、开始/结束时间和原文。
+- 稳定的行 id、开始/结束时间和原文。
 
-翻译工作表和导出依赖 cue identity。重跑 segment 后，可能需要重新生成或协调已有工作表。
+翻译工作表和导出都依赖行身份。重跑 `segment` 后，可能需要重新协调已有工作表。
 
 ## `translation.<lang>.json`
 
-每个目标语言一个可编辑工作表。当前 `translation@2` schema 除 cue ID、原文、target、
-时间、预算与 glossary 上下文外，还包含可复现的翻译 brief。Agent facade 以每批最多
-20 条、绑定 hash 的方式更新它。
+每个目标语言一份可编辑工作表。未填写的 target 保持为 `null`，方便发现剩余工作。用 `translate apply` 做受控的分批更新，用 `translate check` 检查完整性。
 
-## Agent session 与 glossary overlay
+## `review.<lang>.json`
 
-`.openbbq/agent-session.<lang>.json` 保存活动 lease、绑定 cue/policy/glossary hash 的
-翻译证据、finish 状态与 warnings。它由 OpenBBQ 维护，不应手工编辑。
+逐字幕行的校对状态——只校对原文时是 `review.source.json`,schema 为 `openbbq/review@1`。它保存每行的状态、备注、内容指纹、当前选择的目标语言和修订元数据，不重复保存字幕正文。
 
-`.openbbq/glossary-overlay.json` 保存任务本地条目、证据与 glossary candidate，并记录
-base glossary；成功交付前不会修改全局库。
+校对时的修改会保持 `cues.json` 与所有工作表对齐。变更通过可恢复的 checkpoint 和跨文件 journal 写入；会话进行中也支持撤销和重做。
 
-`.openbbq/artifacts.json` 保存 export 与 burn provenance。Delivery 依靠它拒绝 stale 或
-不匹配的产物，并让仍然新鲜的 finish 幂等返回。
+`.openbbq/review/` 保存 checkpoint、journal、单编辑者锁，以及波形/代理缓存。这些是实现状态，不是人工创作的内容。
 
-## 审核状态
+## `.openbbq/` 状态
 
-专业审核是可选路径。`review.<lang>.json`（仅原文审核时为 `review.source.json`）使用
-`openbbq/review@1` schema，保存每条 cue 的状态、备注、内容指纹、当前目标语言和
-revision 元数据，不重复保存字幕正文。完整且当前的审核是
-`quality: "human-reviewed"` 的证据。
+质量关卡读写的小型状态文件：
 
-`.openbbq/review/` 保存可恢复的事务 checkpoint、当前 journal、单编辑者锁和派生
-waveform/proxy 缓存。它只会在使用 review UI 后出现，属于实现状态，不是用户编写的
-字幕正文。
+| 文件 | 内容 |
+| --- | --- |
+| `.openbbq/asr-review.json` | 听写决定，与听写稿哈希绑定。 |
+| `.openbbq/translation-audit.<lang>.json` | 针对当前字幕行的语义审校决定。 |
+| `.openbbq/qa.json` | MP4 与画面帧证据，以及可选的视觉判定。 |
+| `.openbbq/artifacts.json` | `burn` 使用的导出溯源和内容哈希。 |
 
 ## `out/`
 
-生成的字幕和硬字幕视频。默认名称由原/目标语言与格式决定，也可以用 `--output` 写到其他位置。
+生成的字幕和硬字幕视频。默认名称由语言和格式推导，也可以用 `--output` 写到别处。
 
 ## OpenBBQ 共享目录
 
-`OPENBBQ_HOME` 默认为 `~/.openbbq`，保存可复用或敏感状态：
+`OPENBBQ_HOME` 默认为 `~/.openbbq`，保存可复用或敏感的状态：
 
 ```text
 ~/.openbbq/
@@ -100,22 +103,22 @@ waveform/proxy 缓存。它只会在使用 review UI 后出现，属于实现状
 └── models/<provider>/
 ```
 
-不要提交这个目录。Auth cookie 属于账号数据，请保持私密；不再需要时用 `openbbq auth clear <site>` 删除。
+不要提交这个目录。Auth cookie 属于账号数据——注意保密，不再需要时用 `openbbq auth clear <site>` 删除。
 
 ## 环境变量
 
 | 变量 | 用途 |
 | --- | --- |
 | `OPENBBQ_HOME` | 覆盖全局鉴权、术语表和模型存储位置。 |
-| `HF_ENDPOINT` | 覆盖 whisper.cpp 模型下载使用的 Hugging Face endpoint。 |
+| `HF_ENDPOINT` | 覆盖模型下载使用的 [Hugging Face](https://huggingface.co/) endpoint。 |
 
-使用隔离的可写 home：
+隔离的可写 home:
 
 ```bash
 OPENBBQ_HOME=/tmp/openbbq-home openbbq models list
 ```
 
-只有明确选择时才使用镜像：
+镜像，只在明确选择时使用：
 
 ```bash
 HF_ENDPOINT=https://hf-mirror.com openbbq models pull large-v3-turbo

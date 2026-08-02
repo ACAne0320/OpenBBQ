@@ -1,50 +1,34 @@
 ---
-title: Export and Burn
-description: Render source, target, or bilingual SRT/ASS subtitles and optionally burn ASS into video.
+title: Export and burn
+description: Export SRT or ASS subtitle files from the workspace, and burn styled subtitles into the video.
 ---
 
-## Default Agent delivery
-
-The one-prompt workflow ends with:
-
-```bash
-openbbq --json agent finish --workspace workspaces/demo --to zh
-```
-
-Only run it when `agent next` returns `finish`. It exports `out/zh.ass`, burns
-`out/zh-burned.mp4`, runs `delivery check`, and publishes eligible glossary
-learning. Landscape video uses `fansub`; portrait video uses `mobile`. Fresh
-completed outputs are reused, so finish does not burn the same result twice.
-
-The default path does not sample frames, run visual QA, or automatically retry
-with a different preset.
+Exporting turns the checked workspace files into subtitle files you can hand to any player or video editor. Burning goes one step further and writes the subtitles into the picture itself. Both come after the text is right — [Visual review](/en/docs/guides/review) is the usual stop before this one.
 
 ## Export modes
 
-`openbbq export` reads `cues.json` and, when needed, one translation worksheet.
+`openbbq export` reads the subtitle lines (`cues.json`) and, for translated output, one translation worksheet.
 
-| Mode | Command | Output lines |
+| Mode | Command | Lines in the file |
 | --- | --- | --- |
-| Source | `openbbq export` | Source text only |
-| Target | `openbbq export --to zh` | Target text only |
-| Bilingual | `openbbq export --to zh --mode bilingual` | Target above source |
+| Source only | `openbbq export` | Original text |
+| Target only | `openbbq export --to zh` | Translated text |
+| Bilingual | `openbbq export --to zh --mode bilingual` | Translation above original |
 
-Without `--to`, the default mode is `source`. With `--to`, the default mode becomes `target`.
+Without `--to`, the default mode is source; with `--to`, the default is target.
 
 ## SRT
 
-SRT is the default format:
+SRT is the default format — the plain subtitle file nearly every player understands. It lands at `out/<lang>.srt`:
 
 ```bash
 openbbq export --workspace workspaces/demo
 openbbq export --workspace workspaces/demo --to zh --mode bilingual
 ```
 
-The default filename is `out/<language>.srt`.
+## ASS and presets
 
-## ASS
-
-Use ASS when you need styled bilingual subtitles or hard burning:
+Use ASS when you want styled bilingual subtitles, or when you plan to burn:
 
 ```bash
 openbbq export \
@@ -55,62 +39,62 @@ openbbq export \
   --ass-preset fansub
 ```
 
-ASS presets:
+A preset is a ready-made layout — font, size, and placement for the two lines:
 
-| Preset | Intended use |
+| Preset | What it's for |
 | --- | --- |
 | `default` | Standard 16:9 horizontal video |
-| `fansub` | More prominent translated line |
-| `fansub-compact` | Explicit smaller, raised bilingual stack |
-| `mobile` | 9:16 vertical canvas and larger bottom safe area |
+| `fansub` | A more prominent translated line |
+| `fansub-compact` | A smaller, raised bilingual stack — used only when you explicitly ask for it, never auto-selected |
+| `mobile` | 9:16 vertical canvas with a larger bottom safe area |
 
-`--ass-preset` is valid only with `--format ass`. Presets change rendering,
-not translation meaning. OpenBBQ cannot predict where arbitrary text will
-appear inside a video.
+`--ass-preset` is valid only together with `--format ass`. The mobile preset changes rendering only; it does not shorten long lines. Content that exceeds the reading-speed or line-capacity checks must be revised or resegmented — for example through `translate init` overrides. See [Translation workflow](/en/docs/guides/translation).
 
-## Review gate
+## The review gate
 
-When a matching `review.<lang>.json` or `review.source.json` exists, export requires every cue in that review scope to be current and marked reviewed. Reopen the editor to finish or refresh stale cues:
+When a matching `review.zh.json` or `review.source.json` exists, export requires every subtitle line in that scope to be reviewed and current. Reopen the editor to finish the remaining lines or refresh stale ones:
 
 ```bash
 openbbq review --to zh --workspace workspaces/demo
 ```
 
-For an intentional atomic-command draft only, bypass the gate explicitly with
-`--allow-unreviewed`. This does not mark any cue reviewed or create Agent-draft
-delivery evidence.
+For an intentional draft only, `--allow-unreviewed` lets the export through; it marks nothing as reviewed. [Visual review](/en/docs/guides/review) explains the gate.
 
 ## Incomplete translations
 
-Target and bilingual export normally fail when any target is blank. Review first:
+Target and bilingual export normally fail when any line's translation is blank. Check first:
 
 ```bash
 openbbq translate check zh --workspace workspaces/demo
 ```
 
-For an intentional draft, allow untranslated cues to fall back to source text:
+For an intentional draft, `--allow-missing` fills the blank lines with source text:
 
 ```bash
 openbbq export --to zh --mode bilingual --allow-missing --workspace workspaces/demo
 ```
 
-## Custom output path
+## Open quality items
 
-Relative paths are resolved inside the workspace; absolute paths are allowed:
+Export also stops for open quality items: missing lines, lines over their length budget, zero-budget lines, glossary term issues, and lines not yet audited. Each translated line carries a length budget — how many characters fit at a comfortable reading speed. A deliberate draft can pass `--allow-quality-warnings` to export anyway.
+
+## Custom output path
 
 ```bash
 openbbq export --to zh --format ass --output out/review.ass --workspace workspaces/demo
 ```
 
-## Hard-subtitle burning
+Relative paths resolve inside the workspace; absolute paths are fine too.
 
-Burn the most recent ASS export:
+## Burning subtitles into the video
+
+`openbbq burn` uses the most recent ASS export:
 
 ```bash
 openbbq burn --workspace workspaces/demo
 ```
 
-Or specify files explicitly:
+Or name the files yourself:
 
 ```bash
 openbbq burn \
@@ -119,26 +103,36 @@ openbbq burn \
   --output out/final.mp4
 ```
 
-Requirements:
+The default output name derives from the subtitle file — `out/zh.ass` becomes `out/zh-burned.mp4`.
 
-- The source must be video, not audio.
-- The subtitle file must be ASS.
-- FFmpeg must provide the `ass` and `subtitles` filters.
+What you need:
 
-If FFmpeg with libass is not the first executable on PATH, pass it directly:
+- A video source. Burning is not available for audio workspaces.
+- An ASS subtitle file — export with `--format ass` first.
+- An [FFmpeg](https://www.ffmpeg.org/) build with the `ass` and `subtitles` filters. If that build is not first on your PATH, point at it directly:
 
 ```bash
 openbbq burn --workspace workspaces/demo --ffmpeg /path/to/ffmpeg
 ```
 
-Burning may take minutes. Progress is written to the manifest and can be polled separately:
+Burning takes minutes, not seconds. Progress is written to the workspace manifest; watch it from another terminal:
 
 ```bash
 openbbq --json status --workspace workspaces/demo
 ```
 
-Validate hand-built outputs with:
+If burn rejects your setup or the filters are missing, see [Troubleshooting](/en/docs/reference/troubleshooting).
+
+## What gets recorded
+
+Export records content hashes — fingerprints — of the subtitle lines, the translation, the review state, and the ASS file. Burn checks them and refuses a workspace ASS that has changed or that it never tracked: re-export, or pass the file explicitly with `--subtitle`. `--allow-stale` is reserved for an intentional manual draft.
+
+A successful burn records the final MP4 hash plus the exact source-video and ASS hashes — you can always tell which ingredients went into the cooked video.
+
+## Before you serve it
 
 ```bash
-openbbq --json delivery check --workspace workspaces/demo --to zh
+openbbq delivery check --to zh
 ```
+
+The final gate before publishing. [Quality gates](/en/docs/concepts/quality-gates) gives the full picture of what it re-verifies.

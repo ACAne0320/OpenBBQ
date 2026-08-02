@@ -1,0 +1,59 @@
+---
+title: 参与贡献
+description: 在本地配置 OpenBBQ，运行相关检查，然后提交一项边界清楚的修改。
+---
+
+OpenBBQ 仍处于 pre-alpha 阶段。修复小问题、改进文档、补上遗漏行为的测试，或者实现边界清楚的功能，都很有帮助。开始之前请先搜索[现有 Issues](https://github.com/ACAne0320/OpenBBQ/issues)，避免和正在进行的工作重复。
+
+## 配置 Python 项目
+
+```bash
+git clone https://github.com/ACAne0320/OpenBBQ.git
+cd OpenBBQ
+uv sync --extra whispercpp --extra review --dev
+```
+
+在仓库根目录运行 Python 检查：
+
+```bash
+uv run pytest -q
+uv run ruff check .
+uv run ty check
+```
+
+行为发生变化时，请新增或更新测试。修复应尽量贴近出错的行为，不要把无关的清理混进同一次修改。
+
+## 修改文档网站
+
+```bash
+cd website
+pnpm install
+pnpm run types:check
+pnpm run dev
+```
+
+文档同时维护英文和简体中文。产品行为、导航、命令或事实发生变化时，请同步更新两种语言。提交之前打开渲染后的页面，检查链接、代码块、标题层级和移动端排版。
+
+## 修改校对编辑器
+
+```bash
+cd reviewer
+pnpm install
+pnpm test
+pnpm run typecheck
+```
+
+如果修改会影响打包进 OpenBBQ 的校对界面，再运行一次 `pnpm run build`。
+
+## 提交一项边界清楚的修改
+
+一份容易评审的 Pull Request 应说明：
+
+- 它解决了什么问题；
+- 采用了什么做法，有哪些需要说明的取舍；
+- 运行了哪些检查；
+- 如果改动了网站或编辑器界面，请附上截图。
+
+如果项目会把生成结果一起打包，请保持源文件和生成文件同步。不要提交媒体、工作区、模型文件、认证数据或无关的格式调整。
+
+相关检查通过后，可以[新建 Pull Request](https://github.com/ACAne0320/OpenBBQ/pulls)。

@@ -1,49 +1,34 @@
 ---
 title: 导出与烧录
-description: 渲染原文、译文或双语 SRT/ASS，并按需烧录 ASS 到视频。
+description: 从工作区导出 SRT 或 ASS 字幕文件，并把带样式的字幕烧录进视频画面。
 ---
 
-## 默认 Agent 交付
-
-一句提示词流程最终执行：
-
-```bash
-openbbq --json agent finish --workspace workspaces/demo --to zh
-```
-
-只有 `agent next` 返回 `finish` 时才运行。它会导出 `out/zh.ass`、烧录
-`out/zh-burned.mp4`、执行 `delivery check`，并发布符合条件的 glossary 学习。横屏
-使用 `fansub`，竖屏使用 `mobile`。产物仍然新鲜时会直接复用，因此 finish 不会对同一
-结果重复烧录。
-
-默认路径不抽样视频帧、不运行视觉 QA，也不会自动换 preset 重试。
+导出是把校对好的工作区文件变成字幕文件，可以交给任何播放器或剪辑软件；烧录更进一步，把字幕写进画面本身。这两步都排在文字确认无误之后——通常先做[可视化校对](/zh/docs/guides/review)，再到这里。
 
 ## 导出模式
 
-`openbbq export` 读取 `cues.json`，需要译文时再读取一个翻译工作表。
+`openbbq export` 读取字幕行（`cues.json`）；需要译文时再读取一份翻译工作表。
 
-| 模式 | 命令 | 输出行 |
+| 模式 | 命令 | 文件里的字幕 |
 | --- | --- | --- |
-| 原文 | `openbbq export` | 仅原文 |
-| 译文 | `openbbq export --to zh` | 仅译文 |
+| 仅原文 | `openbbq export` | 原文 |
+| 仅译文 | `openbbq export --to zh` | 译文 |
 | 双语 | `openbbq export --to zh --mode bilingual` | 译文在上、原文在下 |
 
-不传 `--to` 时默认是 `source`；传入 `--to` 后默认变为 `target`。
+不传 `--to` 时默认是原文模式；传了 `--to` 默认是译文模式。
 
 ## SRT
 
-SRT 是默认格式：
+SRT 是默认格式——几乎所有播放器都认识的普通字幕文件，写到 `out/<lang>.srt`：
 
 ```bash
 openbbq export --workspace workspaces/demo
 openbbq export --workspace workspaces/demo --to zh --mode bilingual
 ```
 
-默认文件名是 `out/<language>.srt`。
+## ASS 与预设
 
-## ASS
-
-需要样式化双语字幕或硬字幕烧录时使用 ASS：
+想要带样式的双语字幕，或者打算烧录时，使用 ASS：
 
 ```bash
 openbbq export \
@@ -54,60 +39,62 @@ openbbq export \
   --ass-preset fansub
 ```
 
-ASS 预设：
+预设是一套现成的排版——字体、字号和两行的位置：
 
 | 预设 | 用途 |
 | --- | --- |
 | `default` | 常规 16:9 横屏视频 |
-| `fansub` | 更醒目的译文行 |
-| `fansub-compact` | 显式选择的、更小且抬高的双语字幕栈 |
-| `mobile` | 9:16 竖屏画布和更大的底部安全区 |
+| `fansub` | 译文行更醒目 |
+| `fansub-compact` | 更小、位置上移的双语字幕组合——只有你明确要求时才会使用，不会被自动选中 |
+| `mobile` | 9:16 竖屏画布，底部安全区更大 |
 
-`--ass-preset` 只能与 `--format ass` 一起使用。Preset 只改变渲染，不改变翻译含义；
-OpenBBQ 无法预测视频画面中任意文字出现的位置。
+`--ass-preset` 只能和 `--format ass` 一起使用。Mobile 预设只改变渲染方式，不会帮你缩短过长的字幕。超出阅读速度或行容量检查的内容，必须修改或重新切分——比如通过 `translate init` 的覆盖选项。详见[翻译工作流](/zh/docs/guides/translation)。
 
-## 审核门禁
+## 校对关卡
 
-存在匹配的 `review.<lang>.json` 或 `review.source.json` 时，export 要求该审核范围内的每条 cue 都是最新内容且已标为已审核。重新打开编辑器可完成审核或刷新已过期的 cue：
+存在对应的 `review.zh.json` 或 `review.source.json` 时，导出要求该范围内每一行字幕都已校对且内容最新。重新打开编辑器，完成剩余的行或刷新过期的行：
 
 ```bash
 openbbq review --to zh --workspace workspaces/demo
 ```
 
-只有明确需要原子命令草稿时才使用 `--allow-unreviewed` 绕过门禁；该选项不会把任何
-cue 标为已审核，也不会生成 Agent 底稿交付证据。
+只有有意生成草稿时才用 `--allow-unreviewed` 放行导出；它不会把任何行标为已校对。关卡细节见[可视化校对](/zh/docs/guides/review)。
 
-## 未完成译文
+## 译文不完整
 
-Target 和 bilingual 导出默认会在 target 留空时失败。请先检查：
+有任何一行的译文为空时，译文导出和双语导出默认会失败。先检查：
 
 ```bash
 openbbq translate check zh --workspace workspaces/demo
 ```
 
-如果明确要生成草稿，可以让未翻译 cue 回退为原文：
+有意生成草稿时，`--allow-missing` 会让空行回退为原文：
 
 ```bash
 openbbq export --to zh --mode bilingual --allow-missing --workspace workspaces/demo
 ```
 
-## 自定义输出路径
+## 未处理的质量项
 
-相对路径在 workspace 内解析，也可以使用绝对路径：
+导出还会拦住未处理的质量项：缺失的行、超过长度预算的行、预算为零的行、术语表问题，以及尚未审校的行。每行译文都有长度预算——按舒服的阅读速度能容纳的字符数。确认要出草稿时，可以传 `--allow-quality-warnings` 照常导出。
+
+## 自定义输出路径
 
 ```bash
 openbbq export --to zh --format ass --output out/review.ass --workspace workspaces/demo
 ```
 
-## 硬字幕烧录
+相对路径在工作区内解析，也可以使用绝对路径。
 
-烧录最近一次 ASS 导出：
+## 把字幕烧进画面
+
+`openbbq burn` 使用最近一次 ASS 导出：
 
 ```bash
 openbbq burn --workspace workspaces/demo
 ```
 
-也可以显式指定文件：
+也可以自己指定文件：
 
 ```bash
 openbbq burn \
@@ -116,26 +103,36 @@ openbbq burn \
   --output out/final.mp4
 ```
 
-要求：
+默认输出名由字幕文件推导——`out/zh.ass` 变成 `out/zh-burned.mp4`。
 
-- 来源必须是视频，不能是音频。
-- 字幕文件必须是 ASS。
-- FFmpeg 必须提供 `ass` 和 `subtitles` filter。
+需要的条件：
 
-支持 libass 的 FFmpeg 不在 PATH 首位时，可以直接指定：
+- 来源必须是视频，音频工作区不能烧录。
+- 字幕文件必须是 ASS——先用 `--format ass` 导出。
+- [FFmpeg](https://www.ffmpeg.org/) 要带有 `ass` 和 `subtitles` 滤镜。如果符合要求的 FFmpeg 不在 PATH 首位，直接指给它：
 
 ```bash
 openbbq burn --workspace workspaces/demo --ffmpeg /path/to/ffmpeg
 ```
 
-烧录可能持续数分钟。进度会写入 manifest，可以单独轮询：
+烧录需要几分钟，不是几秒钟。进度会写进工作区 manifest，可以在另一个终端查看：
 
 ```bash
 openbbq --json status --workspace workspaces/demo
 ```
 
-手动构建的产物可以这样校验：
+如果 burn 拒绝了你的设置，或者提示缺少滤镜，看[故障排查](/zh/docs/reference/troubleshooting)。
+
+## 记录在案
+
+导出会为字幕行、译文、校对状态和 ASS 文件记录内容哈希——也就是指纹。烧录前会核对这些指纹：工作区里的 ASS 如果被改动过，或者根本没有记录，burn 会拒绝——重新导出，或者用 `--subtitle` 显式传入文件。`--allow-stale` 只留给有意为之的手工草稿。
+
+烧录成功后，会记下最终 MP4 的哈希，以及所用源视频和 ASS 的确切哈希——这份熟肉用了哪些原料，随时有据可查。
+
+## 上桌之前
 
 ```bash
-openbbq --json delivery check --workspace workspaces/demo --to zh
+openbbq delivery check --to zh
 ```
+
+发布前的最后一道关卡。它会重新核验哪些内容，完整图景见[质量关卡](/zh/docs/concepts/quality-gates)。

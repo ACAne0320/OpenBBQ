@@ -1,0 +1,123 @@
+---
+title: Transcription and listening checks
+description: Turn the video's speech into text, check the words the recognizer doubted, and cut the text into subtitle lines.
+---
+
+This guide starts where [Getting video](/en/docs/guides/sources) ends: the media is in the workspace. Now the recognizer — the program that listens to the audio and writes down what it hears — produces a transcript, you check the spots it doubted, and the result gets cut into subtitle lines.
+
+## 1. Prepare the audio
+
+```bash
+openbbq extract-audio --workspace workspaces/demo
+```
+
+This writes `media/audio.16k.wav` — a clean 16 kHz mono track (one audio channel, at the sample rate the recognizer expects). The recognizer listens to this file, not to the original video.
+
+## 2. Write down what it hears
+
+```bash
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en
+```
+
+The recognizer writes `transcript.json`: the speech as segments — sentence-sized pieces with timings — plus the backend, model, and language it used and the audio duration. When the backend supplies them, words also carry their own timing and a probability, the recognizer's own confidence score.
+
+Long videos take a while; `openbbq status` from another terminal shows the progress.
+
+Useful options:
+
+| Option | What it does |
+| --- | --- |
+| `--model NAME` | Pick a model: a cached model name, or a direct path to a `ggml` `.bin` file. Defaults to the best cached model. |
+| `--backend auto\|whisper.cpp` | Pick the recognition engine. Default: `auto`. |
+| `--language CODE` | Set the spoken language, for example `en`. Default: auto-detect. |
+| `--prompt TEXT` | An initial prompt to steer the recognizer's wording. |
+| `--glossary NAME` | Override the bound glossary. A bound glossary biases the recognizer toward your canonical names. |
+| `--gpu` / `--cpu` | Run on the GPU (default) or fall back to the CPU. |
+| `--auto-download` | Download a missing named model before starting. |
+
+If the recognizer crashes inside a restricted sandbox, rerun `transcribe` outside the sandbox, or retry with `--cpu`.
+
+## 3. Check the listening
+
+Before anything is translated, OpenBBQ checks its own hearing:
+
+```bash
+openbbq asr check --workspace workspaces/demo
+```
+
+It reports the spots it doubts and answers `ready: true` or `ready: false`. This is a gate: cutting into lines refuses to run while decisions are unresolved or stale. [Quality gates](/en/docs/concepts/quality-gates) explains the idea. `--max-prob FLOAT` tunes which low-confidence words get flagged.
+
+Be clear about what the gate means: it only covers problems the detector found. It does not certify the words the recognizer was confident about.
+
+### Read the doubtful spots in pages
+
+```bash
+openbbq asr batch --workspace workspaces/demo --limit 20 --only-unresolved
+```
+
+`batch` pages through the issues, so you — or an agent — never have to hold the whole transcript at once. By default it starts at `--offset 0`, shows `--limit 20` per page, and lists only unresolved issues; pass `--all` to include resolved ones.
+
+Each batch lists two kinds of doubt, in this order:
+
+1. **Segment anomalies** — whole segments that look wrong: decoder repetition (the recognizer got stuck and repeated itself), an impossible word rate (more words per second than anyone could say), or a title/author entity conflict (a name that clashes with the video's title or author).
+2. **Low-confidence word occurrences** — single words the recognizer wasn't sure about.
+
+When `fetch` preserved a YouTube VTT — the site's own caption file — the batch also includes the overlapping reference text, so you can compare what the site says with what the recognizer heard.
+
+### Write down decisions and merge them
+
+You record each decision in a JSON file. For words and entities (names of people, shows, places) the decision is `accept` or `replace`; for repeated segments it is `keep_first` or `drop`:
+
+| Decision | When to use it |
+| --- | --- |
+| `accept` | The word or entity is right as heard. |
+| `replace` | It is wrong — give the exact `find` phrase and the `replacement`. |
+| `keep_first` | A repeated segment: keep the first copy. |
+| `drop` | A repeated segment: drop this copy. |
+
+Every decision needs a `reason` — one sentence explaining why, so the call can be audited later. Then merge the file:
+
+```bash
+openbbq asr apply --workspace workspaces/demo asr-decisions.json
+```
+
+Loop `batch` → decide → `apply` until `asr check` answers `ready: true`.
+
+### One-off fixes
+
+Sometimes you spot a plain error the detector never flagged — it has no issue id to decide on. Patch it directly:
+
+```json
+{"amendments":[{"segment_id":12,"find":"hot tick","replacement":"hot take","reason":"The surrounding sentence uses the idiom hot take."}]}
+```
+
+```bash
+openbbq asr amend --workspace workspaces/demo asr-amendments.json
+```
+
+Each amendment names the segment, the exact text to find, the replacement, and a reason.
+
+### A second pass with context
+
+The gate is mechanical — it only covers what the detector found. Once it passes, `openbbq glossary suggest` and `openbbq glossary audit` walk every transcript segment with its surrounding context, paged like `batch`. [Glossaries](/en/docs/guides/glossaries) shows how that pass works.
+
+## 4. Cut into subtitle lines
+
+```bash
+openbbq segment --workspace workspaces/demo
+```
+
+`segment` is deterministic — the same transcript always yields the same lines. It turns the transcript into `cues.json`: subtitle lines with start and end times, sized by a language profile so they stay comfortable to read. Profiles are built in for English, Chinese, Japanese, and Korean; other languages fall back on a generic Latin profile.
+
+Sizing options: `--lang`, `--max-cps` (reading speed in characters per second), `--max-chars-per-line`, `--max-lines`, `--min-dur`, `--max-dur`, `--min-gap`, `--pause-threshold`.
+
+The result reports lines that are over reading speed or over width, so you can review them.
+
+If a glossary is bound, known aliases are corrected to the canonical spelling here, and the report counts `glossary_matched_terms`, `glossary_aliases_applied`, and `glossary_no_effect`. Mind the last one: a bound glossary with no matches is not proof that terminology was maintained.
+
+## Where next?
+
+- [Translation and review](/en/docs/guides/translation) — fill in the target language.
+- [Glossaries](/en/docs/guides/glossaries) — keep names consistent across episodes.
+- [Quality gates](/en/docs/concepts/quality-gates) — why steps block on each other.
+- [Troubleshooting](/en/docs/reference/troubleshooting) — when the recognizer misbehaves.

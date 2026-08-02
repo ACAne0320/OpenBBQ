@@ -1,76 +1,125 @@
 ---
-title: Translation
-description: Understand Agent translation batches, reproducible briefs, and editable worksheets.
+title: Translation and review
+description: Fill a translation worksheet, check it, and review every line before export.
 ---
 
-OpenBBQ does not embed a translation provider. An external Agent supplies the
-semantic translation while OpenBBQ controls batch size, context, ids, hashes,
-and atomic application.
+OpenBBQ does not translate for you — on purpose. It prepares a worksheet: a plain JSON file that lists every subtitle line with room for your translation. A human or an AI agent writes the actual text, and you can validate the work at any point. Export waits until the checks pass.
 
-## Default Agent translation
+## Before you start
 
-The one-prompt workflow creates a `translation@2` worksheet and returns one
-active `translate` action at a time. Each batch contains at most 20 selected
-cues and includes:
+The video needs subtitle lines first — `openbbq segment` must have produced `cues.json`. If you are not there yet, see [Transcription and listening checks](/en/docs/guides/transcription).
 
-- source and target language;
-- fetched title and author when available;
-- glossary domain context;
-- matching terms from selected and neighboring cues, including pending terms;
-- neighboring cue text for disambiguation;
-- fixed target-language rules and a `policy_hash`.
+## Create a worksheet
 
-The response must translate every selected id and echo the exact `batch_id` and
-`policy_hash`. Missing, extra, stale, or mismatched ids are rejected.
-
-## Simplified Chinese rules
-
-Targets `zh`, `zh-Hans`, and `zh-CN` use the `zh-Hans` brief. It asks the Agent
-to produce natural concise Simplified Chinese while preserving negation,
-degree, numbers, entities, causality, conditions, and operational steps.
-
-Commands, code, paths, flags, URLs, shortcuts, product names, and model names
-remain accurate unless the glossary provides a translation. Neighbor cues may
-resolve ambiguity but content must not drift between ids. Meaning and alignment
-take priority over aggressive shortening.
-
-Traditional Chinese tags such as `zh-TW`, `zh-Hant`, and `zh-HK` use the generic
-fallback rather than incorrectly applying Simplified Chinese rules.
-
-## Translation-time ASR correction
-
-When the target meaning exposes an obvious ASR error in the current cue, the
-Agent can submit a cue-scoped source fix with evidence and a reusable decision.
-OpenBBQ updates `cues.json` and the worksheet atomically before applying the
-translation. Reusable fixes become glossary candidates automatically.
-
-Uncertain guesses should remain warnings, not invented corrections.
-
-## Quality signals
-
-`translate check` reports completeness, target budgets, and terminology
-warnings. In the default draft workflow, display budgets and ordinary glossary
-consistency are advisory. Hard gates cover complete ids, non-empty text,
-current hashes, valid timing, translation evidence, and fresh artifacts.
-
-The default workflow does not run a second full-coverage AI audit. A complete
-human review is the route to `quality: "human-reviewed"`.
-
-## Expert worksheet commands
-
-The atomic interface remains available for manual or custom-provider workflows:
+Pick a language code such as `zh`, `ja`, or `pt-BR`:
 
 ```bash
 openbbq translate init zh --workspace workspaces/demo
-openbbq --json translate batch zh --workspace workspaces/demo --limit 20 --only-missing
-openbbq translate apply zh batch-01.json --workspace workspaces/demo
+```
+
+This creates `translation.zh.json` — the worksheet. Every subtitle line gets one entry with its line id, the source text, timing, a target budget (how long the translation may be so viewers can read it comfortably), glossary hints, and an empty `target: null` waiting for you.
+
+An existing worksheet is protected: `init` refuses to overwrite it. `--force` regenerates the worksheet and discards every filled target — use it only when starting over is the intent.
+
+## Fill in the translations
+
+For a handful of lines, open the worksheet and write the targets directly, keeping the structure and the line ids exactly as they are:
+
+```json
+{
+  "id": 1,
+  "source": "Tools should expose the process.",
+  "target": "工具应该让过程透明。"
+}
+```
+
+For longer videos, work in small batches — a JSON object that maps line ids to translations:
+
+```json
+{
+  "1": "第一句译文",
+  "2": "第二句译文"
+}
+```
+
+Merge a batch into the worksheet:
+
+```bash
+openbbq translate apply zh targets.json --workspace workspaces/demo
+```
+
+Applying is safe to repeat. Lines that already have a translation are overwritten and reported; line ids that don't exist or are malformed are rejected instead of silently corrupting the worksheet.
+
+## Read the worksheet in slices
+
+A long video makes a long worksheet — too long to read, or hand to an agent, in one go. Read it in slices:
+
+```bash
+openbbq translate batch zh --from 1 --limit 20 --only-missing --workspace workspaces/demo
+```
+
+- `--from` — the first line to read (starts at 1, which is also the default).
+- `--limit` — how many lines per slice, from 1 to 200 (default 20).
+- `--only-missing` — skip lines that already have a translation.
+- `--context` — how many neighboring lines to include for context, from 0 to 5 (default 1).
+
+When only one worksheet exists, you can omit the language and OpenBBQ infers it.
+
+## Check the work
+
+```bash
 openbbq translate check zh --workspace workspaces/demo
 ```
 
-`translate apply` accepts a `{id: target}` object and is repeatable. Atomic
-commands do not create Agent-draft delivery evidence; use the facade for a
-one-shot deliverable or complete a human review before final delivery.
+The report covers filled and total counts, the line ids still missing, translations over their character budget, zero-budget lines, glossary term issues, and other quality signals. The translation is complete only when it answers `ready: true`.
 
-One worksheet exists per target language. `translate init --force` overwrites
-an existing worksheet and discards filled targets, so use it only when that loss
-is intentional.
+`check` is read-only — it never invalidates export or burn steps you already finished. But export refuses to run while lines are missing, over budget, zero-budget, or flagged for term issues, unless you deliberately mark a draft (see below).
+
+Bilingual ASS export respects each line's budget: an over-long translation is wrapped onto multiple lines in a deterministic way, never truncated.
+
+## Review line by line
+
+Passing `check` proves the worksheet is complete; it does not prove the translations are good. The audit is a review queue that covers every line — riskiest first, with the neighboring lines shown for context:
+
+```bash
+openbbq translate audit zh --coverage all --limit 20 --workspace workspaces/demo
+```
+
+- `--offset` — where to start in the queue (default 0).
+- `--limit` — how many lines per page (default 20).
+- `--only-unreviewed` (default) or `--all` — skip or include lines you already decided on.
+- `--coverage risks|all` — only the risky lines, or every line (default `all`).
+
+Every line needs a decision: accept it, or revise it. Each decision needs a reason, and a revision includes the new target text. Write the decisions back to the workspace:
+
+```bash
+openbbq translate audit-apply zh translation-audit.json --workspace workspaces/demo
+```
+
+Editing one line invalidates its own review and the reviews of the adjacent lines that used it as context. Export blocks a language with open audit items unless a deliberate draft passes `--allow-quality-warnings`.
+
+## More than one language
+
+Each language gets its own independent worksheet:
+
+```bash
+openbbq translate init zh --workspace workspaces/demo
+openbbq translate init ja --workspace workspaces/demo
+```
+
+Choose which one to export with `--to` — see [Export and burn](/en/docs/guides/export-and-burn).
+
+A glossary bound to the workspace is included in every worksheet automatically. Override it for one worksheet with `openbbq translate init zh --glossary project-name`. See [Glossaries](/en/docs/guides/glossaries).
+
+## Intentional drafts
+
+Sometimes you want output before the work is finished — a rough cut to show someone. Both escape hatches must be passed explicitly, and both mean the result is a draft:
+
+- `--allow-missing` — untranslated lines fall back to the source text.
+- `--allow-quality-warnings` — export despite open quality items, including unaudited lines.
+
+## Where next?
+
+- [Quality gates](/en/docs/concepts/quality-gates) — how checks, audits, and export fit together
+- [Visual review](/en/docs/guides/review) — see the subtitles on screen before serving
+- [Working with agents](/en/docs/guides/agents) — let an agent fill and audit worksheets

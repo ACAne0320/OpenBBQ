@@ -1,0 +1,57 @@
+---
+title: 质量关卡
+description: 每完成一步，OpenBBQ 都先检查再继续——没准备好就停下来，等你做决定。
+---
+
+生肉要一关一关地烤：OpenBBQ 每完成一步就先尝一口，而不是等上桌才发现问题。每道关卡只回答一个问题：准备好了吗？回答 `ready: true`，继续往下走；没准备好，就停下来等你定夺。这样，问题在发生的地方就暴露出来，而不是留到发布后的视频里。
+
+下面按你会遇到的顺序，依次介绍这些关卡。
+
+## 1. 听写检查——`openbbq asr check`
+
+翻译之前，OpenBBQ 先把识别器没听准的地方指出来：存疑的词，以及疑似重复的片段。每一处都要做出带理由的决定——词和专名用 `accept`（接受）或 `replace`（替换），重复片段用 `keep_first`（保留第一个）或 `drop`（丢弃）。
+
+把听写稿切成字幕行（`segment`）之前，必须等到 `ready: true`。详见[听写与检查](/zh/docs/guides/transcription)。
+
+## 2. 翻译检查——`openbbq translate check`
+
+译文填好之后，这道关卡抓的是：漏译的行、长到在显示时长内读不完的行、时长为零的预算，以及前后漂移的术语。这些问题不解决，就无法干净地导出。详见[翻译与审校](/zh/docs/guides/translation)。
+
+## 3. 逐句审校——`openbbq translate audit`
+
+全覆盖的语义审校：每一行都带着前后句的上下文摆出来，每一行都要有一个带理由的 `accept`（通过）或 `revise`（修改）决定。只要还有未审校的条目，导出就会拦截，除非你明确加上 `--allow-quality-warnings`，刻意出一份草稿。
+
+## 4. 可视化校对——`openbbq review`
+
+一旦存在 `review.<lang>.json`（本地校对编辑器创建的），导出会等到该范围内的每一行都标记为已校对。`--allow-unreviewed` 用于刻意出草稿。详见[可视化校对](/zh/docs/guides/review)。
+
+## 5. 最终检查——`openbbq delivery check --to zh`
+
+上桌前的硬关卡。它会重新核验：听写决定、翻译检查、语义审校、双语 ASS 的精确内容（ASS 是烧录用的带样式字幕格式）、导出与烧录的新鲜度、烧录来源（用的是哪个视频、哪份字幕），以及 MP4 非空。任何一项失败，都回答 `ready: false`，退出码非零。
+
+画面布局*不是*默认关卡：没有视觉能力的模型不必检查画面帧，跳过也不会被扣分。
+
+## 草稿出口
+
+每道关卡都留了一个显式的“我就是要出草稿“的出口。每个开关都得每次刻意地加上：
+
+- `--allow-missing`——有些行还没翻译，也照常导出
+- `--allow-quality-warnings`——翻译或审校警告未清，也导出
+- `--allow-unreviewed`——校对范围未完成，也导出
+- `--allow-stale`——字幕在导出后被改动过，仍然烧录
+
+这些开关不会把任何事标记为“已完成”，只放行这一次。
+
+## 亲眼检查（可选）
+
+你明确要求视觉检查时，有三条命令帮你看。它们绝不会自己挑选字幕样式，也不会自己触发重新烧录：
+
+- `openbbq qa render`——从烧好的 MP4 里抽取带字幕的画面帧（`--count` 取 1 到 9，默认 7）。
+- `openbbq qa check`——只读地重新核验 MP4 和帧的哈希。
+- `openbbq qa attest --result pass|fail --reason "what you saw"`——记录一次人或 Agent 的视觉判断；`--issue` 可重复，用于结构化的失败记录。
+
+## 接下来
+
+- [工作区与阶段](/zh/docs/concepts/workspaces)——这些关卡守卫的东西。
+- [导出与烧录](/zh/docs/guides/export-and-burn)——上桌前的最后几步。
+- [CLI 参考](/zh/docs/reference/cli)——每条命令和每个选项。

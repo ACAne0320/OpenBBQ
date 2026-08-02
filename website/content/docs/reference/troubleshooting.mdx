@@ -1,65 +1,67 @@
 ---
 title: Troubleshooting
-description: Recover from common installation, media, ASR, translation, export, and burn failures.
+description: Recover from common failures — missing tools, bad downloads, stuck stages, and burns that refuse to cook.
 ---
 
-## Start with structured diagnostics
+Most problems announce themselves. When OpenBBQ stops with an error, the message carries a stable error code and usually a `fix` — a concrete next step. Follow that fix first.
+
+## Start here
+
+When you need a wider look, two commands tell you most of what is wrong:
 
 ```bash
 openbbq doctor
-openbbq --json agent next --workspace workspaces/demo
 openbbq --json status --workspace workspaces/demo
 ```
 
-OpenBBQ domain errors usually include a stable error code and a `fix`. Prefer that command-specific fix over generic recovery steps.
+`doctor` checks your machine; `status` shows what happened inside one workspace.
 
 ## `openbbq` command not found
 
-Confirm the uv tool installation and PATH:
+Confirm that [uv](https://docs.astral.sh/uv/) installed the tool and that your shell can see it:
 
 ```bash
 uv tool list
 uv tool update-shell
 ```
 
-Open a new shell, then retry `openbbq --help`.
+Open a new shell, then try `openbbq --help` again.
 
-## Missing whisper.cpp backend
+## The whisper.cpp recognizer is missing
 
-Install or repair the optional backend:
+The recognizer is an optional add-on. Install or repair it, then check:
 
 ```bash
 uv tool install --force 'openbbq[whispercpp]'
 openbbq doctor
 ```
 
-## Model missing
+## The model is missing
+
+Models are downloaded separately. See what you already have, then pull one:
 
 ```bash
 openbbq models list
 openbbq models pull large-v3-turbo
 ```
 
-Or opt into download from `transcribe`:
+Or let the recognizer download it on the spot:
 
 ```bash
 openbbq transcribe --model large-v3-turbo --auto-download
 ```
 
-Interrupted model downloads retain a temporary file and resume when the server supports HTTP ranges. A size mismatch removes the invalid download and asks you to retry.
+If a download stops halfway, pulling again resumes where it left off when the server supports resuming (HTTP ranges). If the finished file is the wrong size, OpenBBQ removes the invalid download and asks you to retry.
 
 ## GPU or native backend failure
 
-The default is `--gpu`. Native GPU work may fail only because an Agent ran it
-inside a restricted sandbox. First rerun the exact command on the host. Retry
-on CPU only after that host attempt fails and the `agent next` execution policy
-permits fallback:
+The default is `--gpu`. Retry on CPU:
 
 ```bash
 openbbq transcribe --model large-v3-turbo --cpu --workspace workspaces/demo
 ```
 
-Do not treat a sandbox GPU failure as evidence that the accelerator is broken.
+Native backends can also fail inside restricted sandboxes even when they work in a normal terminal. Try a regular user environment first before concluding the backend is broken.
 
 ## FFmpeg missing or subtitle filters unavailable
 
@@ -68,7 +70,7 @@ openbbq doctor
 ffmpeg -hide_banner -filters
 ```
 
-Hard burning requires both `ass` and `subtitles`. Install an FFmpeg build with libass or pass a known executable:
+Burning subtitles into video needs both the `ass` and `subtitles` filters. If they are missing, install an [FFmpeg](https://www.ffmpeg.org/) build with [libass](https://github.com/libass/libass) — see [Installation](/en/docs/getting-started/installation) — or point burn at an FFmpeg that has them:
 
 ```bash
 openbbq burn --ffmpeg /path/to/ffmpeg --workspace workspaces/demo
@@ -76,15 +78,17 @@ openbbq burn --ffmpeg /path/to/ffmpeg --workspace workspaces/demo
 
 ## No workspace found
 
-Run the command inside a workspace directory, or pass it explicitly:
+Run the command inside the workspace folder, or pass it explicitly:
 
 ```bash
 openbbq status --workspace /path/to/workspace
 ```
 
-A valid workspace must contain an OpenBBQ `manifest.json`, not just any file with that name.
+A valid workspace contains an OpenBBQ `manifest.json` — its progress log — not just any file with that name. [Workspaces and stages](/en/docs/concepts/workspaces) explains the idea.
 
-## Fetch requires login or verification
+## Fetch asks for login or human verification
+
+Some platforms won't serve a video until you log in or prove you're human. Log in once, then fetch again:
 
 ```bash
 openbbq auth browser-login youtube
@@ -92,75 +96,47 @@ openbbq auth status youtube
 openbbq fetch --workspace workspaces/demo
 ```
 
-For public content that fails only when authenticated:
+If a public video fails only while you're logged in, fetch without the saved login:
 
 ```bash
 openbbq fetch --workspace workspaces/demo --no-auth
 ```
 
-If saved state is invalid:
+If the saved login itself has gone bad, clear it and log in again:
 
 ```bash
 openbbq auth clear youtube
 openbbq auth browser-login youtube
 ```
 
-## Incomplete translation
+## Translation is incomplete
 
 ```bash
-openbbq --json agent next --workspace workspaces/demo
+openbbq translate check zh --workspace workspaces/demo
 ```
 
-The facade returns the current lease or the next missing batch. Do not invent a
-new batch or edit Agent session state. Expert atomic workflows can still use
-`openbbq translate check zh` and fill the reported ids.
+It lists the ids of the subtitle lines still missing a translation. Fill them in and check again. `--allow-missing` on export is only for an intentional draft — untranslated lines fall back to the source text.
 
-## The Agent stopped before `done`
+## The worksheet no longer matches the subtitle lines
 
-Continue in the same workspace:
-
-```bash
-openbbq --json agent next --workspace workspaces/demo
-```
-
-Repeated `next` is safe and returns the same active lease. Continue after every
-successful command or apply until `done` reports `terminal: true`.
-
-## A mechanical command was called twice
-
-Fetch, extract, transcribe, and segment use workspace execution leases. A
-second call waits for the active stage and returns `reused: true` when the fresh
-artifact already exists. This prevents duplicate Agent or harness polling from
-corrupting the workspace.
-
-## `agent apply` rejects a response
-
-Use the exact response schema, `batch_id`, `policy_hash`, and complete selected
-ID set from the current `agent next`. If source or worksheet content changed,
-discard the old response and request the next action again.
-
-## Worksheet no longer matches cues
-
-This usually follows a rerun of `segment`. Preserve the existing worksheet before regenerating it, then reconcile translations by cue id/source text. `translate init --force` discards the old file immediately.
+This usually happens after rerunning `segment`, which recuts the lines. Before regenerating the worksheet, keep the old one safe, then match your translations back to the new lines by id and source text. Careful: `translate init --force` discards the old file immediately.
 
 ## Burn rejects the input
 
-- An audio-only workspace cannot be burned into video.
-- The subtitle must be `.ass`; export with `--format ass` first.
-- Without `--subtitle`, burn uses the most recent export artifact, which may be SRT. Export ASS again or pass the ASS file explicitly.
+- An audio-only workspace has no picture to burn into — it can't produce a burned video.
+- The subtitle must be an `.ass` file; re-export with `--format ass`.
+- Without `--subtitle`, burn uses the most recent export, which may be SRT. Export ASS again or pass the ASS file explicitly.
+- Burn also refuses a workspace ASS that changed since export or isn't tracked — re-export, or pass the file explicitly. `--allow-stale` is only for an intentional hand-edited draft.
 
 ```bash
 openbbq export --to zh --mode bilingual --format ass --workspace workspaces/demo
 openbbq burn --workspace workspaces/demo
 ```
 
-For the default workflow, do not assemble these commands manually. Continue
-until `agent next` returns `finish`, then run its returned `agent finish` command
-once.
+## A running stage goes stale
 
-## Stale running stage
+If a running step sends no heartbeat — no sign of life — for 60 seconds, `status` marks it stale. Make sure no process is actually still active (check its logs), then rerun the affected command. Rerunning refreshes that stage and invalidates the downstream results that depended on it — [Quality gates](/en/docs/concepts/quality-gates) explains how stages depend on each other.
 
-`status` marks running work stale after 60 seconds without a heartbeat. Confirm
-that no process is still active, inspect its stderr/logs, then call `agent next`
-for the authoritative recovery action. Do not delete locks or hand-edit the
-manifest.
+## Still stuck?
+
+The [CLI reference](/en/docs/reference/cli) lists every command and option, and [Workspace files](/en/docs/reference/workspace) explains what each file in a workspace is for.

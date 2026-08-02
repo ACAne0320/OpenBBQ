@@ -1,0 +1,66 @@
+---
+title: 可视化校对
+description: 上桌之前，在本地浏览器编辑器里逐行检查字幕的文字、时间与译文。
+---
+
+可视化校对是视频上桌前的人工检查站。OpenBBQ 会在浏览器里打开一个本地编辑器：看视频、读每一行字幕、改文字和时间、把检查过的行标出来。所有内容都留在你自己的电脑上，不会上传到任何地方。
+
+## 安装编辑器
+
+编辑器是可选组件，安装一次即可：
+
+```bash
+uv tool install 'openbbq[review]' --force
+```
+
+## 打开工作区
+
+```bash
+openbbq review --workspace workspaces/demo --to zh
+```
+
+浏览器会打开一个只有你自己电脑能访问的本地地址。常用选项：
+
+- `--to zh`——打开该语言的[翻译工作表](/zh/docs/guides/translation)，也就是每行字幕对应一条译文的文件。不加这个选项则进入仅原文模式，只有原文字幕行；进入编辑器后也可以再选择语言。
+- `--port PORT`——默认端口被占用时，换一个端口。
+- `--no-open`——只启动编辑器，不自动打开浏览器标签页。
+
+## 一屏看全
+
+- 视频——音频工作区则是音频。
+- 声音波形，一眼看出语音从哪里开始、到哪里结束。
+- 字幕行时间轴。
+- 并排显示的原文和译文。
+- 每一行的时间和校对状态。
+
+## 边改边存
+
+文字修改会自动保存到 `cues.json`（字幕行）和 `translation.zh.json`（工作表）——也就是每条终端命令读写的同一份文件。没有保存按钮，也没有第二份拷贝需要同步。
+
+可以把一行拆成两行、把多行合并、插入或删除行，随时可以撤销或重做。确认无误的行标为 reviewed（已校对）；需要回头再看的行标为 flagged（已标记），然后继续往下走。
+
+校对进度写在 `review.zh.json` 里——仅原文模式则是 `review.source.json`。
+
+<Callout type="warn" title="同一时间只开一个编辑器">
+  一个工作区的编辑锁，同时只能由一个编辑会话持有。先结束或关掉一个 `openbbq review`，再对同一个工作区启动下一个。
+</Callout>
+
+## 字幕文件等导出生成
+
+编辑器不会去碰 SRT 或 ASS 文件。它们始终是派生文件——从工作区生成，而不是被直接修改。改完之后，显式重新导出：
+
+```bash
+openbbq export --to zh --workspace workspaces/demo
+```
+
+详见[导出与烧录](/zh/docs/guides/export-and-burn)。
+
+## 校对关卡
+
+一旦存在 `review.zh.json`，OpenBBQ 就认为校对必须完成：在该范围内每一行都标为 reviewed 之前，译文导出和双语导出都会被挡住。重新打开编辑器，把剩下的行处理完：
+
+```bash
+openbbq review --to zh --workspace workspaces/demo
+```
+
+导出时的 `--allow-unreviewed` 只用于有意为之的草稿——它放行导出，但不会把任何行标为 reviewed。它在整个流程中的位置，见[质量关卡](/zh/docs/concepts/quality-gates)。

@@ -1,0 +1,98 @@
+---
+title: Workspaces and stages
+description: One folder per video, one file per step — and why rerunning a step is safe.
+---
+
+OpenBBQ is not one fixed pipeline with a start button. It is a set of separate commands that you — or your agent — compose: run a step, look at the result, then choose the next operation. Nothing is hidden, so the mental model stays simple: one video, one workspace folder, and every step saves its result as a plain file you can open.
+
+## The workspace
+
+A workspace is a folder that contains an OpenBBQ `manifest.json` — a small JSON file (structured text that programs read easily) that logs what has happened. Create one with `init`:
+
+```bash
+openbbq init --workspace workspaces/demo /path/to/video.mp4
+```
+
+Commands find the workspace in this order:
+
+1. The folder passed with `--workspace` (or `-w`).
+2. The current directory, then each parent directory.
+3. A structured `no_workspace` error when no manifest is found.
+
+So you can run commands from anywhere inside a workspace tree, or point at the workspace explicitly from outside.
+
+## Sources
+
+`init` accepts three kinds of source:
+
+| Source | Examples | What changes |
+| --- | --- | --- |
+| URL | `https://www.youtube.com/watch?v=...` | Run `openbbq fetch` first |
+| Local video | `.mp4`, `.mkv`, `.mov`, `.webm`, and others | Skip `fetch` |
+| Local audio | `.wav`, `.mp3`, `.m4a`, `.flac`, and others | Skip `fetch`; `burn` is unavailable |
+
+Local paths are resolved to absolute paths, and the file is used in place — OpenBBQ does not copy it into the workspace.
+
+## Stages and artifacts
+
+Each command you run is a stage, and each stage leaves its main result as a file:
+
+| Stage | Command | Main artifact |
+| --- | --- | --- |
+| fetch | `openbbq fetch` | downloaded media under `media/` |
+| extract_audio | `openbbq extract-audio` | `media/audio.16k.wav` |
+| transcribe | `openbbq transcribe` | `transcript.json` — what the recognizer heard, with timings |
+| segment | `openbbq segment` | `cues.json` — subtitle lines with start and end times |
+| translate | `openbbq translate ...` | `translation.<lang>.json` — the per-language worksheet |
+| review | `openbbq review` | `review.<lang>.json` (or `review.source.json`), plus synchronized edits to lines and worksheets |
+| export | `openbbq export` | subtitle file under `out/` |
+| burn | `openbbq burn` | hard-subtitled MP4 under `out/` |
+
+The manifest is a work log, not a prefilled checklist: a stage appears only after its command has run. A stage is `running`, `done`, `failed`, or `pending`. Long tasks record a progress heartbeat, and `openbbq status` marks a running stage stale after 60 seconds without an update.
+
+## Rerunning upstream steps
+
+Redoing an early step makes later results suspect: if the transcript changes, every line, translation, and export built on it may no longer match. So when an upstream stage starts or completes, OpenBBQ marks the later recorded stages `pending`. Rerun `transcribe`, and segment, translate, review, export, and burn all go back to pending.
+
+OpenBBQ never deletes your edited files on its own — review or regenerate the downstream artifacts explicitly.
+
+<Callout type="warn" title="Translation worksheets">
+  `openbbq translate init <lang> --force` overwrites the worksheet and discards every target you filled in. Without `--force`, it refuses to replace an existing worksheet.
+</Callout>
+
+## Review writes back
+
+`openbbq review` opens a local editor where you fix source text, translations, and timing — and it writes those edits back to the canonical workspace files. Once a review exists, export waits until the selected review scope is complete; `--allow-unreviewed` is the explicit escape hatch for a draft. See [Visual review](/en/docs/guides/review).
+
+## Human and machine output
+
+At an interactive terminal, OpenBBQ draws tables and progress bars. With `--json`, in CI, or anywhere the output is not a terminal, it prints one compact JSON object instead — the root `--json` flag goes before the command name:
+
+```bash
+openbbq --json status --workspace workspaces/demo
+```
+
+Success and failure use different exit codes, so scripts and agents can react without parsing prose. [Working with agents](/en/docs/guides/agents) has the full contract.
+
+## Global data
+
+Workspace files belong to one media project. Data shared across projects lives under `OPENBBQ_HOME`, which defaults to `~/.openbbq`:
+
+```text
+~/.openbbq/
+├── auth/          # saved site sessions
+├── glossaries/    # named glossary JSON files
+└── models/        # recognizer model cache
+```
+
+Point it elsewhere when the default location is not writable:
+
+```bash
+OPENBBQ_HOME=/path/to/openbbq-home openbbq doctor
+```
+
+## Where next?
+
+- [Quality gates](/en/docs/concepts/quality-gates) — the checks between the stages.
+- [Quickstart](/en/docs/getting-started/quickstart) — walk the stages once, end to end.
+- [CLI reference](/en/docs/reference/cli) — every command and option.

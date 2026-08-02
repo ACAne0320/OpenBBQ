@@ -1,66 +1,125 @@
 ---
-title: 翻译
-description: 理解 Agent 翻译批次、可复现 brief 与可编辑工作表。
+title: 翻译与审校
+description: 填写翻译工作表，检查进度，并在导出前逐行审校。
 ---
 
-OpenBBQ 不内置翻译 provider。外部 Agent 负责语义翻译，OpenBBQ 负责批次大小、上下文、
-ID、hash 与原子应用。
+OpenBBQ 不替你自动翻译——这是有意为之。它负责准备一份工作表：一个列出所有字幕行并留好译文位置的 JSON 文件。真正的译文由人或 AI Agent 来写，你可以随时校验进度，而导出会等到检查通过才放行。
 
-## 默认 Agent 翻译
+## 开始之前
 
-一句提示词流程会创建 `translation@2` 工作表，并且同时只返回一个活动 `translate`
-action。每批最多选择 20 条 cue，并包含：
+得先有一行行字幕——`openbbq segment` 必须已经生成 `cues.json`。还没到这一步的话，见[听写与检查](/zh/docs/guides/transcription)。
 
-- 原语言与目标语言；
-- fetch 能获取到的标题和作者；
-- glossary 领域上下文；
-- 当前与相邻 cue 命中的术语，包括 pending term；
-- 用于消歧的相邻 cue 文本；
-- 固定目标语言规则与 `policy_hash`。
+## 创建工作表
 
-响应必须翻译所有 selected ID，并原样带回 `batch_id` 和 `policy_hash`。缺失、额外、
-过期或 policy 不匹配的 ID 都会被拒绝。
-
-## 简体中文规则
-
-`zh`、`zh-Hans` 和 `zh-CN` 使用 `zh-Hans` brief：输出自然、简洁的简体中文，同时
-保留否定、程度、数字、实体、因果、条件与操作步骤。
-
-命令、代码、路径、flag、URL、快捷键、产品名和模型名应保持准确，除非 glossary
-明确提供译名。相邻 cue 只用于消歧，内容不能跨 ID 漂移。含义与对齐优先于激进压缩。
-
-`zh-TW`、`zh-Hant` 和 `zh-HK` 等繁体标签使用 generic fallback，不会误套简体规则。
-
-## 翻译时修正 ASR
-
-译文语义暴露当前 cue 中的明确 ASR 错误时，Agent 可以提交带证据和 reusable 判断的
-cue-scoped source fix。OpenBBQ 会先原子同步 `cues.json` 与工作表，再应用译文；可复用
-修正会自动成为 glossary candidate。
-
-不确定的猜测应保留为 warning，不能编造 source correction。
-
-## 质量信号
-
-`translate check` 报告完整度、target budget 与术语提示。默认底稿流程中，显示预算和
-普通 glossary 一致性只是 advisory；硬门禁覆盖完整 ID、非空文本、当前 hash、有效
-时间轴、翻译证据与新鲜产物。
-
-默认流程不再运行第二轮全量 AI audit。只有完整人工审核才会得到
-`quality: "human-reviewed"`。
-
-## 专家工作表命令
-
-手动流程或自定义 provider 仍可使用原子接口：
+选一个语言代码，比如 `zh`、`ja` 或 `pt-BR`：
 
 ```bash
 openbbq translate init zh --workspace workspaces/demo
-openbbq --json translate batch zh --workspace workspaces/demo --limit 20 --only-missing
-openbbq translate apply zh batch-01.json --workspace workspaces/demo
+```
+
+这会生成 `translation.zh.json`，也就是工作表。每一行字幕对应一个条目，包含行 id、原文、时间、译文长度预算（译文最多写多长，观众才读得舒服）、术语提示，以及一个等你填写的空 `target: null`。
+
+已有的工作表受保护：`init` 会拒绝覆盖。`--force` 会重新生成并丢弃所有已填译文——只有确认要推倒重来时才用它。
+
+## 填写译文
+
+只有几行时，直接打开工作表填 `target`，保持结构和行 id 原样不动：
+
+```json
+{
+  "id": 1,
+  "source": "Tools should expose the process.",
+  "target": "工具应该让过程透明。"
+}
+```
+
+内容多就分批：写一个把行 id 映射到译文的 JSON 对象。
+
+```json
+{
+  "1": "第一句译文",
+  "2": "第二句译文"
+}
+```
+
+把这一批合并进工作表：
+
+```bash
+openbbq translate apply zh targets.json --workspace workspaces/demo
+```
+
+合并可以反复执行。已有译文的行会被覆盖并明确报告；不存在或格式错误的行 id 会被拒绝，不会静默弄坏工作表。
+
+## 分片阅读工作表
+
+长视频的工作表很长，没法一次读完，也不好整个丢给 Agent。分片来读：
+
+```bash
+openbbq translate batch zh --from 1 --limit 20 --only-missing --workspace workspaces/demo
+```
+
+- `--from`——从第几行开始读（最小为 1，默认也是 1）。
+- `--limit`——每片多少行，1 到 200（默认 20）。
+- `--only-missing`——跳过已经有译文的行。
+- `--context`——附带多少条相邻行作上下文，0 到 5（默认 1）。
+
+只有一份工作表时，语言参数可以省略，OpenBBQ 会自动推断。
+
+## 检查成果
+
+```bash
 openbbq translate check zh --workspace workspaces/demo
 ```
 
-`translate apply` 接受 `{id: target}` 对象，可以重复执行。原子命令不会生成 Agent 底稿
-交付证据；一句提示词交付请使用 facade，或在最终交付前完成人工审核。
+报告包括：已填和总行数、还没译的行 id、超过字符预算的译文、零预算的行、术语问题，以及其他质量信号。只有它回答 `ready: true`，翻译才算完成。
 
-每种目标语言有独立工作表。`translate init --force` 会覆盖现有工作表并丢弃已填 target，
-只应在明确接受损失时使用。
+`check` 是只读的，绝不会让已经完成的导出或烧录失效。但只要还有漏译、超预算、零预算或术语问题没解决，导出就会拒绝执行——除非你明确要做一份草稿（见下文）。
+
+导出双语 ASS 时会尊重每行的预算：过长的译文会按确定的规则折成多行，而不是被截断。
+
+## 逐行审校
+
+`check` 通过只说明工作表填完了，不说明译得好。审校是一条覆盖每一行的复核队列——风险高的排在前面，并附带相邻行作上下文：
+
+```bash
+openbbq translate audit zh --coverage all --limit 20 --workspace workspaces/demo
+```
+
+- `--offset`——从队列的哪个位置开始（默认 0）。
+- `--limit`——每页多少行（默认 20）。
+- `--only-unreviewed`（默认）或 `--all`——跳过或包含已经复核过的行。
+- `--coverage risks|all`——只看有风险的行，或覆盖每一行（默认 `all`）。
+
+每一行都要给出决定：接受，或者修改。每个决定都要写理由；修改还要附上新的译文。把决定写回工作区：
+
+```bash
+openbbq translate audit-apply zh translation-audit.json --workspace workspaces/demo
+```
+
+改动一行，会让它自己、以及把它当上下文的相邻行的复核一起失效。导出会拦住还有未审项目的语言，除非是有意的草稿带上 `--allow-quality-warnings`。
+
+## 多个目标语言
+
+每种语言有各自独立的工作表：
+
+```bash
+openbbq translate init zh --workspace workspaces/demo
+openbbq translate init ja --workspace workspaces/demo
+```
+
+导出时用 `--to` 选择语言，见[导出与烧录](/zh/docs/guides/export-and-burn)。
+
+绑定到工作区的术语表会自动进入每份工作表；也可以用 `openbbq translate init zh --glossary project-name` 为单份工作表覆盖。详见[术语表](/zh/docs/guides/glossaries)。
+
+## 有意的草稿
+
+有时你就是想先出个半成品——比如给人看个粗剪。两个例外开关都必须显式指定，而产物都算草稿：
+
+- `--allow-missing`——没译的行回退为原文。
+- `--allow-quality-warnings`——带着未解决的质量项（包括未审校的行）强行导出。
+
+## 接下来
+
+- [质量关卡](/zh/docs/concepts/quality-gates)——检查、审校和导出是怎么咬合在一起的
+- [可视化校对](/zh/docs/guides/review)——上桌前在屏幕上核对字幕
+- [与 Agent 协作](/zh/docs/guides/agents)——让 Agent 来填写和审校工作表

@@ -45,7 +45,10 @@ policy hash。在 apply 前，重复调用 `next` 会返回同一个 lease。缺
 过期内容或错误 policy 的响应都会被拒绝。
 
 翻译批次最多包含 20 条 cue，并携带可复现的翻译 brief、相关 glossary 上下文与相邻
-cue。相邻 cue 只用于消歧，内容必须留在选中的 cue ID 中。
+cue。相邻 cue 只用于消歧，内容必须留在选中的 cue ID 中。批次还会提供
+`generation_policy`：驱动流程的 Agent 必须根据给定原文、上下文、glossary 和规则生成
+译文，并在 apply 时回传要求的 `generation_mode`。外部翻译服务和自动翻译脚本不属于
+这份约定。
 
 ## 机械命令执行
 
@@ -53,10 +56,17 @@ cue。相邻 cue 只用于消歧，内容必须留在选中的 cue ID 中。
 sandbox 外的宿主环境执行。重复机械命令会等待当前阶段，并复用已经完成的新鲜产物，
 不会启动相互竞争的重复任务。
 
+如果执行工具返回了 process 或 session ID，就持续轮询同一个进程直到它退出。暂时没有
+输出，或外层工具已经结束，都不代表可以重新运行同一条命令。
+
 ## 原文纠错与 glossary 学习
 
 确定性检查会在翻译前修复已知结构性字幕问题。翻译时发现明确 ASR 错误，Agent 可以
 提交当前 cue 内的有界 source fix，并判断该修正是否可复用。
+
+当局部短语与已有的定时参考字幕不一致时，cue 可能带有精简的
+`reference_evidence`。它只是线索，不是权威原文。普通歧义应该留下 warning，不应触发
+网页搜索、第二次识别或猜测式改写。
 
 OpenBBQ 会把发现记录到任务本地 glossary overlay。URL 来源没有显式 glossary 时，
 fetch 得到的作者元数据会绑定稳定的“作者+目标语言” glossary。可复用且无冲突的条目
@@ -66,7 +76,8 @@ fetch 得到的作者元数据会绑定稳定的“作者+目标语言” glossa
 
 `agent finish` 要求当前翻译证据完整，导出 `out/zh.ass`、烧录
 `out/zh-burned.mp4`、运行交付门禁，并发布符合条件的 glossary 学习。产物仍然新鲜
-时，重复 finish 会幂等返回，不会再次烧录。
+时，重复 finish 会幂等返回，不会再次烧录。横屏视频使用 `fansub`，竖屏视频使用
+`mobile`。
 
 自动结果报告 `quality: "draft"` 和 `human_reviewed: false`。通过
 `openbbq review` 完成全部当前人工审核后，质量状态才会变为 `human-reviewed`。

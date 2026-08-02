@@ -1,89 +1,169 @@
 ---
-title: 快速开始
-description: 用一句 Agent 提示词生成可编辑的双语字幕底稿和烧录后的视频。
+title: 快速上手
+description: 交给 Agent，或者自己动手，完成第一个视频。
 ---
 
-这是在线 URL 与本地文件都推荐使用的默认路径。OpenBBQ 负责工作流状态和确定性校验，
-Agent 负责语义翻译。
+这份指南把一个英语视频做成“中文在上、英文在下”的双语字幕视频。有两条路可以走：
 
-## 1. 检查安装
+- **交给 Agent**：把整个任务交给它，让它运行工作流。
+- **自己操作**：逐条运行命令，看清每个阶段发生了什么。
+
+## For Agent
+
+如果你在用 [Claude Code](https://claude.com/claude-code) 或 [Codex](https://github.com/openai/codex) 这样的 Agent，不必记住所有命令。先把工作流教给它，只需要一次：
 
 ```bash
-openbbq --version
-openbbq doctor
-openbbq models list
+openbbq skill install --agent claude
 ```
 
-尚未缓存正式字幕模型时，先下载：
+Codex 用 `--agent codex`，其他 Agent 用不带参数的 `openbbq skill install`（装到共享目录）。然后发一句话：
+
+```text
+帮我把这个视频制作成中英双语字幕视频：https://www.youtube.com/watch?v=xxx
+```
+
+Agent 会先创建一个工作区，然后始终按照 OpenBBQ 返回的唯一下一步推进，直到字幕底稿可以交付。它可以下载所需模型、转录、处理结构性听写问题、分批翻译、导出和烧录；需要你操作时，例如登录账号，它会停下来。
+
+最终文件位于 `out/zh-burned.mp4`。自动结果会明确标成可继续编辑的 `draft`；只有人通过 `openbbq review` 检查全部当前字幕后，状态才会变成 `human-reviewed`。Agent 的操作约定和中断恢复方式见[工作流模型](/zh/docs/getting-started/workflow)。
+
+本地视频也一样用。把 URL 换成本地文件路径，例如 `./video.mp4`。
+
+## For Human
+
+想自己动手，或者想看看 Agent 在幕后做了什么？把同一条流水线手动跑一遍。操作时换成你自己的文件和语言代码即可。
+
+## 1. 检查环境
 
 ```bash
+openbbq doctor
+```
+
+按提示处理好它发现的问题，然后确认你已经有识别模型：
+
+```bash
+openbbq models list
 openbbq models pull large-v3-turbo
 ```
 
-确保随包 Skill 为最新版：
+## 2. 创建工作区
+
+一个视频对应一个工作区文件夹：
 
 ```bash
-openbbq skill install --agent all --force
+openbbq init --workspace workspaces/demo /path/to/video.mp4
 ```
 
-## 2. 发送一句提示词
+进入这个文件夹，后面的命令就能自动找到它：
 
-在线视频：
+```bash
+cd workspaces/demo
+```
 
-> 帮我把这个视频制作成中英双语字幕视频：https://www.youtube.com/watch?v=...
+你也可以待在原地，给每条命令加上 `--workspace workspaces/demo`。
 
-本地文件：
+## 3. 准备音频
 
-> 帮我把 `/path/to/video.mp4` 制作成中英双语字幕视频。
+```bash
+openbbq extract-audio
+```
 
-提示词中不需要解释下载、ASR、分批翻译、glossary 维护、字幕导出或烧录步骤；这些规则
-由 Agent Skill 提供。
+这一步会给识别器准备一条干净的音频，方便它“听“。
 
-## 3. 让 Agent 完成任务
+## 4. 把听到的话记下来
 
-正常流程如下：
+```bash
+openbbq transcribe --model large-v3-turbo --language en
+```
+
+OpenBBQ 听完音频后，会把每句话和对应时间写入 `transcript.json`。视频较长时要等一会儿，可以在另一个终端用 `openbbq status` 查看进度。
+
+## 5. 检查听得对不对
+
+翻译之前，OpenBBQ 会先把它们没听准的地方指出来：
+
+```bash
+openbbq asr check
+```
+
+- `ready: true`：没有可疑的地方，可以继续。
+- 还没准备好：它会列出存疑的位置。[听写与检查](/zh/docs/guides/transcription)会说明怎样确认或修正。这一步通过之前，无法切字幕。
+
+## 6. 切成一行行字幕
+
+```bash
+openbbq segment
+```
+
+听写稿会变成 `cues.json`，其中包含带起止时间的字幕行，长度按舒适的阅读速度切分。
+
+## 7. 翻译
+
+创建一份翻译工作表：
+
+```bash
+openbbq translate init zh
+```
+
+打开 `translation.zh.json`：每一行都有原文和一个空的 `target` 等你填写。只有几行的话，直接改这个文件就行；内容多就分批写、分批合并：
+
+```json
+{
+  "1": "第一句译文",
+  "2": "第二句译文"
+}
+```
+
+```bash
+openbbq translate apply zh targets.json
+```
+
+然后检查一遍：
+
+```bash
+openbbq translate check zh
+```
+
+它会抓出漏译、长到读不完的句子，以及前后不一致的名字。处理掉它报告的问题，直到它回答 `ready: true`。
+
+## 8. 导出双语字幕
+
+```bash
+openbbq export --to zh --mode bilingual --format ass --ass-preset fansub
+```
+
+你会得到 `out/zh.ass`，中文在上、英文在下，样式已经针对横屏视频调整。烧录之前，先在支持 ASS 的播放器中预览。
+
+## 9. 烧进画面（可选）
+
+```bash
+openbbq burn
+```
+
+几分钟后得到 `out/zh-burned.mp4`，字幕已经成为画面的一部分。
+
+## 10. 上桌之前
+
+```bash
+openbbq delivery check --to zh
+```
+
+这是发布前的最后一道关卡。它会重新核验听写决定、翻译、校对状态和烧好的视频。如果还有没完成的步骤，例如完整的逐句审校，它会说明剩下什么以及如何完成。[质量关卡](/zh/docs/concepts/quality-gates)解释了背后的想法。
+
+## 现在的工作区
 
 ```text
-fetch（仅 URL）-> 抽取音频 -> 转录 -> 校验/分段
-               -> 每批不超过 20 条 cue 的翻译
-               -> 导出 ASS -> 烧录一次 -> 交付检查 -> done
+workspaces/demo/
+├── manifest.json        # 进度日志
+├── media/               # 准备好的音频
+├── transcript.json      # 听到的内容
+├── cues.json            # 字幕行
+├── translation.zh.json  # 你的译文
+└── out/                 # 字幕和烧好的视频
 ```
 
-OpenBBQ 每次只返回一个权威的下一步。机械 action 会提供精确 argv 和执行策略。GPU
-转录、带登录态的 fetch 与最终烧录可能需要在受限 sandbox 外运行；Agent 不应在宿主机
-GPU 可用时擅自改用 CPU。
+## 接下来
 
-翻译批次会携带目标语言规则、标题与作者、相邻上下文和命中的 glossary 术语。翻译时
-发现明确 ASR 错误，Agent 可以提交 cue-scoped source fix；可复用的修正会成为
-glossary candidate，并在成功交付后安全发布。
-
-## 4. 获取产物
-
-完成后的 `done` 响应返回：
-
-- `out/zh.ass`：可编辑的双语 ASS 字幕；
-- `out/zh-burned.mp4`：烧录后的视频；
-- 默认自动路径的 `quality: "draft"`；
-- 默认自动路径的 `human_reviewed: false`；
-- 非阻塞的质量提示或 glossary 发布告警。
-
-默认流程只导出和烧录一次，不运行视觉 QA，也不会自动改用 `fansub-compact`。
-
-<Callout title="质量预期">
-  自动结果定位为可用的 70–80 分底稿。它应保持结构和 cue 对齐，但不代表每条字幕都
-  经过专业人工确认。
-</Callout>
-
-## 继续专业精修
-
-可以在同一个 workspace 中打开可选的浏览器编辑器：
-
-```bash
-openbbq review --workspace /path/to/workspace --to zh
-```
-
-也可以把 `out/zh.ass` 导入 Aegisub 或剪辑软件。人工修改具有最高权威，不要让自动
-Agent 流程覆盖已经完成的人工工作。
-
-登录与本地文件细节见[本地文件与在线视频](/zh/docs/guides/sources)；Agent 实现细节见
-[Agent 与 JSON](/zh/docs/guides/agents)。
+- 视频在 YouTube 上？看[获取视频](/zh/docs/guides/sources)。
+- 准备交给 Agent？先读[工作流模型](/zh/docs/getting-started/workflow)。
+- 发布前想在屏幕上通览一遍？试试[可视化校对](/zh/docs/guides/review)。
+- 好奇每个文件是干什么的？看[工作区文件](/zh/docs/reference/workspace)。

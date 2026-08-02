@@ -1,7 +1,9 @@
 ---
-title: Workspace and Files
-description: On-disk artifacts, manifest state, shared storage, and environment variables.
+title: Workspace files
+description: What each file in a workspace is for, plus shared storage and environment variables.
 ---
+
+One video, one workspace folder. Every step of the pipeline saves its result as a plain file you can open and inspect. This page explains what each file is for; [CLI reference](/en/docs/reference/cli) lists the commands that produce them.
 
 ## Workspace layout
 
@@ -11,23 +13,29 @@ A fully processed workspace commonly contains:
 workspace/
 ├── manifest.json
 ├── media/
-│   ├── <downloaded-media>
+│   ├── <downloaded media>
 │   ├── <thumbnail>
 │   └── audio.16k.wav
 ├── transcript.json
 ├── cues.json
 ├── translation.zh.json
+├── review.zh.json
 ├── .openbbq/
-│   ├── agent-session.zh.json
-│   ├── glossary-overlay.json
+│   ├── asr-review.json
+│   ├── translation-audit.zh.json
+│   ├── qa.json
 │   ├── artifacts.json
-│   └── review/                 # only after browser review
+│   └── review/
+│       ├── journal.json
+│       ├── checkpoints/
+│       └── cache/
 └── out/
+    ├── en.srt
     ├── zh.ass
     └── zh-burned.mp4
 ```
 
-Only artifacts produced by commands are created. A local source remains at its original absolute path; URL media is stored under `media/`.
+Only artifacts produced by commands are created. A local source stays at its original absolute path; media fetched from a URL lives under `media/`.
 
 ## `manifest.json`
 
@@ -37,62 +45,52 @@ The manifest schema is currently `openbbq/manifest@1`. It records:
 - Source type and reference.
 - Fetched title, author, and thumbnail when available.
 - Bound glossary name.
-- Stage status, artifact path, progress heartbeat, update time, and error.
+- Per-stage status, artifact, progress heartbeat, update time, and error.
 
-Do not treat the manifest as a pipeline configuration file. It is a validated work log maintained by OpenBBQ commands.
+It is a validated work log maintained by commands — not a pipeline configuration file.
 
 ## `transcript.json`
 
-ASR output with detected or forced language, media duration, backend/model metadata, segments, and word-level timing/probability when supplied by the backend.
+What the recognizer heard: the detected or forced language, media duration, backend and model metadata, segments, and word-level timing and confidence when the backend supplies them.
 
-Regenerate it with `transcribe`; malformed or incompatible files are rejected with an `invalid_transcript` error.
+Regenerate it with `transcribe`. Malformed or incompatible files are rejected with an `invalid_transcript` error.
 
 ## `cues.json`
 
-Source subtitle timeline derived deterministically from the transcript. It includes:
+The subtitle-line timeline, derived deterministically from the transcript. It includes:
 
 - Source language.
 - The segmentation parameters used.
-- Stable cue ids, start/end times, and source text.
+- Stable line ids, start/end times, and source text.
 
-Translation worksheets and exports depend on cue identity. Rerunning segmentation can require regenerating or reconciling worksheets.
+Translation worksheets and exports depend on line identity. Rerunning `segment` can require reconciling existing worksheets.
 
 ## `translation.<lang>.json`
 
-One editable worksheet per target language. The current `translation@2` schema
-includes a reproducible translation brief in addition to cue ids, source text,
-targets, timing, budgets, and glossary context. The Agent facade updates it in
-hash-bound batches of at most 20 cues.
+One editable worksheet per target language. Unfilled targets stay `null`, so the remaining work is easy to discover. Use `translate apply` for controlled batch updates and `translate check` for integrity.
 
-## Agent session and glossary overlay
+## `review.<lang>.json`
 
-`.openbbq/agent-session.<lang>.json` stores the active lease, translation
-evidence bound to cue/policy/glossary hashes, finish state, and warnings. It is
-workflow state maintained by OpenBBQ, not a file to hand-edit.
+Per-line review state — `review.source.json` when you review the source only. The schema is `openbbq/review@1`. It stores per-line status, notes, content fingerprints, the selected target language, and revision metadata. It does not duplicate the subtitle text.
 
-`.openbbq/glossary-overlay.json` records task-local entries, evidence, and
-glossary candidates. It identifies the base glossary but does not modify the
-global library until delivery succeeds.
+Review edits keep `cues.json` and all worksheets aligned. Mutations go through recoverable checkpoints and a cross-file journal, and undo/redo is available during the active session.
 
-`.openbbq/artifacts.json` records export and burn provenance. Delivery uses it
-to reject stale or mismatched outputs and to make a fresh finish idempotent.
+`.openbbq/review/` holds the checkpoints, the journal, the single-editor lock, and waveform/proxy caches. These are implementation state, not authored content.
 
-## Review state
+## `.openbbq/` state
 
-Professional review is optional. `review.<lang>.json` (or
-`review.source.json`) uses the `openbbq/review@1` schema and stores per-cue
-status, notes, content fingerprints, the selected target language, and revision
-metadata. It does not duplicate subtitle text. A complete current review is the
-evidence for `quality: "human-reviewed"`.
+Small state files that the quality gates read and write:
 
-`.openbbq/review/` contains recoverable transaction checkpoints, the current
-journal, the single-editor lock, and derived waveform/proxy caches. These files
-appear only after using the review UI and are implementation state rather than
-authored subtitle content.
+| File | Contents |
+| --- | --- |
+| `.openbbq/asr-review.json` | Listening decisions, bound to the transcript hash. |
+| `.openbbq/translation-audit.<lang>.json` | Semantic review decisions for the current lines. |
+| `.openbbq/qa.json` | MP4 and frame evidence, plus an optional visual attestation. |
+| `.openbbq/artifacts.json` | Export provenance and content hashes used by `burn`. |
 
 ## `out/`
 
-Generated subtitles and hard-subtitled videos. Default names are derived from source/target language and format, but `--output` can write elsewhere.
+Generated subtitles and hard-subtitled videos. Default names derive from language and format, but `--output` can write elsewhere.
 
 ## Shared OpenBBQ home
 
@@ -105,22 +103,22 @@ Generated subtitles and hard-subtitled videos. Default names are derived from so
 └── models/<provider>/
 ```
 
-Do not commit this directory. Auth cookies are account data; keep them private and remove them with `openbbq auth clear <site>` when no longer needed.
+Do not commit this directory. Auth cookies are account data — keep them private and remove them with `openbbq auth clear <site>` when no longer needed.
 
 ## Environment variables
 
 | Variable | Purpose |
 | --- | --- |
 | `OPENBBQ_HOME` | Override global auth, glossary, and model storage. |
-| `HF_ENDPOINT` | Override the Hugging Face endpoint used for whisper.cpp model downloads. |
+| `HF_ENDPOINT` | Override the [Hugging Face](https://huggingface.co/) endpoint used for model downloads. |
 
-Example for a writable isolated home:
+An isolated, writable home:
 
 ```bash
 OPENBBQ_HOME=/tmp/openbbq-home openbbq models list
 ```
 
-Example mirror, only when intentionally selected:
+A mirror, only when intentionally selected:
 
 ```bash
 HF_ENDPOINT=https://hf-mirror.com openbbq models pull large-v3-turbo

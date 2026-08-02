@@ -1,7 +1,9 @@
 ---
 title: CLI 参考
-description: 当前 OpenBBQ CLI 实际实现的命令和选项。
+description: 当前 OpenBBQ CLI 的全部命令和选项，按流水线顺序排列。
 ---
+
+OpenBBQ 的所有命令，按流水线顺序排列。处理视频的命令都在工作区里进行；[工作区文件](/zh/docs/reference/workspace)解释了那里每个文件的作用。
 
 ## 全局语法
 
@@ -11,13 +13,33 @@ openbbq [--json] COMMAND [ARGS]...
 
 | 选项 | 说明 |
 | --- | --- |
-| `--json` | 输出一个机器可读 JSON 对象，必须放在命令之前。 |
-| `--version` | 输出当前安装的 OpenBBQ 版本。 |
-| `--help` | 显示当前命令或命令组帮助。 |
+| `--json` | 输出一个机器可读的 JSON 对象，必须放在命令之前。 |
+| `--help` | 显示当前命令或命令组的帮助。 |
 | `--install-completion` | 安装 shell 补全。 |
 | `--show-completion` | 输出 shell 补全代码。 |
 
-大多数 workspace 命令接受 `--workspace PATH` 或 `-w PATH`；省略时从当前目录向上查找。
+大多数工作区命令接受 `--workspace PATH`（简写 `-w PATH`）；省略时，OpenBBQ 会从当前目录向上查找工作区。
+
+## `agent`
+
+一句提示词工作流的默认 facade。只初始化一次，之后持续请求唯一权威的下一步：
+
+```text
+openbbq --json agent init SOURCE [--workspace PATH] [--to CODE] [--glossary NAME]
+openbbq --json agent next [--workspace PATH] [--to CODE]
+openbbq --json agent apply RESPONSE.json [--workspace PATH] [--to CODE]
+openbbq --json agent finish [--workspace PATH] [--to CODE]
+```
+
+| 命令 | 说明 |
+| --- | --- |
+| `agent init` | 创建工作区和一个 Agent session。`--to` 默认为 `zh`；显式传入 `--glossary` 会绑定已有的全局术语表。 |
+| `agent next` | 只返回 `run_command`、`review_source`、`translate`、`finish` 或 `done` 其中一个 action。每个 action 成功后再次调用。 |
+| `agent apply` | 原子应用当前语义 lease 的完整 JSON 响应。缺少、额外、过期或 policy 不匹配的内容都会被拒绝。 |
+| `agent finish` | 导出双语 ASS、烧录视频、检查交付，并发布符合条件的 glossary 学习。只在 `agent next` 返回它时运行。 |
+
+原样使用返回的 `argv`，并遵守其中的 execution policy。Lease、有界翻译、中断恢复和
+底稿质量语义见[工作流模型](/zh/docs/getting-started/workflow)。
 
 ## `doctor`
 
@@ -25,7 +47,7 @@ openbbq [--json] COMMAND [ARGS]...
 openbbq doctor
 ```
 
-只读、幂等地检查 Python、FFmpeg、字幕 filter、yt-dlp、ASR 后端、缓存模型和 Agent Skill。
+检查环境：[Python](https://www.python.org/)、[FFmpeg](https://www.ffmpeg.org/)、字幕滤镜、[yt-dlp](https://github.com/yt-dlp/yt-dlp)、识别器后端、已缓存模型和 Agent Skill。只读且幂等——不会改动任何东西。
 
 ## `init`
 
@@ -35,11 +57,11 @@ openbbq init [--workspace PATH] [--glossary NAME] SOURCE
 
 | 输入 | 说明 |
 | --- | --- |
-| `SOURCE` | 必填 URL 或本地视频/音频路径。 |
-| `--workspace`、`-w` | 输出 workspace；省略时在当前目录创建 slug 子目录，`.` 表示当前目录。 |
-| `--glossary` | 初始化时绑定已有全局术语表。 |
+| `SOURCE` | 必填，URL 或本地视频/音频路径。 |
+| `--workspace`、`-w` | 工作区目录。省略时在当前目录下创建一个 slug 子目录；用 `.` 表示当前目录本身。 |
+| `--glossary` | 初始化时直接绑定已有的全局术语表。 |
 
-只创建 workspace 和 manifest，不下载或处理媒体。
+只创建工作区和它的 manifest，还不会下载或处理任何内容。
 
 ## `status`
 
@@ -47,35 +69,21 @@ openbbq init [--workspace PATH] [--glossary NAME] SOURCE
 openbbq status [--workspace PATH]
 ```
 
-报告来源元数据、术语表绑定、工作表、已记录阶段、进度、产物、失败和 stale running 阶段。
-
-## `agent`
-
-默认一句提示词 facade：
-
-```text
-openbbq agent init [--workspace PATH] [--to CODE] [--glossary NAME] SOURCE
-openbbq agent next [--workspace PATH] [--to CODE]
-openbbq agent apply [--workspace PATH] [--to CODE] RESPONSE.json
-openbbq agent finish [--workspace PATH] [--to CODE]
-```
-
-`init` 创建可编辑底稿 session；`next` 返回唯一权威 action；`apply` 原子接收完整的活动
-语义响应；`finish` 只执行一次导出、烧录、交付检查和符合条件的 glossary 发布。
+报告来源元数据、绑定的术语表、工作表、已记录的阶段及进度、产物、失败记录，以及卡在“运行中“的过期阶段。
 
 ## `fetch`
 
 ```text
-openbbq fetch [--workspace PATH] [--auth SITE | --no-auth]
+openbbq fetch [--workspace PATH] [--auth SITE | --no-auth] [--max-height INT]
 ```
 
 | 选项 | 说明 |
 | --- | --- |
-| `--auth SITE` | 使用保存的网站会话，目前为 `youtube`。 |
-| `--no-auth` | 强制匿名 yt-dlp 下载。 |
-| `--max-height INT` | 限制下载视频高度；默认使用 yt-dlp 最佳质量。 |
+| `--auth SITE` | 使用已保存的网站会话，目前是 `youtube`。 |
+| `--no-auth` | 强制匿名下载。 |
+| `--max-height INT` | 限制视频分辨率上限，例如 `1080`。 |
 
-只适用于 URL 来源。支持的 YouTube URL 会自动使用已配置会话，除非传入 `--no-auth`。
+只对 URL 来源有效。支持的 YouTube 链接会自动使用已配置的会话，除非传入 `--no-auth`。
 
 ## `extract-audio`
 
@@ -83,7 +91,7 @@ openbbq fetch [--workspace PATH] [--auth SITE | --no-auth]
 openbbq extract-audio [--workspace PATH]
 ```
 
-把可用来源媒体标准化为 16 kHz 单声道 `media/audio.16k.wav`。
+把来源媒体标准化为 `media/audio.16k.wav`——16 kHz 单声道，也就是识别器“听“的那条音频。
 
 ## `transcribe`
 
@@ -93,15 +101,15 @@ openbbq transcribe [OPTIONS]
 
 | 选项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `--model NAME_OR_PATH` | 缓存中质量最佳的模型 | 模型名或直接 ggml `.bin` 路径。 |
-| `--backend NAME` | `auto` | ASR 后端，目前为 `auto` 或 `whisper.cpp`。 |
-| `--language CODE` | 自动检测 | 强制原语言，例如 `en`。 |
-| `--prompt TEXT` | 无 | ASR initial prompt。 |
-| `--glossary NAME` | manifest 绑定 | 覆盖已绑定术语表。 |
-| `--gpu` / `--cpu` | `--gpu` | 启用或禁用后端 GPU 加速。 |
-| `--auto-download` | 关闭 | 转录前下载缺失的命名模型。 |
+| `--model NAME_OR_PATH` | 缓存中质量最佳的模型 | 缓存模型名，或 ggml `.bin` 文件的直接路径。 |
+| `--backend NAME` | `auto` | 识别器后端：`auto` 或 `whisper.cpp`。 |
+| `--language CODE` | 自动检测 | 强制指定原语言，例如 `en`。 |
+| `--prompt TEXT` | 无 | 识别器的初始 prompt。 |
+| `--glossary NAME` | manifest 绑定 | 覆盖已绑定的术语表。 |
+| `--gpu` / `--cpu` | `--gpu` | 开关 GPU 加速。 |
+| `--auto-download` | 关闭 | 听写前自动下载缺失的命名模型。 |
 
-依赖 `extract-audio`，输出 `transcript.json`，包含 segment、可用的词级时间、后端、模型、语言和时长。
+需要先运行 `extract-audio`。写出 `transcript.json`——它听到的每句话，都带时间。
 
 ## `segment`
 
@@ -111,51 +119,124 @@ openbbq segment [OPTIONS]
 
 | 选项 | 说明 |
 | --- | --- |
-| `--lang CODE` | 覆盖 transcript 原语言。 |
-| `--glossary NAME` | 覆盖用于别名纠错的 manifest 术语表。 |
+| `--lang CODE` | 覆盖听写稿的原语言。 |
+| `--glossary NAME` | 覆盖用于别名纠错的已绑定术语表。 |
 | `--max-cps FLOAT` | 最大每秒字符数。 |
 | `--max-chars-per-line INT` | 每行字符预算。 |
-| `--max-lines INT` | 每个 cue 最大行数。 |
-| `--min-dur FLOAT` | 最短 cue 时长（秒）。 |
-| `--max-dur FLOAT` | 最长 cue 时长（秒）。 |
-| `--min-gap FLOAT` | cue 间最小间隔（秒）。 |
-| `--pause-threshold FLOAT` | 自然停顿切分阈值（秒）。 |
+| `--max-lines INT` | 每条字幕的最大行数。 |
+| `--min-dur FLOAT` | 字幕最短时长（秒）。 |
+| `--max-dur FLOAT` | 字幕最长时长（秒）。 |
+| `--min-gap FLOAT` | 字幕之间的最小间隔（秒）。 |
+| `--pause-threshold FLOAT` | 触发切分的停顿时长（秒）。 |
 
-内置 profile 根据 transcript 基础语言选择 `en`、`zh`、`ja` 或 `ko`；其他语言回退到通用拉丁 profile。输出 `cues.json`。
+把听写稿切成一行行字幕，写出 `cues.json`。内置 `en`、`zh`、`ja`、`ko` 四种语言配置，其他语言回退到通用拉丁配置。
 
-## `translate init`
+## `asr`
+
+听写检查：在切字幕和翻译之前，先核实识别器听到的内容。
+
+### `asr check`
+
+```bash
+openbbq asr check [--workspace PATH] [--max-prob FLOAT]
+```
+
+报告存疑的位置，以及是否每个问题都已有了决定（`ready`）。`--max-prob` 设定置信度阈值，低于它的词会被列为存疑。
+
+### `asr batch`
+
+```text
+openbbq asr batch [--workspace PATH] [--offset INT] [--limit INT] [--only-unresolved | --all] [--max-prob FLOAT]
+```
+
+读取一个有上限的问题批次——先列字幕段异常，再列低置信度词的出现位置。
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--offset INT` | `0` | 跳过前 N 条。 |
+| `--limit INT` | `20` | 每批最多条数。 |
+| `--only-unresolved` / `--all` | `--only-unresolved` | 只看未解决，或看全部。 |
+| `--max-prob FLOAT` | — | 与 `asr check` 相同的置信度阈值。 |
+
+### `asr apply`
+
+```text
+openbbq asr apply [--workspace PATH] DECISIONS.json
+```
+
+合并你的决定。词和专名用 `accept` 或 `replace`——replace 需要精确的 `find` 原文和 `replacement`；重复的字幕段用 `keep_first` 或 `drop`。每个决定都必须写明理由。
+
+### `asr amend`
+
+```text
+openbbq asr amend [--workspace PATH] AMENDMENTS.json
+```
+
+对检测器没有标记的错误做一次性的短语修正。每条包含 `segment_id`、`find`、`replacement` 和 `reason`。
+
+## `translate`
+
+### `translate init`
 
 ```text
 openbbq translate init [--workspace PATH] [--glossary NAME] [--force] LANG
 ```
 
-根据 `cues.json` 创建 `translation.<lang>.json`。`--force` 会丢弃已有工作表和所有已填 target。
+根据 `cues.json` 创建 `translation.<lang>.json`。`--force` 会丢弃已有工作表，包括所有已翻译的内容。
 
-## `translate apply`
+### `translate batch`
+
+```text
+openbbq translate batch [--workspace PATH] [LANG] [--from INT] [--limit INT] [--only-missing] [--context INT]
+```
+
+读取工作表中一段有上限的切片，并带上相邻字幕行作为上下文——谁都不用一次加载整个文件。
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--from INT` | `1` | 起始行，最小 `1`。 |
+| `--limit INT` | `20` | 读取行数，`1`–`200`。 |
+| `--only-missing` | 关闭 | 只读还缺译文的行。 |
+| `--context INT` | `1` | 每侧带的相邻行数，`0`–`5`。 |
+
+### `translate apply`
 
 ```text
 openbbq translate apply [--workspace PATH] LANG TARGETS.json
 ```
 
-合并 cue id 到译文的 JSON 对象，可用于多个批次。
+合并一个把字幕行 id 映射到译文的 JSON 对象，可以一批接一批反复执行。未知或格式错误的 id 会被拒绝。
 
-## `translate batch`
-
-```text
-openbbq translate batch [--workspace PATH] [--from ID] [--limit 1..200]
-  [--only-missing] [--context 0..5] [LANG]
-```
-
-读取带相邻上下文的有界工作表切片。兼容接口默认 limit 为 20；Agent facade 会独立强制
-每批最多 20 条。
-
-## `translate check`
+### `translate check`
 
 ```text
 openbbq translate check [--workspace PATH] [LANG]
 ```
 
-报告完整度、缺失 id、目标长度预算、术语警告和 cue 完整性。只有一个工作表时自动推断语言。
+报告完整度、缺失 id、超出长度预算的行、术语警告和字幕行完整性。只有一个工作表时会自动推断语言。
+
+### `translate audit`
+
+```text
+openbbq translate audit [--workspace PATH] [LANG] [--offset INT] [--limit INT] [--only-unreviewed | --all] [--coverage risks|all]
+```
+
+读取一批有上限的字幕行做语义审校——风险高的排前面，每行都带相邻上下文。
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--offset INT` | `0` | 跳过前 N 条。 |
+| `--limit INT` | `20` | 每批最多条数。 |
+| `--only-unreviewed` / `--all` | `--only-unreviewed` | 只看未审校，或看全部。 |
+| `--coverage risks\|all` | `all` | 只看风险行，或覆盖整个工作表。 |
+
+### `translate audit-apply`
+
+```text
+openbbq translate audit-apply [--workspace PATH] LANG DECISIONS.json
+```
+
+合并 `accept`/`revise` 决定。每个决定都要写理由，revise 还要带上修改后的译文。
 
 ## `review`
 
@@ -163,7 +244,59 @@ openbbq translate check [--workspace PATH] [LANG]
 openbbq review [--workspace PATH] [--to CODE] [--port PORT] [--no-open]
 ```
 
-启动仅监听本机回环地址的浏览器编辑器，用于视频预览、波形与 cue 时间线调整、原文/译文编辑、审核备注和审核状态管理。`--to` 选择初始翻译工作表；省略时从仅原文模式开始，也可在编辑器内选择字幕语言。修改会原子写入 `cues.json`、所有受影响的 `translation.<lang>.json`，以及 `review.<lang>.json`（或 `review.source.json`）。同一工作区同时只允许一个审核会话持有锁。
+打开一个只监听本机的浏览器编辑器：视频预览、波形和字幕行时间线、原文/译文编辑、校对备注和状态。`--to` 选择初始翻译工作表；省略时以仅原文模式启动，也可以在编辑器里再选字幕语言。`--port` 指定端口，`--no-open` 不自动打开浏览器。
+
+修改会原子写入 `cues.json`、所有受影响的 `translation.<lang>.json`，以及 `review.<lang>.json`（或 `review.source.json`）。同一工作区同一时间只允许一个校对会话持有锁。
+
+## `glossary`
+
+### `glossary list` / `show` / `new` / `use`
+
+```text
+openbbq glossary list
+openbbq glossary show NAME
+openbbq glossary new [--context TEXT] NAME
+openbbq glossary use [--workspace PATH] NAME
+```
+
+列出术语表、查看某一个、新建一个，或把一个绑定到工作区。
+
+### `glossary suggest`
+
+```text
+openbbq glossary suggest [--workspace PATH] [OPTIONS]
+```
+
+从识别器没听准的词里挑出候选，建议加入术语表。
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--glossary NAME` | 无 | 排除该术语表已收录的词。 |
+| `--max-prob FLOAT` | `0.6` | 只取平均置信度低于此值的词。 |
+| `--min-count INT` | `1` | 最小出现次数。 |
+| `--max INT` | `30` | 最多返回的候选数。 |
+
+### `glossary audit`
+
+```text
+openbbq glossary audit [--workspace PATH] [--offset INT] [--limit INT] [--glossary NAME]
+```
+
+逐页翻查每个已解决的听写段及其证据。跟着 `next_offset` 一直读到没有剩余。
+
+| 选项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `--offset INT` | `0` | 跳过前 N 条。 |
+| `--limit INT` | `20` | 每页条数，最大 `20`。 |
+| `--glossary NAME` | — | 用指定的术语表审校。 |
+
+### `glossary apply`
+
+```text
+openbbq glossary apply [--workspace PATH] CHANGES.json [--glossary NAME]
+```
+
+从文件中的 `terms` 数组原子地新增或更新至多 20 个词条。
 
 ## `export`
 
@@ -174,23 +307,57 @@ openbbq export [OPTIONS]
 | 选项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `--to CODE` | 无 | 目标工作表语言。 |
-| `--mode source\|target\|bilingual` | 无 `--to` 时 source，否则 target | 渲染模式。 |
+| `--mode source\|target\|bilingual` | 无 `--to` 时 source，否则 target | 文件里放哪些文字。 |
 | `--format srt\|ass` | `srt` | 字幕格式。 |
 | `--output PATH` | `out/<lang>.<format>` | 输出路径。 |
 | `--ass-preset default\|fansub\|fansub-compact\|mobile` | `default` | ASS 样式预设，只对 ASS 有效。 |
-| `--allow-missing` | 关闭 | 缺少译文的 cue 回退到原文。 |
-| `--allow-unreviewed` | 关闭 | 显式绕过审核完成门禁，用于草稿导出。 |
+| `--allow-missing` | 关闭 | 译文为空的行回退到原文。 |
+| `--allow-unreviewed` | 关闭 | 绕过校对关卡，导出一份明知是草稿的字幕。 |
+| `--allow-quality-warnings` | 关闭 | 在仍有未决质量问题时，有意导出草稿。 |
 
 ## `burn`
 
 ```text
-openbbq burn [--workspace PATH] [--subtitle FILE.ass] [--output FILE.mp4]
-  [--ffmpeg PATH] [--allow-stale]
+openbbq burn [--workspace PATH] [--subtitle FILE.ass] [--output FILE.mp4] [--ffmpeg PATH]
 ```
 
-省略 `--subtitle` 时使用最近的 export 产物。默认输出根据字幕文件命名，例如
-`out/zh-burned.mp4`。要求视频来源和 ASS 输入。`--allow-stale` 是专家显式选择，用于
-有意烧录未跟踪或 stale 的字幕。
+把字幕烧进画面。省略 `--subtitle` 时使用最近一次导出的产物；默认输出名由字幕文件名推导，例如 `out/zh-burned.mp4`。要求视频来源和 ASS 输入。工作区内被改动或未登记的 ASS 会被拒绝——`--allow-stale` 只留给有意为之的手工草稿。
+
+## `qa`
+
+可选的人工视觉诊断：亲眼看看烧好视频的真实画面。
+
+### `qa render`
+
+```text
+openbbq qa render [--workspace PATH] [--count INT] [--ffmpeg PATH]
+```
+
+从烧好的 MP4 里抽取带字幕的画面帧。`--count` 选帧数，`1`–`9`，默认 `7`。
+
+### `qa check`
+
+```bash
+openbbq qa check [--workspace PATH]
+```
+
+只读核验当前 MP4 与各帧的哈希，以及视觉检查状态。
+
+### `qa attest`
+
+```text
+openbbq qa attest [--workspace PATH] --result pass|fail --reason TEXT [--issue CODE]
+```
+
+记录一次视觉判定。`--issue` 可以重复，附上多个问题代码。
+
+## `delivery`
+
+```text
+openbbq delivery check [--workspace PATH] [--to CODE]
+```
+
+硬性交付关卡：在所有质量检查通过之前以非零状态退出——听写决定、翻译检查、语义审校、ASS 内容精确一致、导出与烧录的新鲜度、烧录来源，以及 MP4 非空。
 
 ## `models`
 
@@ -199,79 +366,19 @@ openbbq models list
 openbbq models pull NAME
 ```
 
-`list` 报告 provider、近似大小和缓存状态；`pull` 校验模型名，并通过可恢复传输下载到全局缓存。
+`list` 报告来源、近似大小和缓存状态；`pull` 校验模型名，并以可恢复的传输下载到全局缓存。
 
 常用选择：
 
 | 模型 | 近似大小 | 用途 |
 | --- | ---: | --- |
 | `base` | 148 MB | 快速预览 |
-| `small` | 488 MB | 适中成本下提高质量 |
+| `small` | 488 MB | 适中成本下更好的质量 |
 | `large-v3-turbo-q5_0` | 574 MB | 量化正式字幕选项 |
 | `large-v3-turbo` | 1.6 GB | 推荐的正式字幕起点 |
-| `large-v3` | 3.1 GB | 当前目录中质量最高的大模型 |
+| `large-v3` | 3.1 GB | 目录中质量最高的大模型 |
 
 完整目录（包括英文专用和量化变体）以 `models list` 为准。
-
-## `glossary`
-
-```text
-openbbq glossary list
-openbbq glossary show NAME
-openbbq glossary new [--context TEXT] NAME
-openbbq glossary use [--workspace PATH] NAME
-openbbq glossary suggest [OPTIONS]
-openbbq glossary audit [--workspace PATH] [--offset N] [--limit N]
-openbbq glossary apply [--workspace PATH] [--glossary NAME] CHANGES.json
-```
-
-`suggest` 选项：
-
-| 选项 | 默认值 | 说明 |
-| --- | --- | --- |
-| `--glossary NAME` | 无 | 排除该术语表已经包含的词。 |
-| `--max-prob FLOAT` | `0.6` | 只返回低于此平均 ASR 概率的词。 |
-| `--min-count INT` | `1` | 最小出现次数。 |
-| `--max INT` | `30` | 最大候选数。 |
-
-`audit` 分页读取带上下文证据的 resolved transcript segment；`apply` 原子增加或更新最多
-20 个 curated term。它们是专家兼容工具；Agent facade 使用任务本地 overlay，并在
-交付后发布符合条件的学习结果。
-
-## `asr`
-
-专家 ASR 诊断与修正命令：
-
-```text
-openbbq asr check [--workspace PATH] [--max-prob FLOAT]
-openbbq asr batch [--workspace PATH] [--offset N] [--limit N]
-  [--only-unresolved | --all] [--max-prob FLOAT]
-openbbq asr apply [--workspace PATH] DECISIONS.json
-openbbq asr amend [--workspace PATH] AMENDMENTS.json
-```
-
-`check` 与 `batch` 暴露确定性问题；`apply` 记录显式 issue decision；`amend` 在没有
-detector issue ID 时应用有界上下文 phrase correction。正常 one-shot 任务只在
-`agent next` 返回例外 source-review action 时使用这些能力。
-
-## `delivery`
-
-```bash
-openbbq delivery check [--workspace PATH] [--to CODE]
-```
-
-原文、翻译证据、导出和烧录产物完整、当前、结构有效且非空前，命令会返回非零。
-
-## `qa`
-
-```text
-openbbq qa render
-openbbq qa check
-openbbq qa attest
-```
-
-这些是可选专家视觉证据命令，不属于默认 Agent 流程。单独 `render` 不代表已经进行
-视觉检查。
 
 ## `auth`
 
@@ -281,7 +388,7 @@ openbbq auth status youtube
 openbbq auth clear youtube
 ```
 
-目前只实现了 `youtube` site key。
+通过浏览器登录、查看已保存的会话，或删除它。目前只有 `youtube` 这个站点键。
 
 ## `skill`
 
@@ -294,9 +401,9 @@ Install 选项：
 
 | 选项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `--agent claude\|codex\|agents\|all` | `agents` | 安装目标。 |
-| `--target PATH` | 目标默认目录 | 包含已安装 Skill 文件夹的自定义目录。 |
+| `--agent claude\|codex\|agents\|all` | `agents` | 安装到哪个 Agent 目录。 |
+| `--target PATH` | 目标默认目录 | 自定义目录，其中包含安装好的 Skill 文件夹。 |
 | `--name openbbq-subtitles\|bilibili-cover-safe-area` | `openbbq-subtitles` | 随包 Skill。 |
-| `--force` | 关闭 | 覆盖已经安装的 Skill。 |
+| `--force` | 关闭 | 覆盖已安装的 Skill。 |
 
-`skill show` 接受相同的 `--name`，以及 `--language en\|zh-CN`（默认 `en`）。
+`skill show` 接受相同的 `--name` 选择，以及 `--language en\|zh-CN`（默认 `en`）。

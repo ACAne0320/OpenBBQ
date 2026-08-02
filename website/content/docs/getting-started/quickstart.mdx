@@ -1,97 +1,169 @@
 ---
 title: Quickstart
-description: Create an editable bilingual subtitle draft and hard-subtitled video with one Agent prompt.
+description: Cook your first video with an agent or by hand.
 ---
 
-This is the recommended path for both online videos and local files. OpenBBQ
-handles workflow state and validation; your Agent handles the semantic
-translation.
+This guide takes an English video file and finishes with a Chinese-over-English subtitled video. There are two ways to get there:
 
-## 1. Check the installation
+- **With an agent:** hand over the job and let the agent run the workflow.
+- **By hand:** run every command yourself and see what happens at each stage.
+
+## For agents
+
+If you use an agent like [Claude Code](https://claude.com/claude-code) or [Codex](https://github.com/openai/codex), you do not need to memorize the commands. Teach the agent the workflow once:
 
 ```bash
-openbbq --version
-openbbq doctor
-openbbq models list
+openbbq skill install --agent claude
 ```
 
-Install a production ASR model if one is not already cached:
+Use `--agent codex` for Codex, or plain `openbbq skill install` for the shared agents directory. Then paste one prompt:
+
+```text
+Make this a bilingual Chinese-English subtitled video: https://www.youtube.com/watch?v=xxx
+```
+
+The agent initializes one workspace, then follows the single next action returned by OpenBBQ until the draft is ready. It can download a model if needed, transcribe, fix structural listening problems, translate in bounded batches, export, and burn. It pauses when a step needs you, such as signing in.
+
+The finished file is `out/zh-burned.mp4`. OpenBBQ labels the automatic result as an editable `draft`; it only becomes `human-reviewed` after someone checks every current cue in `openbbq review`. See [Workflow model](/en/docs/getting-started/workflow) for the Agent contract and safe recovery rules.
+
+A local file works just as well. Give the agent a path such as `./video.mp4` instead of a URL.
+
+## For humans
+
+Prefer to drive yourself, or want to understand what the agent does under the hood? Run the same grill by hand. Swap in your own file and language codes as you go.
+
+## 1. Check your setup
 
 ```bash
+openbbq doctor
+```
+
+Fix anything it flags, then make sure you have a recognition model:
+
+```bash
+openbbq models list
 openbbq models pull large-v3-turbo
 ```
 
-Make sure the packaged skill is current:
+## 2. Create a workspace
+
+One video lives in one workspace folder:
 
 ```bash
-openbbq skill install --agent all --force
+openbbq init --workspace workspaces/demo /path/to/video.mp4
 ```
 
-## 2. Send one prompt
+Move into it so later commands find it on their own:
 
-Give your Agent a URL:
+```bash
+cd workspaces/demo
+```
 
-> Make this video into a bilingual Chinese-English subtitled video:
-> https://www.youtube.com/watch?v=...
+You can also stay put and pass `--workspace workspaces/demo` to every command instead.
 
-Or a local path:
+## 3. Prepare the audio
 
-> Make `/path/to/video.mp4` into a bilingual Chinese-English subtitled video.
+```bash
+openbbq extract-audio
+```
 
-You do not need to describe download, ASR, batching, glossary maintenance,
-subtitle export, or burning. The Agent skill supplies those instructions.
+This gives the recognizer a clean audio track to listen to.
 
-## 3. Let the Agent finish
+## 4. Write down what it hears
 
-The normal run is:
+```bash
+openbbq transcribe --model large-v3-turbo --language en
+```
+
+OpenBBQ listens to the audio and writes every sentence with its timing to `transcript.json`. This takes a while for long videos; `openbbq status` shows the progress from another terminal.
+
+## 5. Check the listening
+
+Before anything gets translated, OpenBBQ points at the words it wasn't sure about:
+
+```bash
+openbbq asr check
+```
+
+- `ready: true`: nothing suspicious, move on.
+- Not ready: it lists the spots it doubts. [Transcription and listening checks](/en/docs/guides/transcription) shows how to confirm or fix them. Cutting into lines waits until this passes.
+
+## 6. Cut into subtitle lines
+
+```bash
+openbbq segment
+```
+
+The transcript becomes `cues.json`, a set of subtitle lines with start and end times, sized for comfortable reading.
+
+## 7. Translate
+
+Create a translation worksheet:
+
+```bash
+openbbq translate init zh
+```
+
+Open `translation.zh.json`: every line has the source text and an empty `target` waiting for your translation. For a handful of lines, edit it directly. For more, write small batches and merge them in:
+
+```json
+{
+  "1": "第一句译文",
+  "2": "第二句译文"
+}
+```
+
+```bash
+openbbq translate apply zh targets.json
+```
+
+Then check the work:
+
+```bash
+openbbq translate check zh
+```
+
+It catches missing lines, lines too long to read, and inconsistent names. Fix what it reports until it answers `ready: true`.
+
+## 8. Export bilingual subtitles
+
+```bash
+openbbq export --to zh --mode bilingual --format ass --ass-preset fansub
+```
+
+You get `out/zh.ass`, with Chinese above English and styling for horizontal video. Preview it in a player that understands ASS before burning anything.
+
+## 9. Burn it in (optional)
+
+```bash
+openbbq burn
+```
+
+A few minutes later you have `out/zh-burned.mp4`, with the subtitles as part of the picture.
+
+## 10. Before you serve it
+
+```bash
+openbbq delivery check --to zh
+```
+
+This is the final gate before publishing. It checks the listening decisions, translation, review state, and burned video again. If something is still open, such as the full line-by-line review, it tells you what remains and how to finish it. [Quality gates](/en/docs/concepts/quality-gates) explains the idea.
+
+## Your workspace now
 
 ```text
-fetch (URL only) -> extract audio -> transcribe -> validate/segment
-                 -> translate in batches of at most 20 cues
-                 -> export ASS -> burn once -> delivery check -> done
+workspaces/demo/
+├── manifest.json        # progress log
+├── media/               # prepared audio
+├── transcript.json      # what it heard
+├── cues.json            # subtitle lines
+├── translation.zh.json  # your translation
+└── out/                 # subtitles and burned video
 ```
 
-OpenBBQ returns one authoritative next action at a time. Mechanical actions
-include exact command arguments and an execution policy. GPU transcription,
-authenticated fetches, and final burning may need to run outside a restricted
-sandbox. The Agent should not silently replace an available host GPU with CPU.
+## Where next?
 
-Translation batches include the target-language rules, title and author,
-neighbor context, and matching glossary terms. If a translation reveals an
-obvious ASR error, the Agent can submit a cue-scoped source fix. Reusable fixes
-become glossary candidates and are published safely after successful delivery.
-
-## 4. Receive the outputs
-
-A completed `done` response returns:
-
-- `out/zh.ass`: editable bilingual ASS subtitles;
-- `out/zh-burned.mp4`: the hard-subtitled video;
-- `quality: "draft"` unless a complete current human review exists;
-- `human_reviewed: false` for the normal automatic path;
-- any non-blocking quality or glossary publication warnings.
-
-The default workflow exports and burns once. It does not run visual QA or
-automatically switch to `fansub-compact`.
-
-<Callout title="Expected quality">
-  The automatic result is intended as a useful 70–80 point first draft. It
-  should remain aligned and structurally valid, but it is not a promise that
-  every cue has been professionally verified.
-</Callout>
-
-## Continue with professional editing
-
-Open the same workspace in the optional browser editor:
-
-```bash
-openbbq review --workspace /path/to/workspace --to zh
-```
-
-You can also import `out/zh.ass` into Aegisub or an NLE. Human edits are
-authoritative; do not rerun the automatic Agent workflow over completed manual
-work.
-
-For authentication and local-file details, see [Local files and online
-video](/en/docs/guides/sources). Agent implementers can read [Agents and
-JSON](/en/docs/guides/agents).
+- Working from a YouTube link instead? See [Getting video](/en/docs/guides/sources).
+- Letting an Agent drive? Read the [Workflow model](/en/docs/getting-started/workflow).
+- Want to check everything on screen before publishing? Try [Visual review](/en/docs/guides/review).
+- Curious what each file is? [Workspace files](/en/docs/reference/workspace).

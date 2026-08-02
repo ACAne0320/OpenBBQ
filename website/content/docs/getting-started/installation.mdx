@@ -1,67 +1,58 @@
 ---
 title: Installation
-description: Install OpenBBQ and the dependencies required by your workflow.
+description: Get the openbbq command, FFmpeg, and a recognition model onto your machine.
 ---
 
-## Requirements
+OpenBBQ needs a few ingredients before it can cook. This page installs each one, then checks the kitchen.
 
-- Python 3.12 or newer.
-- [uv](https://docs.astral.sh/uv/) for installing the `openbbq` command.
-- FFmpeg for audio extraction and video processing. Hard-subtitle burning requires the `ass` and `subtitles` filters from libass.
-- An ASR backend. OpenBBQ currently supports whisper.cpp through `pywhispercpp`.
-- An explicitly downloaded ASR model.
-- A local desktop browser when an online platform requires login or human verification.
+## What you need
+
+- **[Python](https://www.python.org/) 3.12 or newer.**
+- **[uv](https://docs.astral.sh/uv/):** the installer that puts the `openbbq` command on your machine.
+- **[FFmpeg](https://www.ffmpeg.org/):** extracts audio from video and handles media processing. Burning subtitles into the picture also needs the `ass` and `subtitles` filters from [libass](https://github.com/libass/libass).
+- **A recognizer:** the part that listens to the audio and writes down what it hears. OpenBBQ uses [whisper.cpp](https://github.com/ggml-org/whisper.cpp), installed through its Python binding (the `whispercpp` extra below).
+- **A downloaded model:** the file the recognizer listens with. No model ships in the package; you choose one and download it.
+- **A local desktop browser**, for when a video platform asks you to log in or pass a human check.
 
 <Callout type="warn" title="Platform support">
-  OpenBBQ is pre-alpha. The current workflow is developed primarily on macOS; Windows and Linux support is still on the roadmap.
+  OpenBBQ is pre-alpha, developed primarily on macOS. Windows and Linux support is on the roadmap.
 </Callout>
 
-## Install the CLI and Agent skill
-
-Install the published package with the default whisper.cpp backend:
+## Install the CLI
 
 ```bash
-uv tool install 'openbbq[whispercpp]'
-openbbq skill install --agent all
+uv tool install 'openbbq[whispercpp,review]'
 ```
 
-The skill teaches supported Agents to follow the one authoritative
-`agent next/apply/finish` workflow. Use `--agent codex`, `--agent claude`, or
-the default shared `agents` target when only one installation is needed.
+The brackets name add-ons: `whispercpp` brings the recognizer, `review` adds the browser-based visual review screen. If you don't want the review screen, install `'openbbq[whispercpp]'` instead.
 
-Professional users who want the local browser review UI can include its extra:
-
-```bash
-uv tool install --force 'openbbq[whispercpp,review]'
-```
-
-If the `openbbq` command is not found after installation, follow the PATH instruction printed by uv, then open a new shell.
+If your shell can't find `openbbq` afterwards, follow the PATH instruction printed by uv, then open a new shell.
 
 ## Install FFmpeg
 
-On macOS, the regular Homebrew package is sufficient for transcription and most media tasks:
+On macOS, the regular [Homebrew](https://brew.sh/) build covers transcription and most media tasks:
 
 ```bash
 brew install ffmpeg
 ```
 
-For hard-subtitle burning, install a build that includes libass. `openbbq doctor` checks both required filters and, on Homebrew systems, can also discover `ffmpeg-full`:
+For burning subtitles into video, install a build that includes libass, for example:
 
 ```bash
 brew install ffmpeg-full
 ```
 
-## Check the environment
+`openbbq doctor` checks both required filters and, on Homebrew systems, can find `ffmpeg-full` on its own.
 
-`doctor` is read-only and safe to run repeatedly:
+## Check the environment
 
 ```bash
 openbbq doctor
 ```
 
-It checks Python, FFmpeg, subtitle filters, yt-dlp, the ASR backend, cached models, and the packaged Agent skill. Follow the `fix` shown for any missing required item.
+`doctor` is read-only, so you can run it as often as you like. It checks Python, FFmpeg, the subtitle filters, [yt-dlp](https://github.com/yt-dlp/yt-dlp), the recognizer, cached models, and the agent skill that ships with the package. If something required is missing, it prints a `fix`; follow that.
 
-For machine-readable output:
+For machine-readable output (handy when an AI agent is driving):
 
 ```bash
 openbbq --json doctor
@@ -69,48 +60,45 @@ openbbq --json doctor
 
 ## Download a model
 
-Models are not bundled with the package. List the catalog and current cache state:
+Models are not bundled with the package. See the catalog and what's already cached:
 
 ```bash
 openbbq models list
 ```
 
-For a quick preview, download `base` (about 148 MB). For production subtitles, start with `large-v3-turbo` (about 1.6 GB):
+For a quick taste, `base` is about 148 MB. For real subtitles, start with `large-v3-turbo` at about 1.6 GB:
 
 ```bash
 openbbq models pull base
 openbbq models pull large-v3-turbo
 ```
 
-Downloads are resumable and stored under `~/.openbbq/models/whisper.cpp/` by default. Set `OPENBBQ_HOME` to change the OpenBBQ data directory.
+Downloads resume if interrupted, and land in `~/.openbbq/models/whisper.cpp/` by default. Set `OPENBBQ_HOME` if you want OpenBBQ to keep its data somewhere else.
 
 ## Verify the installation
 
 ```bash
 openbbq doctor
-openbbq --version
 openbbq --help
 ```
 
-For hard-subtitle workflows, confirm that `ffmpeg subtitle filters` reports both `ass` and `subtitles`.
+If you plan to burn subtitles, confirm that doctor's ffmpeg subtitle filters line reports both `ass` and `subtitles`.
 
-## Upgrade or reinstall
+## Upgrade or repair
 
 ```bash
 uv tool upgrade openbbq
-openbbq skill install --agent all --force
-openbbq doctor
 ```
 
-To change extras or repair the CLI installation:
+To change the add-ons or repair a broken install, force a reinstall:
 
 ```bash
 uv tool install --force 'openbbq[whispercpp,review]'
 ```
 
-## Install from this repository
+## Install from the repository
 
-Use a repository install only for development:
+Only needed if you want to develop OpenBBQ itself:
 
 ```bash
 git clone https://github.com/ACAne0320/OpenBBQ.git
@@ -119,3 +107,5 @@ uv sync --extra whispercpp --extra review --dev
 uv run openbbq --help
 uv run pytest
 ```
+
+Everything green? The [Quickstart](/en/docs/getting-started/quickstart) walks your first video from raw to cooked.

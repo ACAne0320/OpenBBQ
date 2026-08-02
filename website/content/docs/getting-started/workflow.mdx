@@ -49,7 +49,11 @@ missing, extra, stale, or bound to the wrong policy.
 Translation batches contain at most 20 cues. The active batch includes a
 reproducible translation brief, relevant glossary context, and neighboring cues
 for disambiguation. Neighbors are context only; content must remain aligned to
-the selected cue ids.
+the selected cue ids. It also includes a `generation_policy`: the driving Agent
+generates the wording from the supplied source, context, glossary, and rules,
+then echoes the requested `generation_mode` when applying the batch. External
+translation services and automatic translation scripts are outside this
+contract.
 
 ## Mechanical command execution
 
@@ -58,12 +62,21 @@ transcription, and finish commonly require host execution outside a restricted
 sandbox. Repeated mechanical commands wait for the active stage and reuse its
 fresh completed artifact instead of starting competing work.
 
+If the execution tool returns a process or session id, keep polling that same
+process until it exits. Empty output or an outer tool ending is not permission
+to start the command again.
+
 ## Source correction and glossary learning
 
 Deterministic checks repair known structural caption problems before
 translation. If translation reveals an obvious ASR mistake, the Agent may
 submit a bounded source fix for the current cue. It also marks whether the fix
 is reusable.
+
+Some cues include compact `reference_evidence` when a local phrase disagrees
+with an available timed caption. Treat it as a hint, not canonical source.
+Ordinary ambiguity should produce a warning; it should not trigger a web search,
+a second recognizer run, or a speculative rewrite.
 
 OpenBBQ records that discovery in the task-local glossary overlay. For URL
 sources without an explicit glossary, fetched author metadata selects a stable
@@ -74,7 +87,8 @@ successful delivery; publication conflicts do not block the video.
 
 `agent finish` requires current translation evidence, exports `out/zh.ass`,
 burns `out/zh-burned.mp4`, runs the delivery gate, and publishes eligible
-glossary learning. Fresh completed artifacts make finish idempotent.
+glossary learning. It chooses `fansub` for landscape video and `mobile` for
+portrait video. Fresh completed artifacts make finish idempotent.
 
 The automatic result reports `quality: "draft"` and
 `human_reviewed: false`. A complete current review made with `openbbq review`

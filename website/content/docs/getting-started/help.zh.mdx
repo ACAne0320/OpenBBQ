@@ -1,0 +1,42 @@
+---
+title: 获取帮助
+description: 先诊断问题，再整理一份别人能够复现的报告。
+---
+
+OpenBBQ 停下来时，通常会说明原因，并通过 `fix` 给出下一步。先按这条提示操作。如果问题还在，求助前收集少量但有用的信息。
+
+## 先运行两项检查
+
+```bash
+openbbq doctor
+openbbq --json status --workspace workspaces/demo
+```
+
+`doctor` 检查本机的工具和模型，`status` 显示一个工作区发生了什么，以及哪个阶段需要处理。如果还没有创建工作区，只运行 `doctor` 即可。
+
+[故障排查](/zh/docs/reference/troubleshooting)涵盖命令缺失、模型下载、FFmpeg 滤镜、登录、阶段停滞、翻译不完整和烧录失败等常见问题。
+
+## 报告之前先搜索
+
+在 [GitHub Issues](https://github.com/ACAne0320/OpenBBQ/issues) 中搜索错误码或最后运行的命令。如果已经有人报告过同一问题，请把新的复现信息补充到原 Issue，不必重复提交。
+
+## 写一份有用的问题报告
+
+请提供：
+
+- 你想完成什么，原本预期会发生什么；
+- 失败时运行的完整命令；
+- 完整的错误码和 `fix` 内容；
+- `openbbq --version` 的输出；
+- 操作系统、FFmpeg 版本、模型名称，以及来源是本地文件还是 URL；
+- 能复现问题的最少步骤。
+
+如果 `status` 能帮助解释问题，可以附上它的 JSON 输出，但请先删除私人路径和媒体名称。
+
+不要公开 Cookie、`~/.openbbq/auth/` 中的文件、账号信息、私人视频链接、原始媒体或整个工作区。一份简短、脱敏的报告更安全，也更容易排查。
+
+准备好可复现的信息后，可以[新建 GitHub Issue](https://github.com/ACAne0320/OpenBBQ/issues/new)。
+
+## 询问使用方法
+
+如果是使用问题，请附上你参考的指南，并说明从哪一步开始，实际结果和文档不一致。通常只需要提供命令、预期结果和实际结果，别人就能开始判断。

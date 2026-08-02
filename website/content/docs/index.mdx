@@ -1,48 +1,64 @@
 ---
 title: Documentation
-description: Turn a video into an editable bilingual subtitle draft with one Agent prompt.
+description: Install OpenBBQ, cook your first bilingual subtitles, and look up any command.
 ---
 
-OpenBBQ is an Agent-friendly CLI for video translation and subtitle production. Its default workflow turns one simple request into an editable bilingual ASS subtitle and a hard-subtitled video. Fine-grained commands remain available for professional review and recovery.
+OpenBBQ is an open-source tool that turns foreign-language video into finished subtitles. You can drive it from the terminal yourself or let an AI agent run the commands for you. It downloads the video, writes down what it hears, translates line by line, checks the result, and burns the subtitles in.
+
+In fansub circles, an untranslated video is "raw meat" and the finished release is "cooked meat". OpenBBQ handles the work between them.
 
 <Callout title="Current status">
-  OpenBBQ is pre-alpha software. The automatic workflow aims for a useful 70–80 point draft, not a professionally certified final subtitle. Review important output before publishing it.
+  OpenBBQ is pre-alpha software, currently developed on macOS with [Python](https://www.python.org/) 3.12, [FFmpeg](https://www.ffmpeg.org/), [yt-dlp](https://github.com/yt-dlp/yt-dlp), and a [whisper.cpp](https://github.com/ggml-org/whisper.cpp) recognizer. Review the output before publishing it.
 </Callout>
 
-## Start here
+## New here?
 
 <Cards>
   <Card title="Installation" href="/en/docs/getting-started/installation">
-    Install the CLI, FFmpeg, an ASR backend, and a model.
+    Get the CLI, FFmpeg, and a recognition model onto your machine.
   </Card>
   <Card title="Quickstart" href="/en/docs/getting-started/quickstart">
-    Start with the same one-shot prompt for a URL or local video.
-  </Card>
-  <Card title="Workflow model" href="/en/docs/getting-started/workflow">
-    Understand actions, leases, artifacts, and safe recovery.
-  </Card>
-  <Card title="CLI reference" href="/en/docs/reference/cli">
-    Look up every command, argument, option, and default.
+    Cook your first video, from a local file to bilingual subtitles, one step at a time.
   </Card>
 </Cards>
 
-## The default path
+## How OpenBBQ works
+
+One video, one workspace folder. You move through the grill one step at a time, and every step saves its result as a plain file you can open and inspect:
 
 ```text
-one prompt
-  -> agent init
-  -> agent next (one authoritative action)
-  -> run mechanical commands or apply translation batches (<=20 cues)
-  -> agent finish (export + burn + delivery check once)
-  -> done
+download → write down what it hears → cut into lines
+→ translate → review → export subtitles → burn into video
 ```
 
-Repeated `agent next` calls return the same active lease until it is applied. OpenBBQ validates ids, hashes, timing, and artifact freshness while the Agent handles semantic translation and obvious cue-scoped ASR corrections.
+Nothing hides in a black box. Stop anywhere, look at the files, fix something, and continue. OpenBBQ picks up where you left off. After each step it checks the work before moving on. If something looks off, it stops and waits for your call. Read more in [Workspaces and stages](/en/docs/concepts/workspaces) and [Quality gates](/en/docs/concepts/quality-gates).
 
-## Choose a guide
+## Doing something specific?
 
-- [Local files and online video](/en/docs/guides/sources) covers the two input paths and YouTube authentication.
-- [Translation workflow](/en/docs/guides/translation) explains worksheets and batch application.
-- [Glossaries](/en/docs/guides/glossaries) covers ASR biasing, correction, and translation terminology.
-- [Export and burn](/en/docs/guides/export-and-burn) covers SRT, ASS presets, bilingual output, and hard subtitles.
-- [Agents and JSON](/en/docs/guides/agents) covers machine-readable output and the packaged skill.
+- [Getting video](/en/docs/guides/sources): local files, YouTube links, and sign-in
+- [Transcription and listening checks](/en/docs/guides/transcription): turn speech into text, then verify it
+- [Translation and review](/en/docs/guides/translation): fill, check, and audit the translation
+- [Glossaries](/en/docs/guides/glossaries): keep names consistent across episodes
+- [Visual review](/en/docs/guides/review): see everything in a local editor before publishing
+- [Export and burn](/en/docs/guides/export-and-burn): subtitle files and hard-subtitled video
+- [Working with agents](/en/docs/guides/agents): let [Claude Code](https://claude.com/claude-code), [Codex](https://github.com/openai/codex), or scripts drive
+
+## Looking something up?
+
+- [CLI reference](/en/docs/reference/cli): every command and option
+- [Workspace files](/en/docs/reference/workspace): what each file in a workspace is for
+- [Troubleshooting](/en/docs/reference/troubleshooting): when something goes wrong
+
+## Need help or want to contribute?
+
+<Cards>
+  <Card title="Getting help" href="/en/docs/getting-started/help">
+    Run the two diagnostic commands, then find the right place to ask.
+  </Card>
+  <Card title="Contributing" href="/en/docs/contributing">
+    Set up a checkout, run the checks, and send a focused change.
+  </Card>
+  <Card title="GitHub issues" href="https://github.com/ACAne0320/OpenBBQ/issues">
+    Search known problems, report a reproducible bug, or suggest an improvement.
+  </Card>
+</Cards>

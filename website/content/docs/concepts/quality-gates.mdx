@@ -1,0 +1,57 @@
+---
+title: Quality gates
+description: After every step, OpenBBQ checks the work before moving on — and stops for your decision when it isn't ready.
+---
+
+Raw meat goes on the grill one step at a time, and OpenBBQ tastes it after each step instead of waiting until the video is served. Every gate answers one question: is this ready? A gate that answers `ready: true` lets you move on. A gate that isn't ready stops and waits for your decision — so problems surface where they happen, not in the published video.
+
+Here are the gates, in the order you meet them.
+
+## 1. Listening check — `openbbq asr check`
+
+Before anything is translated, OpenBBQ points at what the recognizer wasn't sure about: doubtful words, and segments that look repeated. Each one needs a decision with a reason — `accept` or `replace` for words and names, `keep_first` or `drop` for repeated segments.
+
+Cutting the transcript into subtitle lines (`segment`) waits for `ready: true`. See [Transcription and listening checks](/en/docs/guides/transcription).
+
+## 2. Translation check — `openbbq translate check`
+
+Once lines are translated, this gate catches missing lines, lines too long to read in their time on screen, zero-length time budgets, and terminology issues. These block a clean export. See [Translation and review](/en/docs/guides/translation).
+
+## 3. Line-by-line review — `openbbq translate audit`
+
+A full-coverage semantic review: every line is shown with its neighbors for context, and every line gets an `accept` or `revise` decision with a reason. Export blocks current unaudited items unless you deliberately pass `--allow-quality-warnings` for a draft.
+
+## 4. Visual review — `openbbq review`
+
+When a `review.<lang>.json` exists — created by the local review editor — export waits until every line in that scope is marked reviewed. `--allow-unreviewed` produces a draft. See [Visual review](/en/docs/guides/review).
+
+## 5. Final check — `openbbq delivery check --to zh`
+
+The hard gate before you serve anything. It re-verifies the listening decisions, the translation check, the semantic review, the exact bilingual ASS content (ASS is the styled subtitle format used for burning), export and burn freshness, burn provenance — which video and which subtitle file went in — and that the MP4 is non-empty. Any failure answers `ready: false` with a non-zero exit code.
+
+Visual layout is *not* a default gate: models that can't see images don't need to inspect frames, and aren't penalized for skipping them.
+
+## Draft escape hatches
+
+Every gate has an explicit way through when you knowingly want a draft. Each one has to be passed deliberately, every time:
+
+- `--allow-missing` — export even though some lines are untranslated
+- `--allow-quality-warnings` — export despite open translation or audit warnings
+- `--allow-unreviewed` — export before the review scope is complete
+- `--allow-stale` — burn even though the subtitle file changed since export
+
+None of them mark anything as done; they only let this one run through.
+
+## Seeing it with your own eyes (optional)
+
+When you explicitly ask for a visual check, three commands help you look. They never choose a subtitle preset or trigger a reburn on their own:
+
+- `openbbq qa render` — sample subtitle-bearing frames from the burned MP4 (`--count` from 1 to 9, default 7).
+- `openbbq qa check` — re-verify the MP4 and frame hashes, read-only.
+- `openbbq qa attest --result pass|fail --reason "what you saw"` — record a human or agent visual judgment; repeat `--issue` for structured failure notes.
+
+## Where next?
+
+- [Workspaces and stages](/en/docs/concepts/workspaces) — what the gates are guarding.
+- [Export and burn](/en/docs/guides/export-and-burn) — the last steps before serving.
+- [CLI reference](/en/docs/reference/cli) — every command and option.

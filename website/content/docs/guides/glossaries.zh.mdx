@@ -1,78 +1,129 @@
 ---
 title: 术语表
-description: 学习可复用的 ASR 修正和术语，同时避免把一次性修改变成全局规则。
+description: 让名字和术语前后一致——从识别器听到的拼写，到译文里的写法。
 ---
 
-Glossary 保存在 `$OPENBBQ_HOME/glossaries/`，可以存储标准原文、已知 ASR alias、
-固定译名或 keep 规则、备注与领域上下文。
+术语表是一份命名的 JSON 文件，在你的机器上只存一份——位于 `$OPENBBQ_HOME/glossaries/`，默认是 `~/.openbbq/glossaries/`——所有工作区共用。它干三件事：
 
-## 一句话任务的自动作用域
+1. 让识别器（负责把听到的话记下来的模型）偏向术语的标准拼写。
+2. 切字幕行时，把已知的误听纠正为标准拼写。
+3. 用标准译名和“保持原文”规则指导翻译。
 
-显式 `--glossary NAME` 始终优先：
+## 创建术语表
 
 ```bash
-openbbq --json agent init '<source>' --workspace workspaces/demo --to zh --glossary project-name
+openbbq glossary new project-name --context "关于 AI 开发工具的技术访谈"
 ```
 
-未指定时，URL 任务会等待 fetch 得到作者，并生成稳定的“作者+目标语言” glossary 名称。
-同作者、同目标语言的后续视频会复用它。未显式指定 glossary 的本地文件因为无法确认
-作者作用域，只在当前任务中保留学习结果。
+这会写入 `~/.openbbq/glossaries/project-name.json`，带一个空的术语列表。`context` 用一句话描述素材内容，方便译者和 Agent 做判断：
 
-Agent 不会依靠语义猜测在全局 glossary 之间自行选择。
+```json
+{
+  "schema": "openbbq/glossary@1",
+  "name": "project-name",
+  "context": "关于 AI 开发工具的技术访谈",
+  "terms": []
+}
+```
 
-## 任务本地 overlay
+## 添加术语
 
-任务中的新学习写入 `.openbbq/glossary-overlay.json`。Base glossary 与 overlay 会立即
-用于分段和后续翻译批次，但全局库不会在任务中途被修改。
+打开文件，为每个你在乎的名字或术语加一条：
 
-翻译阶段修正明确 ASR occurrence 时，OpenBBQ 会记录 glossary candidate，包括：
-
-- 修正后的标准原文；
-- 实际观察到的 ASR alias；
-- 证据与来源；
-- Agent 是否将它判断为 reusable。
-
-Reusable correction 会自动提升到 overlay。Agent 不需要再把同一修正重复提交为手动
-glossary update。
-
-## 安全发布
-
-成功交付后，OpenBBQ 才把 overlay 中可复用且无冲突的条目发布到绑定的全局 glossary。
-发布是幂等的，不会覆盖不兼容的旧条目。冲突或权限失败不会阻塞字幕视频；overlay 会
-留在 workspace 中，`done` 返回结构化重试 warning。
-
-失败或未完成的任务不会发布 overlay。
-
-## Glossary 字段
+```json
+{
+  "source": "OpenBBQ",
+  "target": null,
+  "aliases": ["Open BBQ", "Open BQ"],
+  "note": "项目和 CLI 名称",
+  "keep": true
+}
+```
 
 | 字段 | 含义 |
 | --- | --- |
-| `source` | 标准原文拼写与 ASR bias term。 |
-| `target` | 存在时必须使用的标准译名。 |
-| `aliases` | 已确认并会修正为 `source` 的其他形式或 ASR 错词。 |
-| `note` | 提供给翻译批次的上下文。 |
-| `keep` | 在译文中保留原文拼写。 |
+| `source` | 术语的标准拼写，也会提供给识别器 |
+| `target` | 需要翻译时采用的标准译名 |
+| `aliases` | 已知的误听或变体写法，会被纠正为 `source` |
+| `note` | 帮助译者或 Agent 判断的上下文 |
+| `keep` | 为 `true` 时在译文中保留原文拼写 |
 
-只有 note、没有 target 的相关术语也会进入翻译批次，让 Agent 使用上下文，但不会因此
-编造固定译名。
+有固定译名的术语设 `target`；品牌名、人名这类不翻的设 `keep: true`。两个都不设，表示怎么译还没定。
 
-## 专家术语表命令
-
-创建、查看和显式绑定 glossary：
+## 查看术语表库
 
 ```bash
-openbbq glossary new project-name --context "关于开发工具的技术访谈"
 openbbq glossary list
 openbbq glossary show project-name
+```
+
+## 绑定到工作区
+
+初始化时绑定：
+
+```bash
+openbbq init /path/to/video.mp4 --workspace workspaces/demo --glossary project-name
+```
+
+或者之后绑定：
+
+```bash
 openbbq glossary use project-name --workspace workspaces/demo
 ```
 
-兼容接口也保留确定性 suggest、全文 audit batch 与原子 curated update：
+绑定关系写入 `manifest.glossary`。`transcribe`、`segment` 和 `translate init` 都会遵循它；各命令自己的 `--glossary` 选项可以为单次运行覆盖。
+
+## 挖掘候选术语
+
+听写完成后，OpenBBQ 可以把值得再看一眼的词挑出来——反复出现的名字、识别器没把握的词：
 
 ```bash
 openbbq glossary suggest --workspace workspaces/demo
+```
+
+常用筛选：
+
+```bash
+openbbq glossary suggest \
+  --workspace workspaces/demo \
+  --glossary project-name \
+  --max-prob 0.6 \
+  --min-count 1 \
+  --max 30
+```
+
+- `--glossary`——排除术语表已经认识的词。
+- `--max-prob`——只看识别置信度低于这个值的词。
+- `--min-count`——只看至少出现这么多次的词。
+- `--max`——最多列出多少条。
+
+候选是确定性的建议，不会自动改动任何东西。人工过目之后，再把够格的词加成术语。
+
+## 审校听写稿
+
+审校命令逐页遍历每一段已解析的听写文本，并附上证据，让你结合上下文确认名字，而不是靠猜：
+
+```bash
 openbbq glossary audit --workspace workspaces/demo --offset 0 --limit 20
+```
+
+每页包含相邻文本、词置信度、解析后和原始的原文、可用的参考字幕，以及命中的术语。跟着 `next_offset` 翻页，直到 `remaining` 归零；每页最多 20 段。
+
+## 应用术语更新
+
+用一个 terms 文件原子地新增或更新术语，每次最多 20 条：
+
+```json
+{"terms":[{"source":"Andy Matuschak","aliases":["Annie Matushak"],"note":"researcher; confirmed ASR variant"}]}
+```
+
+```bash
 openbbq glossary apply --workspace workspaces/demo glossary-terms.json
 ```
 
-这些属于专家工具，不是正常 one-shot 流程的必做步骤。
+然后重跑 `openbbq segment`，让纠正落进字幕行。它的输出会报告 `glossary_matched_terms`、`glossary_aliases_applied` 和 `glossary_no_effect`。绑了术语表却一条都没命中，并不能证明术语没问题——把它当成再检查一遍的提醒。
+
+## 接下来
+
+- [听写与检查](/zh/docs/guides/transcription)——识别器没把握的地方在这里解决
+- [翻译与审校](/zh/docs/guides/translation)——标准译名和 keep 规则在这里生效

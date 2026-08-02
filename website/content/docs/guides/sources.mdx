@@ -1,102 +1,86 @@
 ---
-title: Local Files and Online Video
-description: Initialize local media or URL sources, fetch online video, and manage YouTube authentication.
+title: Getting video
+description: Start a workspace from a YouTube link, a local video file, or an audio file — and sign in to YouTube when it asks.
 ---
 
-## Recommended Agent entry
+Every workspace starts with one piece of raw meat: a video or an audio file. OpenBBQ takes three kinds of source.
 
-The same facade accepts a URL, local video, or local audio:
+| Source | Examples | Needs `fetch`? |
+| --- | --- | --- |
+| Online video link | a YouTube URL | Yes — run it after `init` |
+| Local video | `.mp4`, `.mkv`, `.mov`, `.webm` | No |
+| Local audio | `.wav`, `.mp3`, `.m4a`, `.flac` | No |
 
-```bash
-openbbq --json agent init '<source>' --workspace workspaces/demo --to zh
-openbbq --json agent next --workspace workspaces/demo
-```
+`fetch` only applies to links. Local files skip straight to [preparing the audio](/en/docs/guides/transcription).
 
-For a URL, `agent next` returns fetch before audio extraction. Local files skip
-fetch. Execute the returned `argv` exactly; its `execution` policy states when
-host network, authentication state, or native GPU access requires running
-outside a restricted sandbox.
+## Local files
 
-## Local video
-
-Initialize a workspace with an existing video file:
+Point `init` at a file that already exists, with an extension OpenBBQ recognizes:
 
 ```bash
 openbbq init --workspace workspaces/demo /path/to/video.mp4
-openbbq extract-audio --workspace workspaces/demo
 ```
 
-Local files must already exist and use a recognized video or audio extension. OpenBBQ records the absolute source path and uses it in place. Moving or deleting the source later will break media-dependent stages.
-
-## Local audio
-
-Audio follows the same transcription path:
+Audio works the same way:
 
 ```bash
 openbbq init --workspace workspaces/demo /path/to/audio.m4a
-openbbq extract-audio --workspace workspaces/demo
-openbbq transcribe --workspace workspaces/demo --model large-v3-turbo
-openbbq segment --workspace workspaces/demo
 ```
 
-You can export subtitle files from an audio workspace, but `burn` requires a video source.
+OpenBBQ records the file's absolute path and uses it in place — nothing is copied into the workspace. If you move or delete the file later, every step that needs the media breaks. With an audio source there is no picture to burn into, so `burn` is unavailable; exporting subtitle files still works.
+
+From here the steps are the same as in the [Quickstart](/en/docs/getting-started/quickstart): prepare the audio, write down what it hears, and so on.
 
 ## Online video
 
-Quote URLs in zsh and other shells where `?` or `&` have special meaning:
+For a YouTube link, `init` first, then `fetch` does the downloading:
 
 ```bash
 openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
-openbbq fetch --workspace workspaces/demo
+openbbq fetch --workspace workspaces/demo --max-height 1080
 ```
 
-`fetch` uses yt-dlp, downloads media under the workspace, and records available title, author, and thumbnail metadata. It is only valid for URL sources.
+Quote the URL — in shells like zsh, `?` and `&` are special characters and would mangle an unquoted link.
 
-After fetch, continue normally:
+`fetch` uses the [yt-dlp](https://github.com/yt-dlp/yt-dlp) downloader. It saves the video under the workspace `media/` folder and records whatever title, author, and thumbnail metadata the site provides. `--max-height 1080` keeps the picture at 1080p or below; leave it out to take the best quality yt-dlp can get.
 
-```bash
-openbbq extract-audio --workspace workspaces/demo
-openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en
-```
+## Signing in to YouTube
 
-## YouTube authentication
+Sometimes YouTube asks for a login or a bot check before it lets a download through. OpenBBQ can save a YouTube session, and when one exists `fetch` uses it automatically.
 
-For supported YouTube URLs, `fetch` automatically uses a saved YouTube session when one is configured. Create the session in a normal desktop environment:
+Create the session like this:
 
 ```bash
 openbbq auth browser-login youtube
 ```
 
-A browser window opens. Complete login and any human verification there. OpenBBQ stores filtered cookies under `~/.openbbq/auth/youtube/` with restrictive file permissions.
+A desktop browser window opens — log in there and pass any human verification. OpenBBQ keeps only the cookies it needs, stored under `~/.openbbq/auth/youtube/` with restrictive file permissions.
 
-Check or remove the session:
+Check or remove the saved session:
 
 ```bash
 openbbq auth status youtube
 openbbq auth clear youtube
 ```
 
-Explicitly select a session:
+You can also say explicitly whether to use the session:
 
 ```bash
 openbbq fetch --workspace workspaces/demo --auth youtube
-```
-
-Force anonymous download when saved authentication causes a public video to return 403:
-
-```bash
 openbbq fetch --workspace workspaces/demo --no-auth
 ```
 
-`--auth` and `--no-auth` are mutually exclusive in intent; use only one.
+`--auth youtube` picks the saved session; `--no-auth` downloads anonymously, which helps when a public video returns 403 only because you are signed in. Use one or the other, not both.
 
 <Callout type="warn" title="Restricted environments">
-  Browser login needs a desktop session, and authentication storage needs a writable `OPENBBQ_HOME`. Run login and authenticated fetch outside a restricted sandbox, or point `OPENBBQ_HOME` at a writable directory. Native GPU transcription should also run on the host; use CPU only after that host attempt genuinely fails and the returned execution policy permits fallback.
+  Browser login needs a desktop session, and the saved session needs a writable `OPENBBQ_HOME` (default `~/.openbbq`). In a restricted sandbox, run the login and the authenticated `fetch` in a normal user environment, or point `OPENBBQ_HOME` at a writable path.
 </Callout>
 
 ## Rerunning fetch
 
-Fetch progress and failures are recorded in the workspace manifest. In the
-Agent facade, repeated fetch calls wait for the active stage and reuse its fresh
-completed artifact. An intentional new upstream result invalidates dependent
-downstream state.
+Rerunning `fetch` replaces the fetch stage's saved state and invalidates everything downstream — the transcript, the subtitle lines, all of it has to be regenerated. Before you regenerate, open the downloaded media and check it is the video you meant to grill.
+
+## Where next?
+
+- [Transcription and listening checks](/en/docs/guides/transcription) — turn the audio into text and verify it.
+- [Troubleshooting](/en/docs/reference/troubleshooting) — when a download or a login misbehaves.

@@ -1,0 +1,123 @@
+---
+title: 听写与检查
+description: 把视频里的语音听写成文字，核对识别器存疑的地方，再切成一行行字幕。
+---
+
+这份指南从[获取视频](/zh/docs/guides/sources)结束的地方开始：媒体已经在工作区里了。接下来，识别器——负责“听“音频、把听到的话记下来的程序——会写出听写稿，你核对它没听准的地方，最后把文稿切成字幕行。
+
+## 1. 准备音频
+
+```bash
+openbbq extract-audio --workspace workspaces/demo
+```
+
+写出 `media/audio.16k.wav`——一条干净的 16 kHz 单声道音频（单个声道，采样率按识别器的要求来）。识别器听的是这个文件，不是原始视频。
+
+## 2. 把听到的话记下来
+
+```bash
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en
+```
+
+识别器写出 `transcript.json`：按句切分的文稿——每句都带起止时间——外加它用的后端、模型、语言和音频时长。后端提供时，每个词还会带上自己的时间和置信度，也就是识别器对这次听写的把握分数。
+
+视频较长时要等一会儿，可以在另一个终端用 `openbbq status` 看进度。
+
+常用选项：
+
+| 选项 | 作用 |
+| --- | --- |
+| `--model 名称` | 指定模型：已缓存的模型名，或直接指向一个 `ggml` `.bin` 文件。默认用已缓存的最好模型。 |
+| `--backend auto\|whisper.cpp` | 指定识别引擎，默认 `auto`。 |
+| `--language 代码` | 指定语音的语言，比如 `en`。默认自动检测。 |
+| `--prompt 文本` | 给识别器一段初始提示，引导它的用词。 |
+| `--glossary 名称` | 覆盖绑定的术语表。绑定的术语表会让识别器偏向你的标准译名。 |
+| `--gpu` / `--cpu` | 用 GPU 跑（默认），或退回 CPU。 |
+| `--auto-download` | 指定的模型不在本地时，先下载再开始。 |
+
+如果识别器在受限沙箱里崩溃或失败，换到沙箱外重跑 `transcribe`，或者加 `--cpu` 重试。
+
+## 3. 检查听得对不对
+
+翻译之前，OpenBBQ 先检查自己的听力：
+
+```bash
+openbbq asr check --workspace workspaces/demo
+```
+
+它会列出存疑的位置，并回答 `ready: true` 或 `ready: false`。这是一道关卡：只要还有没处理（或已过期）的决定，切字幕就拒绝执行。背后的想法见[质量关卡](/zh/docs/concepts/quality-gates)。`--max-prob FLOAT` 用来调整哪些低置信度的词会被标记。
+
+先说清楚这道关卡的含义：它只覆盖探测器发现的问题；识别器很有把握的词，它不做担保。
+
+### 分页查看存疑的地方
+
+```bash
+openbbq asr batch --workspace workspaces/demo --limit 20 --only-unresolved
+```
+
+`batch` 把问题分页列出，你——或者 AI Agent——不用一次装进整份听写稿。默认从 `--offset 0` 开始，每页 `--limit 20` 条，只列未处理的；加 `--all` 可以把已处理的也列出来。
+
+每一批按顺序列出两类疑问：
+
+1. **整句异常**——看上去不对劲的整个段落：解码器重复（识别器卡住，把同样的话又说了一遍）、不可能的语速（一秒钟塞进了没人说得完的词）、标题/作者实体冲突（某个名字和视频标题或作者对不上）。
+2. **低置信度的词**——识别器没听准的单个词，逐条列出。
+
+如果 `fetch` 保留了 YouTube 的 VTT——网站自带的字幕文件——批里还会附上重叠区域的参考文本，方便对照“网站上写的“和“识别器听到的“。
+
+### 写下决定并合并
+
+每个决定都记在一个 JSON 文件里。对词和实体（人名、作品名、地名这类专有名词），用 `accept` 或 `replace`；对重复的整句，用 `keep_first` 或 `drop`:
+
+| 决定 | 什么时候用 |
+| --- | --- |
+| `accept` | 听得没错，保持原样。 |
+| `replace` | 听错了——给出精确的 `find` 原文和 `replacement` 替换文。 |
+| `keep_first` | 整句重复：保留第一份。 |
+| `drop` | 整句重复：丢掉这一份。 |
+
+每个决定都必须带 `reason`——一句话说明理由，方便以后审计。然后合并这个文件：
+
+```bash
+openbbq asr apply --workspace workspaces/demo asr-decisions.json
+```
+
+循环 `batch` → 写决定 → `apply`，直到 `asr check` 回答 `ready: true`。
+
+### 偶尔一处错误
+
+有时你会发现一个探测器没标记的普通错误——它没有 issue id 可决定。直接打补丁：
+
+```json
+{"amendments":[{"segment_id":12,"find":"hot tick","replacement":"hot take","reason":"The surrounding sentence uses the idiom hot take."}]}
+```
+
+```bash
+openbbq asr amend --workspace workspaces/demo asr-amendments.json
+```
+
+每条补丁要指明段落、要查找的原文、替换文和理由。
+
+### 带上下文再过一遍
+
+关卡是机械检查，只管探测器找到的问题。通过之后，可以用 `openbbq glossary suggest` 和 `openbbq glossary audit` 带着上下文逐句再过一遍听写稿，同样是分页的。具体做法见[术语表](/zh/docs/guides/glossaries)。
+
+## 4. 切成一行行字幕
+
+```bash
+openbbq segment --workspace workspaces/demo
+```
+
+`segment` 是确定性的——同一份听写稿，每次切出来的结果都一样。它把文稿变成 `cues.json`：带起止时间的字幕行，按语言档案控制长度，保证读起来舒服。英语、中文、日语、韩语有内置档案；其他语言退回通用的拉丁文字档案。
+
+控制尺寸的选项：`--lang`、`--max-cps`（阅读速度，每秒字符数）、`--max-chars-per-line`、`--max-lines`、`--min-dur`、`--max-dur`、`--min-gap`、`--pause-threshold`。
+
+结果报告会列出超过阅读速度或超宽的字幕行，方便复查。
+
+如果绑定了术语表，已知别名会在这里被改成标准拼写，报告里会统计 `glossary_matched_terms`、`glossary_aliases_applied` 和 `glossary_no_effect`。注意最后一项：绑定的术语表一个都没匹配上，并不能证明术语都保持了统一。
+
+## 接下来
+
+- [翻译与审校](/zh/docs/guides/translation)——填上目标语言。
+- [术语表](/zh/docs/guides/glossaries)——让专有名词每一集都一致。
+- [质量关卡](/zh/docs/concepts/quality-gates)——为什么步骤之间会互相卡住。
+- [故障排查](/zh/docs/reference/troubleshooting)——识别器不听话时看这里。

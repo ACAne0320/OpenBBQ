@@ -1,0 +1,66 @@
+---
+title: Visual review
+description: Check subtitle text, timing, and translation in a local browser editor before publishing.
+---
+
+Visual review is the human checkpoint before you serve the video. OpenBBQ opens a local editor in your browser where you watch the video, read every subtitle line, fix text and timing, and mark each line as checked. Nothing is uploaded — the editor runs entirely on your own computer.
+
+## Install the editor
+
+The editor is an optional extra. Install it once:
+
+```bash
+uv tool install 'openbbq[review]' --force
+```
+
+## Open a workspace
+
+```bash
+openbbq review --workspace workspaces/demo --to zh
+```
+
+Your browser opens on a local address that only your own computer can reach. Useful options:
+
+- `--to zh` — open the [translation worksheet](/en/docs/guides/translation) for that language: the file that holds one translation per subtitle line. Skip it to start in source-only mode, with just the original lines; you can pick a language inside the editor too.
+- `--port PORT` — use a different port when the default one is busy.
+- `--no-open` — start the editor without opening a browser tab.
+
+## Everything on one screen
+
+- The video — or the audio, in an audio workspace.
+- A waveform, so you can see where speech starts and stops.
+- The subtitle-line timeline.
+- Source text and translation side by side.
+- Each line's timing and review status.
+
+## Edits save themselves
+
+Text edits autosave to `cues.json` (the subtitle lines) and `translation.zh.json` (the worksheet) — the same files every terminal command reads. There is no save button and no second copy to keep in sync.
+
+You can split one line into two, merge lines, insert or delete lines, and undo or redo any of it. When a line is right, mark it **reviewed**; when something needs another look, **flag** it and move on.
+
+Your progress lives in `review.zh.json` — or `review.source.json` in source-only mode.
+
+<Callout type="warn" title="One editor at a time">
+  Only one editing session can hold the workspace lock at a time. Finish or close one `openbbq review` before starting another on the same workspace.
+</Callout>
+
+## Subtitle files wait for export
+
+The editor never touches SRT or ASS files. They stay derived files — generated from the workspace, not edited in place. After you finish editing, regenerate them explicitly:
+
+```bash
+openbbq export --to zh --workspace workspaces/demo
+```
+
+See [Export and burn](/en/docs/guides/export-and-burn).
+
+## The review gate
+
+Once a `review.zh.json` exists, OpenBBQ expects the review to be finished: target and bilingual export stay blocked until every line in that scope is marked reviewed. Reopen the editor to close the remaining lines:
+
+```bash
+openbbq review --to zh --workspace workspaces/demo
+```
+
+`--allow-unreviewed` on export is for an intentional draft only — it lets the file through and marks nothing as reviewed. How this fits the bigger picture: [Quality gates](/en/docs/concepts/quality-gates).

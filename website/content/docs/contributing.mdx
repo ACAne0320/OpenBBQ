@@ -1,0 +1,59 @@
+---
+title: Contributing
+description: Set up OpenBBQ locally, run the relevant checks, and send a focused change.
+---
+
+OpenBBQ is pre-alpha. Small fixes, clearer docs, tests for missed behavior, and well-scoped feature work are all useful. Search [existing issues](https://github.com/ACAne0320/OpenBBQ/issues) before starting so you can build on work already in progress.
+
+## Set up the Python project
+
+```bash
+git clone https://github.com/ACAne0320/OpenBBQ.git
+cd OpenBBQ
+uv sync --extra whispercpp --extra review --dev
+```
+
+Run the Python checks from the repository root:
+
+```bash
+uv run pytest -q
+uv run ruff check .
+uv run ty check
+```
+
+Add or update tests when behavior changes. Keep a fix close to the failing behavior instead of combining unrelated cleanup in the same change.
+
+## Work on the documentation site
+
+```bash
+cd website
+pnpm install
+pnpm run types:check
+pnpm run dev
+```
+
+Documentation is maintained in English and Simplified Chinese. Update both versions when the change affects product behavior, navigation, commands, or factual claims. Open the rendered pages and check links, code blocks, headings, and mobile layout before sending the change.
+
+## Work on the review editor
+
+```bash
+cd reviewer
+pnpm install
+pnpm test
+pnpm run typecheck
+```
+
+Run `pnpm run build` when the change affects the packaged review UI.
+
+## Send a focused change
+
+A useful pull request explains:
+
+- the problem it solves;
+- the approach and any important tradeoff;
+- the checks you ran;
+- screenshots for visible website or editor changes.
+
+Keep generated files and source files in sync when the project packages generated output. Do not include media, workspaces, model files, auth data, or unrelated formatting changes.
+
+[Open a pull request](https://github.com/ACAne0320/OpenBBQ/pulls) when the relevant checks pass.

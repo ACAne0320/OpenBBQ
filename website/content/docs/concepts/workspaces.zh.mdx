@@ -1,0 +1,98 @@
+---
+title: 工作区与阶段
+description: 一个视频一个文件夹，一步一个文件——以及为什么重跑某一步是安全的。
+---
+
+OpenBBQ 不是一条按个按钮就跑完的固定流水线，而是一组独立的命令，由你——或你的 Agent——自由组合：跑一步，看看结果，再决定下一步做什么。没有黑盒，所以心智模型很简单：一个视频，一个工作区文件夹，每一步都把结果存成可以直接打开的普通文件。
+
+## 工作区
+
+工作区就是一个包含 OpenBBQ `manifest.json` 的文件夹——manifest 是一个小小的 JSON 文件（程序容易读取的结构化文本），记录着发生过什么。用 `init` 创建：
+
+```bash
+openbbq init --workspace workspaces/demo /path/to/video.mp4
+```
+
+命令按这个顺序找工作区：
+
+1. `--workspace`（或 `-w`）指定的目录。
+2. 当前目录，然后逐级向上找父目录。
+3. 都找不到 manifest 时，返回结构化的 `no_workspace` 错误。
+
+所以你可以在工作区目录树里的任何位置执行命令，也可以在别处用 `--workspace` 明确指过来。
+
+## 来源
+
+`init` 接受三种来源：
+
+| 来源 | 示例 | 区别 |
+| --- | --- | --- |
+| URL | `https://www.youtube.com/watch?v=...` | 先运行 `openbbq fetch` |
+| 本地视频 | `.mp4`、`.mkv`、`.mov`、`.webm` 等 | 跳过 `fetch` |
+| 本地音频 | `.wav`、`.mp3`、`.m4a`、`.flac` 等 | 跳过 `fetch`；不能 `burn` |
+
+本地路径会解析为绝对路径，文件就地使用——OpenBBQ 不会把它复制进工作区。
+
+## 阶段与产物
+
+你运行的每条命令就是一个阶段，每个阶段都把主要结果存成一个文件：
+
+| 阶段 | 命令 | 主要产物 |
+| --- | --- | --- |
+| fetch | `openbbq fetch` | `media/` 下的下载媒体 |
+| extract_audio | `openbbq extract-audio` | `media/audio.16k.wav` |
+| transcribe | `openbbq transcribe` | `transcript.json`——识别器听到的内容，带时间 |
+| segment | `openbbq segment` | `cues.json`——带起止时间的字幕行 |
+| translate | `openbbq translate ...` | `translation.<lang>.json`——按语言分的翻译工作表 |
+| review | `openbbq review` | `review.<lang>.json`（或 `review.source.json`），并同步写回字幕行与工作表的修改 |
+| export | `openbbq export` | `out/` 下的字幕文件 |
+| burn | `openbbq burn` | `out/` 下的硬字幕 MP4 |
+
+Manifest 是工作日志，不是预先填好的清单：只有运行过对应命令，阶段才会出现。阶段状态有 `running`、`done`、`failed`、`pending` 四种。长任务会记录进度心跳；running 阶段超过 60 秒没有更新时，`openbbq status` 会把它标记为 stale。
+
+## 重跑上游步骤
+
+重做前面的步骤，后面的结果就变得可疑：听写稿一变，基于它切出的字幕行、填好的译文和导出的字幕都可能对不上了。所以当上游阶段开始或完成时，OpenBBQ 会把已记录的后续阶段标为 `pending`。重跑 `transcribe`,segment、translate、review、export、burn 就全部回到 pending。
+
+OpenBBQ 绝不会自己删掉你改过的文件——下游产物由你显式地检查或重新生成。
+
+<Callout type="warn" title="翻译工作表">
+  `openbbq translate init <lang> --force` 会覆盖工作表，丢掉所有已经填好的译文。不带 `--force` 时，它会拒绝替换已有的工作表。
+</Callout>
+
+## 校对会写回工作区
+
+`openbbq review` 打开一个本地编辑器，你在里面修原文、改译文、调时间——这些修改会写回工作区里的规范文件。一旦有了校对记录，导出会等到所选范围全部完成；`--allow-unreviewed` 是显式的草稿出口。详见[可视化校对](/zh/docs/guides/review)。
+
+## 给人看和给机器看的输出
+
+在交互式终端里，OpenBBQ 会画表格和进度条。加上 `--json`、在 CI 里、或者输出不是去往终端时，它只打印一个紧凑的 JSON 对象——根级 `--json` 要放在命令名之前：
+
+```bash
+openbbq --json status --workspace workspaces/demo
+```
+
+成功和失败使用不同的退出码，脚本和 Agent 不用解析文字就能做出反应。完整的约定见[与 Agent 协作](/zh/docs/guides/agents)。
+
+## 全局数据
+
+工作区文件属于某一个视频项目；跨项目共享的数据放在 `OPENBBQ_HOME` 下，默认是 `~/.openbbq`:
+
+```text
+~/.openbbq/
+├── auth/          # 保存的网站登录会话
+├── glossaries/    # 命名术语表 JSON
+└── models/        # 识别器模型缓存
+```
+
+默认位置不可写时，指到别处：
+
+```bash
+OPENBBQ_HOME=/path/to/openbbq-home openbbq doctor
+```
+
+## 接下来
+
+- [质量关卡](/zh/docs/concepts/quality-gates)——阶段之间的检查。
+- [快速上手](/zh/docs/getting-started/quickstart)——把这些阶段完整走一遍。
+- [CLI 参考](/zh/docs/reference/cli)——每条命令和每个选项。

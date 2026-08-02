@@ -1,0 +1,42 @@
+---
+title: Getting help
+description: Diagnose a problem and prepare a report someone else can reproduce.
+---
+
+OpenBBQ usually tells you why it stopped and prints a `fix` with the next step. Try that instruction first. If the problem remains, collect a small amount of useful evidence before asking for help.
+
+## Run the two checks
+
+```bash
+openbbq doctor
+openbbq --json status --workspace workspaces/demo
+```
+
+`doctor` checks the tools and models on your machine. `status` shows what happened in one workspace and which stage needs attention. If you have not created a workspace yet, run `doctor` on its own.
+
+The [Troubleshooting guide](/en/docs/reference/troubleshooting) covers missing commands, model downloads, FFmpeg filters, sign-in, stale stages, incomplete translations, and failed burns.
+
+## Search before reporting
+
+Search [GitHub issues](https://github.com/ACAne0320/OpenBBQ/issues) for the error code or the last command you ran. If someone has already reported the same problem, add any new reproduction details there instead of opening a duplicate.
+
+## Write a useful report
+
+Include:
+
+- what you were trying to make and what you expected to happen;
+- the exact command that failed;
+- the complete error code and `fix` text;
+- the output of `openbbq --version`;
+- your operating system, FFmpeg version, model name, and whether the source was a local file or URL;
+- the smallest set of steps that reproduces the problem.
+
+If `status` helps explain the failure, attach its JSON after removing private paths and media names.
+
+Do not post cookies, files from `~/.openbbq/auth/`, account details, private video URLs, raw media, or an entire workspace. A short, redacted report is easier to review and safer to share.
+
+[Open a GitHub issue](https://github.com/ACAne0320/OpenBBQ/issues/new) when you have a reproducible report.
+
+## Asking about usage
+
+For a how-to question, link the guide you followed and name the step where the result stopped matching the page. A command, expected result, and actual result are usually enough for someone else to help.

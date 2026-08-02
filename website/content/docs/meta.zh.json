@@ -1,5 +1,5 @@
 {
   "title": "文档",
   "pagesIndex": "index",
-  "pages": ["getting-started", "guides", "reference"]
+  "pages": ["getting-started", "guides", "concepts", "reference", "contributing"]
 }

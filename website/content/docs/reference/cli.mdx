@@ -1,7 +1,9 @@
 ---
 title: CLI Reference
-description: Commands and options implemented by the current OpenBBQ CLI.
+description: Every command and option in the current OpenBBQ CLI, in pipeline order.
 ---
+
+Every OpenBBQ command, listed in pipeline order. Commands that work on a video operate inside a workspace; [Workspace files](/en/docs/reference/workspace) explains what each file there is for.
 
 ## Global syntax
 
@@ -12,12 +14,34 @@ openbbq [--json] COMMAND [ARGS]...
 | Option | Description |
 | --- | --- |
 | `--json` | Emit one machine-readable JSON object. Must appear before the command. |
-| `--version` | Print the installed OpenBBQ version. |
 | `--help` | Show help for the current command or group. |
 | `--install-completion` | Install shell completion. |
 | `--show-completion` | Print shell completion code. |
 
-Most workspace commands accept `--workspace PATH` or `-w PATH`. When omitted, OpenBBQ searches from the current directory upward.
+Most workspace commands accept `--workspace PATH` (short form `-w PATH`). When omitted, OpenBBQ searches for a workspace from the current directory upward.
+
+## `agent`
+
+The default one-prompt facade. Initialize once, then keep asking for the one
+authoritative next action:
+
+```text
+openbbq --json agent init SOURCE [--workspace PATH] [--to CODE] [--glossary NAME]
+openbbq --json agent next [--workspace PATH] [--to CODE]
+openbbq --json agent apply RESPONSE.json [--workspace PATH] [--to CODE]
+openbbq --json agent finish [--workspace PATH] [--to CODE]
+```
+
+| Command | Description |
+| --- | --- |
+| `agent init` | Create the workspace and one Agent session. `--to` defaults to `zh`; an explicit `--glossary` binds an existing global glossary. |
+| `agent next` | Return exactly one of `run_command`, `review_source`, `translate`, `finish`, or `done`. Repeat after every successful action. |
+| `agent apply` | Atomically apply the complete JSON response for the active semantic lease. Missing, extra, stale, or policy-mismatched content is rejected. |
+| `agent finish` | Export bilingual ASS, burn the video, check delivery, and publish eligible glossary learning. Run only when returned by `agent next`. |
+
+Use the returned `argv` as-is and follow its execution policy. See [Workflow
+model](/en/docs/getting-started/workflow) for leases, bounded translation,
+recovery, and draft quality semantics.
 
 ## `doctor`
 
@@ -25,7 +49,7 @@ Most workspace commands accept `--workspace PATH` or `-w PATH`. When omitted, Op
 openbbq doctor
 ```
 
-Runs read-only, idempotent environment checks for Python, FFmpeg, subtitle filters, yt-dlp, ASR backends, cached models, and Agent skill installation.
+Checks your environment: [Python](https://www.python.org/), [FFmpeg](https://www.ffmpeg.org/), subtitle filters, [yt-dlp](https://github.com/yt-dlp/yt-dlp), recognizer backends, cached models, and the agent skill. Read-only and idempotent — it changes nothing.
 
 ## `init`
 
@@ -35,11 +59,11 @@ openbbq init [--workspace PATH] [--glossary NAME] SOURCE
 
 | Input | Description |
 | --- | --- |
-| `SOURCE` | Required URL or local video/audio path. |
-| `--workspace`, `-w` | Output workspace. Without it, a slug directory is created under the current directory. Use `.` for the current directory. |
-| `--glossary` | Bind an existing global glossary at initialization. |
+| `SOURCE` | Required. A URL or a local video/audio path. |
+| `--workspace`, `-w` | Workspace directory. Without it, a slug directory is created under the current directory; use `.` for the current directory itself. |
+| `--glossary` | Bind an existing global glossary right away. |
 
-Creates only the workspace and manifest; it does not fetch or process media.
+Creates only the workspace and its manifest. Nothing is downloaded or processed yet.
 
 ## `status`
 
@@ -47,37 +71,21 @@ Creates only the workspace and manifest; it does not fetch or process media.
 openbbq status [--workspace PATH]
 ```
 
-Reports source metadata, glossary binding, worksheets, recorded stages, progress, artifacts, failures, and stale running stages.
-
-## `agent`
-
-The default one-prompt facade:
-
-```text
-openbbq agent init [--workspace PATH] [--to CODE] [--glossary NAME] SOURCE
-openbbq agent next [--workspace PATH] [--to CODE]
-openbbq agent apply [--workspace PATH] [--to CODE] RESPONSE.json
-openbbq agent finish [--workspace PATH] [--to CODE]
-```
-
-`init` creates the editable-draft session. `next` returns the one authoritative
-action. `apply` atomically accepts the complete active semantic response.
-`finish` exports, burns, checks delivery, and publishes eligible glossary
-learning once.
+Reports source metadata, the bound glossary, worksheets, recorded stages with progress, artifacts, failures, and stages stuck in a stale "running" state.
 
 ## `fetch`
 
 ```text
-openbbq fetch [--workspace PATH] [--auth SITE | --no-auth]
+openbbq fetch [--workspace PATH] [--auth SITE | --no-auth] [--max-height INT]
 ```
 
 | Option | Description |
 | --- | --- |
-| `--auth SITE` | Use a saved site app session, currently `youtube`. |
-| `--no-auth` | Force anonymous yt-dlp download. |
-| `--max-height INT` | Limit downloaded video height; yt-dlp best quality is the default. |
+| `--auth SITE` | Use a saved site session, currently `youtube`. |
+| `--no-auth` | Force an anonymous download. |
+| `--max-height INT` | Cap the video resolution, for example `1080`. |
 
-Valid only for URL sources. Supported YouTube URLs automatically use a configured YouTube session unless `--no-auth` is passed.
+Valid only for URL sources. Supported YouTube URLs automatically use a configured session unless `--no-auth` is passed.
 
 ## `extract-audio`
 
@@ -85,7 +93,7 @@ Valid only for URL sources. Supported YouTube URLs automatically use a configure
 openbbq extract-audio [--workspace PATH]
 ```
 
-Normalizes the available source media to `media/audio.16k.wav` as 16 kHz mono WAV.
+Normalizes the source media to `media/audio.16k.wav` — 16 kHz mono, the audio the recognizer listens to.
 
 ## `transcribe`
 
@@ -95,15 +103,15 @@ openbbq transcribe [OPTIONS]
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `--model NAME_OR_PATH` | Best cached model | Cached model name or direct ggml `.bin` path. |
-| `--backend NAME` | `auto` | ASR backend; currently `auto` or `whisper.cpp`. |
-| `--language CODE` | auto-detect | Force source language, for example `en`. |
-| `--prompt TEXT` | none | Initial ASR prompt. |
+| `--model NAME_OR_PATH` | best cached model | Cached model name, or a direct path to a ggml `.bin` file. |
+| `--backend NAME` | `auto` | Recognizer backend: `auto` or `whisper.cpp`. |
+| `--language CODE` | auto-detect | Force the source language, for example `en`. |
+| `--prompt TEXT` | none | Initial prompt for the recognizer. |
 | `--glossary NAME` | manifest binding | Override the bound glossary. |
-| `--gpu` / `--cpu` | `--gpu` | Enable or disable backend GPU acceleration. |
-| `--auto-download` | off | Download a missing named model before transcription. |
+| `--gpu` / `--cpu` | `--gpu` | GPU acceleration on or off. |
+| `--auto-download` | off | Download a missing named model before transcribing. |
 
-Requires `extract-audio`. Writes `transcript.json` with segments, word timing when available, backend, model, language, and duration.
+Requires `extract-audio` first. Writes `transcript.json` — every sentence it heard, with timings.
 
 ## `segment`
 
@@ -113,51 +121,124 @@ openbbq segment [OPTIONS]
 
 | Option | Description |
 | --- | --- |
-| `--lang CODE` | Override transcript source language. |
-| `--glossary NAME` | Override manifest glossary for alias correction. |
+| `--lang CODE` | Override the transcript's source language. |
+| `--glossary NAME` | Override the bound glossary used for alias correction. |
 | `--max-cps FLOAT` | Maximum characters per second. |
-| `--max-chars-per-line INT` | Per-line character budget. |
-| `--max-lines INT` | Maximum lines per cue. |
-| `--min-dur FLOAT` | Minimum cue duration in seconds. |
-| `--max-dur FLOAT` | Maximum cue duration in seconds. |
-| `--min-gap FLOAT` | Minimum gap between cues in seconds. |
-| `--pause-threshold FLOAT` | Natural-pause split threshold in seconds. |
+| `--max-chars-per-line INT` | Character budget per line. |
+| `--max-lines INT` | Maximum lines per subtitle. |
+| `--min-dur FLOAT` | Minimum subtitle duration in seconds. |
+| `--max-dur FLOAT` | Maximum subtitle duration in seconds. |
+| `--min-gap FLOAT` | Minimum gap between subtitles in seconds. |
+| `--pause-threshold FLOAT` | Pause length that triggers a split, in seconds. |
 
-Built-in profiles use the transcript base language (`en`, `zh`, `ja`, or `ko`); other languages fall back to the generic Latin profile. Writes `cues.json`.
+Cuts the transcript into subtitle lines and writes `cues.json`. Built-in language profiles exist for `en`, `zh`, `ja`, and `ko`; other languages fall back to a generic Latin profile.
 
-## `translate init`
+## `asr`
+
+Listening checks: verify what the recognizer heard before anything is cut or translated.
+
+### `asr check`
+
+```bash
+openbbq asr check [--workspace PATH] [--max-prob FLOAT]
+```
+
+Reports the doubtful spots and whether every issue already has a decision (`ready`). `--max-prob` sets the confidence threshold below which words count as doubtful.
+
+### `asr batch`
+
+```text
+openbbq asr batch [--workspace PATH] [--offset INT] [--limit INT] [--only-unresolved | --all] [--max-prob FLOAT]
+```
+
+Reads one bounded batch of issues — segment anomalies first, then low-confidence word occurrences.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--offset INT` | `0` | Skip this many items. |
+| `--limit INT` | `20` | Maximum items per batch. |
+| `--only-unresolved` / `--all` | `--only-unresolved` | Open issues only, or everything. |
+| `--max-prob FLOAT` | — | Same confidence threshold as `asr check`. |
+
+### `asr apply`
+
+```text
+openbbq asr apply [--workspace PATH] DECISIONS.json
+```
+
+Merges your decisions. Use `accept` or `replace` for words and names — a replace decision needs the exact `find` phrase and a `replacement`. Use `keep_first` or `drop` for repeated segments. Every decision requires a reason.
+
+### `asr amend`
+
+```text
+openbbq asr amend [--workspace PATH] AMENDMENTS.json
+```
+
+One-off phrase corrections for errors the detector did not flag. Each entry carries `segment_id`, `find`, `replacement`, and `reason`.
+
+## `translate`
+
+### `translate init`
 
 ```text
 openbbq translate init [--workspace PATH] [--glossary NAME] [--force] LANG
 ```
 
-Creates `translation.<lang>.json` from `cues.json`. `--force` discards an existing worksheet and all filled targets.
+Creates `translation.<lang>.json` from `cues.json`. `--force` discards an existing worksheet, including everything already translated.
 
-## `translate apply`
+### `translate batch`
+
+```text
+openbbq translate batch [--workspace PATH] [LANG] [--from INT] [--limit INT] [--only-missing] [--context INT]
+```
+
+Reads a bounded slice of the worksheet, with neighbor lines for context — nobody has to load the whole file at once.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--from INT` | `1` | First line to read; minimum `1`. |
+| `--limit INT` | `20` | Lines to read, `1`–`200`. |
+| `--only-missing` | off | Only lines still missing a translation. |
+| `--context INT` | `1` | Neighbor lines on each side, `0`–`5`. |
+
+### `translate apply`
 
 ```text
 openbbq translate apply [--workspace PATH] LANG TARGETS.json
 ```
 
-Merges a JSON object mapping cue ids to translated text. Repeat for multiple batches.
+Merges a JSON object mapping line ids to translated text. Repeatable — apply batch after batch. Unknown or malformed ids are rejected.
 
-## `translate batch`
-
-```text
-openbbq translate batch [--workspace PATH] [--from ID] [--limit 1..200]
-  [--only-missing] [--context 0..5] [LANG]
-```
-
-Reads a bounded worksheet slice with neighboring context. The compatibility
-default limit is 20; the Agent facade independently enforces a maximum of 20.
-
-## `translate check`
+### `translate check`
 
 ```text
 openbbq translate check [--workspace PATH] [LANG]
 ```
 
-Reports completeness, missing ids, target budget violations, glossary warnings, and cue integrity. The language is inferred when only one worksheet exists.
+Reports completeness, missing ids, lines over the length budget, glossary warnings, and line integrity. The language is inferred when only one worksheet exists.
+
+### `translate audit`
+
+```text
+openbbq translate audit [--workspace PATH] [LANG] [--offset INT] [--limit INT] [--only-unreviewed | --all] [--coverage risks|all]
+```
+
+Reads a bounded batch of lines for semantic review — risky lines first, each with neighbor context.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--offset INT` | `0` | Skip this many items. |
+| `--limit INT` | `20` | Maximum items per batch. |
+| `--only-unreviewed` / `--all` | `--only-unreviewed` | Unreviewed lines only, or everything. |
+| `--coverage risks\|all` | `all` | Risky lines only, or the full worksheet. |
+
+### `translate audit-apply`
+
+```text
+openbbq translate audit-apply [--workspace PATH] LANG DECISIONS.json
+```
+
+Merges `accept`/`revise` decisions. Every decision needs a reason, and revisions include the corrected target text.
 
 ## `review`
 
@@ -165,7 +246,59 @@ Reports completeness, missing ids, target budget violations, glossary warnings, 
 openbbq review [--workspace PATH] [--to CODE] [--port PORT] [--no-open]
 ```
 
-Starts a loopback-only browser editor for video preview, waveform and cue timeline adjustment, source/target editing, review notes, and review status. `--to` selects the initial translation worksheet; without it, review starts in source-only mode and a subtitle language can be selected in the editor. The command writes edits atomically to `cues.json`, every affected `translation.<lang>.json`, and `review.<lang>.json` (or `review.source.json`). Only one review session may hold a workspace lock at a time.
+Opens a browser editor that only listens on your own machine: video preview, waveform and line timeline, source and target editing, review notes and status. `--to` selects the initial translation worksheet; without it, review starts in source-only mode and you can pick a subtitle language in the editor. `--port` sets the port, `--no-open` skips launching a browser.
+
+Edits are written atomically to `cues.json`, every affected `translation.<lang>.json`, and `review.<lang>.json` (or `review.source.json`). Only one review session holds the workspace lock at a time.
+
+## `glossary`
+
+### `glossary list` / `show` / `new` / `use`
+
+```text
+openbbq glossary list
+openbbq glossary show NAME
+openbbq glossary new [--context TEXT] NAME
+openbbq glossary use [--workspace PATH] NAME
+```
+
+List your glossaries, show one, create one, or bind one to the workspace.
+
+### `glossary suggest`
+
+```text
+openbbq glossary suggest [--workspace PATH] [OPTIONS]
+```
+
+Suggests glossary candidates from words the recognizer was unsure about.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--glossary NAME` | none | Exclude terms this glossary already knows. |
+| `--max-prob FLOAT` | `0.6` | Only words below this average confidence. |
+| `--min-count INT` | `1` | Minimum occurrences. |
+| `--max INT` | `30` | Maximum candidates returned. |
+
+### `glossary audit`
+
+```text
+openbbq glossary audit [--workspace PATH] [--offset INT] [--limit INT] [--glossary NAME]
+```
+
+Pages through every resolved transcript segment with its evidence. Follow `next_offset` until nothing remains.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--offset INT` | `0` | Skip this many items. |
+| `--limit INT` | `20` | Items per page; maximum `20`. |
+| `--glossary NAME` | — | Audit against this glossary. |
+
+### `glossary apply`
+
+```text
+openbbq glossary apply [--workspace PATH] CHANGES.json [--glossary NAME]
+```
+
+Atomically adds or updates up to 20 terms from a `terms` array in the file.
 
 ## `export`
 
@@ -176,24 +309,57 @@ openbbq export [OPTIONS]
 | Option | Default | Description |
 | --- | --- | --- |
 | `--to CODE` | none | Target worksheet language. |
-| `--mode source\|target\|bilingual` | source, or target with `--to` | Render mode. |
+| `--mode source\|target\|bilingual` | source, or target with `--to` | Which text the file carries. |
 | `--format srt\|ass` | `srt` | Subtitle format. |
 | `--output PATH` | `out/<lang>.<format>` | Destination path. |
 | `--ass-preset default\|fansub\|fansub-compact\|mobile` | `default` | ASS style preset; valid only with ASS. |
-| `--allow-missing` | off | Fall back to source text for missing target cues. |
-| `--allow-unreviewed` | off | Bypass the review-completion gate for an explicit draft export. |
+| `--allow-missing` | off | Fall back to source text for blank targets. |
+| `--allow-unreviewed` | off | Bypass the review gate for a deliberate draft. |
+| `--allow-quality-warnings` | off | Export a deliberate draft despite open quality items. |
 
 ## `burn`
 
 ```text
-openbbq burn [--workspace PATH] [--subtitle FILE.ass] [--output FILE.mp4]
-  [--ffmpeg PATH] [--allow-stale]
+openbbq burn [--workspace PATH] [--subtitle FILE.ass] [--output FILE.mp4] [--ffmpeg PATH]
 ```
 
-Uses the last export artifact when `--subtitle` is omitted. The default output
-is based on the subtitle filename, for example `out/zh-burned.mp4`. Requires a
-video source and ASS input. `--allow-stale` is an explicit expert escape hatch
-for an intentional untracked or stale subtitle.
+Burns subtitles into the picture. Uses the last export artifact when `--subtitle` is omitted; the default output name derives from the subtitle file, for example `out/zh-burned.mp4`. Requires a video source and ASS input. A changed or untracked workspace ASS is rejected — `--allow-stale` is reserved for an intentional manual draft.
+
+## `qa`
+
+Optional manual visual diagnostics: look at real frames of the burned video.
+
+### `qa render`
+
+```text
+openbbq qa render [--workspace PATH] [--count INT] [--ffmpeg PATH]
+```
+
+Samples subtitle-bearing frames from the burned MP4. `--count` picks how many frames, `1`–`9`, default `7`.
+
+### `qa check`
+
+```bash
+openbbq qa check [--workspace PATH]
+```
+
+Read-only verification of the current MP4 and frame hashes and the visual status.
+
+### `qa attest`
+
+```text
+openbbq qa attest [--workspace PATH] --result pass|fail --reason TEXT [--issue CODE]
+```
+
+Records a visual judgment. `--issue` can be repeated to attach several codes.
+
+## `delivery`
+
+```text
+openbbq delivery check [--workspace PATH] [--to CODE]
+```
+
+The hard delivery gate. It exits non-zero until every quality check passes: listening decisions, translation check, semantic review, exact ASS content, export and burn freshness, burn provenance, and a non-empty MP4.
 
 ## `models`
 
@@ -202,7 +368,7 @@ openbbq models list
 openbbq models pull NAME
 ```
 
-`list` reports provider, approximate size, and cache state. `pull` validates the model name and downloads it to the global cache with resumable transfer.
+`list` reports provider, approximate size, and cache state. `pull` validates the name and downloads the model to the global cache with a resumable transfer.
 
 Common choices:
 
@@ -216,69 +382,6 @@ Common choices:
 
 Run `models list` for the full current catalog, including English-only and quantized variants.
 
-## `glossary`
-
-```text
-openbbq glossary list
-openbbq glossary show NAME
-openbbq glossary new [--context TEXT] NAME
-openbbq glossary use [--workspace PATH] NAME
-openbbq glossary suggest [OPTIONS]
-openbbq glossary audit [--workspace PATH] [--offset N] [--limit N]
-openbbq glossary apply [--workspace PATH] [--glossary NAME] CHANGES.json
-```
-
-`suggest` options:
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `--glossary NAME` | none | Exclude terms already known to this glossary. |
-| `--max-prob FLOAT` | `0.6` | Surface words below this average ASR probability. |
-| `--min-count INT` | `1` | Minimum occurrences. |
-| `--max INT` | `30` | Maximum candidates returned. |
-
-`audit` pages through resolved transcript segments with contextual evidence.
-`apply` atomically adds or updates at most 20 curated terms. These are expert
-compatibility tools; the Agent facade uses a task-local overlay and publishes
-eligible learning after delivery.
-
-## `asr`
-
-Expert ASR diagnosis and correction commands:
-
-```text
-openbbq asr check [--workspace PATH] [--max-prob FLOAT]
-openbbq asr batch [--workspace PATH] [--offset N] [--limit N]
-  [--only-unresolved | --all] [--max-prob FLOAT]
-openbbq asr apply [--workspace PATH] DECISIONS.json
-openbbq asr amend [--workspace PATH] AMENDMENTS.json
-```
-
-`check` and `batch` expose deterministic issues. `apply` records explicit issue
-decisions. `amend` applies bounded contextual phrase corrections without a
-detector issue id. Normal one-prompt tasks use these only when `agent next`
-returns an exceptional source-review action.
-
-## `delivery`
-
-```bash
-openbbq delivery check [--workspace PATH] [--to CODE]
-```
-
-Returns non-zero until source, translation evidence, export, and burn artifacts
-are complete, current, structurally valid, and non-empty.
-
-## `qa`
-
-```text
-openbbq qa render
-openbbq qa check
-openbbq qa attest
-```
-
-Optional expert visual-evidence commands. They are not part of the default
-Agent workflow. `render` alone does not perform visual inspection.
-
 ## `auth`
 
 ```bash
@@ -287,7 +390,7 @@ openbbq auth status youtube
 openbbq auth clear youtube
 ```
 
-Currently only the `youtube` site key is implemented.
+Sign in through the browser, check the saved session, or remove it. Only the `youtube` site key exists today.
 
 ## `skill`
 
@@ -300,7 +403,7 @@ Install options:
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `--agent claude\|codex\|agents\|all` | `agents` | Installation target. |
+| `--agent claude\|codex\|agents\|all` | `agents` | Which agent directory to install into. |
 | `--target PATH` | target-specific | Custom directory containing the installed skill folder. |
 | `--name openbbq-subtitles\|bilibili-cover-safe-area` | `openbbq-subtitles` | Packaged skill. |
 | `--force` | off | Overwrite an installed skill. |
