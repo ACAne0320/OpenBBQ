@@ -1,9 +1,9 @@
 ---
 title: Documentation
-description: Install OpenBBQ, cook your first bilingual subtitles, and look up any command.
+description: Give an agent a video URL, get an editable bilingual subtitle draft and burned video, or run the same workflow by hand.
 ---
 
-OpenBBQ is an open-source tool that turns foreign-language video into finished subtitles. You can drive it from the terminal yourself or let an AI agent run the commands for you. It downloads the video, writes down what it hears, translates line by line, checks the result, and burns the subtitles in.
+OpenBBQ turns a video URL or local file into an editable bilingual subtitle draft and a burned video. Give an AI agent one prompt and let it run the bounded workflow, or drive the same commands yourself from the terminal.
 
 In fansub circles, an untranslated video is "raw meat" and the finished release is "cooked meat". OpenBBQ handles the work between them.
 
@@ -15,10 +15,10 @@ In fansub circles, an untranslated video is "raw meat" and the finished release 
 
 <Cards>
   <Card title="Installation" href="/en/docs/getting-started/installation">
-    Get the CLI, FFmpeg, and a recognition model onto your machine.
+    Let an agent install and verify OpenBBQ, or set up each dependency by hand.
   </Card>
   <Card title="Quickstart" href="/en/docs/getting-started/quickstart">
-    Cook your first video, from a local file to bilingual subtitles, one step at a time.
+    Cook your first video with one agent prompt or run the workflow command by command.
   </Card>
 </Cards>
 
@@ -31,7 +31,7 @@ download → write down what it hears → cut into lines
 → translate → review → export subtitles → burn into video
 ```
 
-Nothing hides in a black box. Stop anywhere, look at the files, fix something, and continue. OpenBBQ picks up where you left off. After each step it checks the work before moving on. If something looks off, it stops and waits for your call. Read more in [Workspaces and stages](/en/docs/concepts/workspaces) and [Quality gates](/en/docs/concepts/quality-gates).
+Nothing hides in a black box. Stop anywhere, look at the files, fix something, and continue. OpenBBQ picks up where you left off. Structural correctness, bounded translation batches, artifact freshness, and one-time export and burn are enforced deterministically. Quality findings remain visible on the automatic draft; open the local editor when the work needs professional human review. Read more in [Workspaces and stages](/en/docs/concepts/workspaces) and [Quality controls](/en/docs/concepts/quality-gates).
 
 ## Doing something specific?
 

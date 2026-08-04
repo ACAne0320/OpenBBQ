@@ -6,11 +6,15 @@ import { createLayoutSwitch } from "fumapress/layouts/switch";
 import { flexsearchPlugin } from "fumapress/plugins/flexsearch";
 import { linkValidationPlugin } from "fumapress/plugins/link-validation";
 import { llmsPlugin } from "fumapress/plugins/llms.txt";
+import { sitemapPlugin } from "fumapress/plugins/sitemap";
 import { takumiPlugin } from "fumapress/plugins/takumi";
 import { defineI18n } from "fumadocs-core/i18n";
 import { zhCN } from "@fumapress/language/zh-cn";
 import { docs } from "./.source/server";
+import { getLocalizedPageUrls, renderPageSeo } from "./src/seo";
 import type { Node, Root } from "fumadocs-core/page-tree";
+
+const siteUrl = new URL(process.env.PUBLIC_SITE_URL ?? "https://openbbq.acane.dev").origin;
 
 const i18n = defineI18n({
   languages: ["en", "zh"],
@@ -29,7 +33,7 @@ const config = defineConfig({
   mode: "static",
   site: {
     name: "OpenBBQ",
-    baseUrl: process.env.PUBLIC_SITE_URL ?? "https://openbbq.acane.dev",
+    baseUrl: siteUrl,
     git: {
       user: "ACAne0320",
       repo: "OpenBBQ",
@@ -49,6 +53,9 @@ const config = defineConfig({
           />
         </>
       );
+    },
+    page(page) {
+      return renderPageSeo(page, siteUrl);
     },
   },
 });
@@ -107,6 +114,17 @@ export default config
     flexsearchPlugin(),
     linkValidationPlugin(),
     llmsPlugin(),
+    sitemapPlugin({
+      getEntry(page) {
+        const { canonical, alternates } = getLocalizedPageUrls(page.url, siteUrl);
+
+        return {
+          loc: canonical,
+          alternates,
+          priority: page.slugs.length === 0 ? 1 : 0.8,
+        };
+      },
+    }),
     takumiPlugin(),
   )
   .adapters(fumadocsMdx());

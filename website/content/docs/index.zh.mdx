@@ -1,9 +1,9 @@
 ---
 title: 文档
-description: 安装 OpenBBQ，做出第一份双语字幕，并随时查阅每个命令。
+description: 把视频链接交给 Agent，得到可编辑的双语字幕初稿和烧录成片；也可以手动运行同一套工作流。
 ---
 
-OpenBBQ 是一套开源工具，可以把外语视频变成做好的字幕。你可以自己在终端里操作，也可以让 AI Agent 替你运行命令：下载视频、把听到的话逐句记下来、逐行翻译、检查结果，最后把字幕烧进画面。
+OpenBBQ 可以把视频链接或本地文件变成可编辑的双语字幕初稿和烧录成片。你可以发一句提示词，让 AI Agent 按有界工作流完成任务；也可以在终端里手动运行同一套命令。
 
 字幕组把未翻译的视频叫“生肉”，把译制完成的版本叫“熟肉”。OpenBBQ 负责中间的整套工作。
 
@@ -15,10 +15,10 @@ OpenBBQ 是一套开源工具，可以把外语视频变成做好的字幕。你
 
 <Cards>
   <Card title="安装" href="/zh/docs/getting-started/installation">
-    把 CLI、FFmpeg 和识别模型装到你的电脑上。
+    让 Agent 安装并验证 OpenBBQ，或者自己逐项配置依赖。
   </Card>
   <Card title="快速上手" href="/zh/docs/getting-started/quickstart">
-    从本地文件开始，一步一步做出第一份双语字幕。
+    用一句提示词完成第一条视频，或者自己逐条运行工作流命令。
   </Card>
 </Cards>
 
@@ -31,7 +31,7 @@ OpenBBQ 是一套开源工具，可以把外语视频变成做好的字幕。你
 → 翻译 → 校对 → 导出字幕 → 烧录进画面
 ```
 
-没有黑盒。你可以随时停下来，打开文件检查或修改，然后继续；OpenBBQ 会从中断的地方接着跑。每完成一步，它都会先检查再继续。发现问题时，它会停下来等你决定。详见[工作区与阶段](/zh/docs/concepts/workspaces)和[质量关卡](/zh/docs/concepts/quality-gates)。
+没有黑盒。你可以随时停下来，打开文件检查或修改，然后继续；OpenBBQ 会从中断的地方接着跑。结构正确、翻译批次有界、产物新鲜和只导出/烧录一次由确定性规则保证；质量提示会保留在自动初稿中，需要专业质量时再打开本地编辑器完成人工复核。详见[工作区与阶段](/zh/docs/concepts/workspaces)和[质量控制](/zh/docs/concepts/quality-gates)。
 
 ## 想做具体的事？
 

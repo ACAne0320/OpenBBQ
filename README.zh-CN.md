@@ -1,8 +1,9 @@
 # OpenBBQ
 
-[English README](README.md) · [使用指南](docs/usage.zh-CN.md)
+[官网](https://openbbq.acane.dev/zh) · [在线文档](https://openbbq.acane.dev/zh/docs) · [English README](README.md)
 
-**OpenBBQ** 是一个面向智能体（Agent）的视频翻译和字幕制作命令行工具。
+**OpenBBQ** 让你把视频链接或本地文件交给 AI Agent，用一句提示词得到可编辑的双语
+字幕初稿和烧录成片。
 
 OpenBBQ 提供默认的 `agent init/next/apply/finish` facade，让不同 Agent 用一句提示词
 生成可编辑的双语字幕底稿。默认流程追求稳定的 70–80 分初稿：普通用户无需配置复杂
@@ -25,7 +26,8 @@ OpenBBQ 确定性地保证结构正确、翻译批次有界、产物新鲜和只
 在中国字幕组和创作者社群中，翻译并制作外语视频字幕的过程通常被称为“烤肉”。
 未经翻译的原始素材通常被称作“生肉”，而经过翻译和添加字幕的成品则变成了“熟肉”。
 
-所以 OpenBBQ 的愿景是，做一个开源、开放的字幕翻译平台。
+所以 OpenBBQ 是一套开源、Agent 原生的工作流，把生肉变成可编辑的双语字幕和烧录
+成片。
 
 ## 前置条件
 
@@ -41,7 +43,7 @@ OpenBBQ 确定性地保证结构正确、翻译批次有界、产物新鲜和只
 ### Agent 安装
 
 ```markdown
-查看[安装指南](https://raw.githubusercontent.com/ACAne0320/OpenBBQ/main/docs/install-agent.zh-CN.md)，帮我安装[OpenBBQ](https://github.com/ACAne0320/OpenBBQ)
+查看[安装指南](https://openbbq.acane.dev/install-agent.zh-CN.md)，帮我安装[OpenBBQ](https://github.com/ACAne0320/OpenBBQ)
 ```
 
 ### 手动安装
@@ -83,7 +85,7 @@ Agent 安装和随包发布的 OpenBBQ skill 说明见
 ## 路线图
 
 - [ ] 演示视频
-- [ ] 详细文档站点
+- [x] 详细文档站点
 - [ ] Windows 和 Linux 支持
 - [ ] 更多 ASR 后端支持
 - [ ] 更多视频平台鉴权支持

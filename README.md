@@ -1,9 +1,9 @@
 # OpenBBQ
 
-[中文说明](README.zh-CN.md) · [Usage Guide](docs/usage.md)
+[Website](https://openbbq.acane.dev/en) · [Documentation](https://openbbq.acane.dev/en/docs) · [中文说明](README.zh-CN.md)
 
-**OpenBBQ** is a command-line tool for agent-driven video translation and
-subtitle production.
+**OpenBBQ** turns a video URL or local file into an editable bilingual subtitle
+draft and a burned video through one AI-agent prompt.
 
 OpenBBQ provides a default `agent init/next/apply/finish` facade so different
 agents can turn one simple prompt into an editable bilingual subtitle draft.
@@ -33,7 +33,8 @@ translation, export, and burn commands remain available as expert tools.
 In Chinese fansub and creator communities, the process of translating and subtitling foreign-language videos is often called "barbecue".
 Raw untranslated material is "raw meat"; the translated, subtitled result is "cooked meat".
 
-OpenBBQ is meant to be an open-source, open subtitle translation platform.
+OpenBBQ is an open-source, agent-native workflow for turning raw video into
+editable bilingual subtitles and burned output.
 
 ## Requirements
 
@@ -49,7 +50,7 @@ OpenBBQ is meant to be an open-source, open subtitle translation platform.
 ### Agent Install
 
 ```markdown
-Read the [install guide](https://raw.githubusercontent.com/ACAne0320/OpenBBQ/main/docs/install-agent.md) and help me install [OpenBBQ](https://github.com/ACAne0320/OpenBBQ).
+Read the [install guide](https://openbbq.acane.dev/install-agent.md) and help me install [OpenBBQ](https://github.com/ACAne0320/OpenBBQ).
 ```
 
 ### Manual Install
@@ -94,7 +95,7 @@ For agent setup and the packaged OpenBBQ skill, see the
 ## Roadmap
 
 - [ ] Demo video
-- [ ] Detailed documentation site
+- [x] Detailed documentation site
 - [ ] Windows and Linux support
 - [ ] More ASR backends
 - [ ] More video-platform authentication support

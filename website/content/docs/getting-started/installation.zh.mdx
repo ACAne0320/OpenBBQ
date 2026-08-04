@@ -1,9 +1,26 @@
 ---
 title: 安装
-description: 把 openbbq 命令、FFmpeg 和识别模型装到你的电脑上。
+description: 交给 Agent，或者自己动手，装好 OpenBBQ。
 ---
 
-OpenBBQ 开火之前需要备齐几样东西。这一页逐个装好，最后把灶台检查一遍。
+OpenBBQ 开火之前需要备齐几样东西。有两条路可以备：
+
+- **交给 Agent**：发一句话，让它装好并验证。
+- **自己动手**：逐个装好，最后把灶台检查一遍。
+
+## For Agent
+
+把这句话发给 Agent（比如 [Claude Code](https://claude.com/claude-code)、[Codex](https://github.com/openai/codex)）：
+
+```text
+帮我安装 OpenBBQ，参考这份安装 Playbook：https://openbbq.acane.dev/install-agent.zh-CN.md
+```
+
+它会先问你几个问题——输入来源、模型档位、GPU——只装需要的部分，装完用 `openbbq doctor` 验证。
+
+## For Human
+
+想自己动手，或者想看看 Agent 在幕后做了什么？按下面的步骤逐个装好。
 
 ## 需要准备什么
 

@@ -1,4 +1,4 @@
-<!-- 以 website/public/install-agent.zh-CN.md 为准（发布于 openbbq.acane.dev），改动时请同步。 -->
+<!-- 本文件为 canonical 版本，服务于 https://openbbq.acane.dev/install-agent.zh-CN.md。仓库副本：docs/install-agent.zh-CN.md（随 wheel 打包），改动时请同步。 -->
 
 # OpenBBQ Agent 安装 Playbook
 

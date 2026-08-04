@@ -1,11 +1,15 @@
 ---
 title: Quality gates
-description: After every step, OpenBBQ checks the work before moving on — and stops for your decision when it isn't ready.
+description: Understand OpenBBQ's hard structural gates, advisory draft findings, and opt-in professional review.
 ---
 
-Raw meat goes on the grill one step at a time, and OpenBBQ tastes it after each step instead of waiting until the video is served. Every gate answers one question: is this ready? A gate that answers `ready: true` lets you move on. A gate that isn't ready stops and waits for your decision — so problems surface where they happen, not in the published video.
+OpenBBQ checks work at every stage, but not every finding has the same effect. Hard structural gates protect valid workspace state and fresh artifacts. In the default agent workflow, ordinary low-confidence words, display budgets, and glossary consistency remain advisory, and the result is explicitly labeled as an editable draft. Full semantic or visual review is available when the work needs human-reviewed quality.
 
-Here are the gates, in the order you meet them.
+<Callout title="Draft and professional paths">
+  The default `agent init/next/apply/finish` path resolves structural blockers and delivers a draft without creating mandatory full-coverage review queues. The expert commands below let you inspect or activate stricter review state. Once review state exists, export respects it; human edits remain authoritative.
+</Callout>
+
+Here are the controls available in the manual and professional workflow, in the order you meet them.
 
 ## 1. Listening check — `openbbq asr check`
 

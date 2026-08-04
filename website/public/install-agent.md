@@ -1,4 +1,4 @@
-<!-- Canonical source: website/public/install-agent.md (served at openbbq.acane.dev). Keep this copy in sync. -->
+<!-- Canonical copy, served at https://openbbq.acane.dev/install-agent.md. Mirror: docs/install-agent.md in the repo (packaged into the wheel). Keep the two in sync. -->
 
 # OpenBBQ Agent Install Playbook
 
