@@ -9,6 +9,7 @@
     "start": "waku start",
     "preview:cloudflare": "wrangler dev",
     "deploy": "wrangler deploy",
+    "indexnow:submit": "node scripts/submit-indexnow.mjs",
     "types:check": "fumadocs-mdx && tsc --noEmit"
   },
   "dependencies": {
