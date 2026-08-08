@@ -57,5 +57,11 @@ openbbq burn --workspace <workspace> --subtitle out/zh.ass --output out/zh-burne
 Aegisub/剪辑软件。只要存在完整且当前有效的人工 review，它就是最高权威；agent
 facade 不得覆盖这些译文，也不得强制再次语义审查。
 
+把工作区交给人工审校前，agent 可以预先播种建议：运行
+`openbbq review --prepare --workspace <workspace> --to zh` 获取分析 JSON（rule issues
+已算好，专注语义疑点），按 `response_schema` 写出响应后运行
+`openbbq review --prepare --apply response.json --workspace <workspace> --to zh`，
+再启动 `openbbq review`。审校者打开的工作台已带可接受/拒绝的建议。
+
 视觉 QA 和 `fansub-compact` 永远不会自动运行。只有用户明确要求这些专家诊断或
 preset 时才使用。

@@ -241,10 +241,12 @@ openbbq translate audit-apply [--workspace PATH] LANG DECISIONS.json
 ## `review`
 
 ```text
-openbbq review [--workspace PATH] [--to CODE] [--port PORT] [--no-open]
+openbbq review [--workspace PATH] [--to CODE] [--port PORT] [--no-open] [--prepare] [--apply FILE]
 ```
 
 打开一个只监听本机的浏览器编辑器：视频预览、波形和字幕行时间线、原文/译文编辑、校对备注和状态。`--to` 选择初始翻译工作表；省略时以仅原文模式启动，也可以在编辑器里再选字幕语言。`--port` 指定端口，`--no-open` 不自动打开浏览器。
+
+`--prepare` 不启动服务器，而是输出一份 agent 预分析 JSON（含已算好的各 cue rule issues 与响应 schema）；`--prepare --apply FILE` 校验 agent 的响应并归档为待处理的 review 建议。两个步骤都不持有校对锁、不启动服务器。
 
 修改会原子写入 `cues.json`、所有受影响的 `translation.<lang>.json`，以及 `review.<lang>.json`（或 `review.source.json`）。同一工作区同一时间只允许一个校对会话持有锁。
 

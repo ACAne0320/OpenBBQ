@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -47,7 +48,10 @@ export function ThemeProvider({
     return () => media.removeEventListener("change", update);
   }, []);
 
-  useEffect(() => {
+  // Layout effect: the class must land before paint AND before passive
+  // effects — the timeline canvas reads theme CSS vars via getComputedStyle
+  // in a passive effect and would otherwise sample the pre-toggle theme.
+  useLayoutEffect(() => {
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
     document.documentElement.dataset.theme = resolvedTheme;
     document.documentElement.style.colorScheme = resolvedTheme;

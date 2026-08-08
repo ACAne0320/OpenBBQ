@@ -41,7 +41,10 @@ openbbq --json agent next --workspace '<ws>'
    才提交 cue-scoped `source_fix`，否则保守翻译当前 source 并给出 warning。若
    `reusable: true`，`find`/`replacement` 必须是最小稳定术语，不能包含无关语法。
    OpenBBQ 会自动记录 glossary candidate 并提升可复用修正，不要再把同一修正重复写入
-   `glossary_updates`。
+   `glossary_updates`。若对某条 cue 有具体可修的疑点，可在 `warnings` 中附结构化对象
+   `{"cue_id", "message", "patch"}`（`patch` 至少含 source/target/start/end 之一，
+   `cue_id` 必须属于本批 `selected_ids`）；它会作为 review suggestion 归档，不会进入
+   session warnings。一般性不确定仍用自由文本 warning。
 3. `review_source` 是罕见例外：仅在 `agent next` 报告确定性修复无法解决的结构性 ASR
    blocker 时处理。重复 run 可能用一个可见 segment 代表 issue 中列出的全部相同受影响
    ID；若整段 `reference_caption` 显示实际存在不同的连续语音，应替换该 issue，而不是
@@ -71,8 +74,12 @@ openbbq --json agent next --workspace '<ws>'
 不要手改 workspace 数据、创建并行 lease、运行视觉 QA 或使用 `fansub-compact`。fetch、
 transcribe 和 finish 是长任务，应给出合理执行时间。
 
-专业精修应在 `done` 后进行：运行
-`openbbq review --workspace '<ws>' --to zh`，或把导出的字幕放入 Aegisub/剪辑软件。
-人工修改是最终权威，不应再运行 agent workflow 覆盖它。
+专业精修应在 `done` 后进行：可先运行
+`openbbq review --prepare --workspace '<ws>' --to zh` 获取分析 JSON（已含各 cue 的
+rule issues，不要重复确定性检查），按 `response_schema` 写出建议响应，再运行
+`openbbq review --prepare --apply response.json --workspace '<ws>' --to zh` 写入建议，
+然后运行 `openbbq review --workspace '<ws>' --to zh`，让用户在已带建议的工作台里精修；
+或把导出的字幕放入 Aegisub/剪辑软件。人工修改是最终权威，不应再运行 agent workflow
+覆盖它。
 
 OpenBBQ 不授予版权许可；处理他人视频时仍应遵守相应权利要求。

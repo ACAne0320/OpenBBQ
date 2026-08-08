@@ -13,7 +13,7 @@ import wave
 from array import array
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal, cast
 from urllib.parse import urlparse
 
 from fastapi import Body, FastAPI, Query, Request
@@ -22,10 +22,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
 from openbbq.core import review as reviewlib
+from openbbq.core import review_issues
 from openbbq.core import translate as translatelib
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
-from openbbq.schemas import ReviewStatus, Stage, StageStatus
+from openbbq.schemas import ReviewStatus, Stage, StageStatus, Transcript
 
 _COOKIE = "openbbq_review"
 _SAFE_HOSTS = {"127.0.0.1", "localhost", "testserver", "::1"}
@@ -82,6 +83,35 @@ class SwitchTargetRequest(MutationRequest):
     target_lang: str | None = None
 
 
+class DismissalRequest(MutationRequest):
+    kind: str
+
+
+class BatchReplaceRequest(MutationRequest):
+    find: str
+    replace: str
+    fields: list[Literal["source", "target"]]
+    case_sensitive: bool = False
+    regex: bool = False
+    cue_ids: list[int] | None = None
+    dry_run: bool = False
+
+
+class BatchStatusRequest(MutationRequest):
+    cue_ids: list[int]
+    status: ReviewStatus
+    note: str | None = None
+
+
+class BatchDeleteRequest(MutationRequest):
+    cue_ids: list[int]
+class GlossaryTermRequest(MutationRequest):
+    source: str
+    target: str
+    note: str | None = None
+    keep: bool = False
+
+
 class ReviewManager:
     def __init__(self, path: Path, lang: str | None) -> None:
         self.path = path.resolve()
@@ -89,6 +119,8 @@ class ReviewManager:
         self.session_lock = threading.RLock()
         self.session = reviewlib.ReviewSession.open(self.path, lang)
         self._waveform: tuple[int, float, list[tuple[float, float]]] | None = None
+        self._transcript: Transcript | None = None
+        self._transcript_loaded = False
         self._preview_status = "ready"
         self._preview_error: str | None = None
         self._preview_path: Path | None = None
@@ -205,6 +237,20 @@ class ReviewManager:
         with wave.open(str(audio), "rb") as handle:
             return handle.getnframes() / handle.getframerate()
 
+    def transcript(self) -> Transcript | None:
+        """The transcribe-stage artifact, cached (immutable during a review)."""
+        if self._transcript_loaded:
+            return self._transcript
+        self._transcript_loaded = True
+        manifest = ws.read_manifest(self.path)
+        state = manifest.stages.get(Stage.TRANSCRIBE)
+        if state is None or state.status is not StageStatus.DONE or not state.artifact:
+            return None
+        path = Path(state.artifact)
+        path = path if path.is_absolute() else self.path / path
+        self._transcript = ws.read_transcript(path)
+        return self._transcript
+
     def waveform(self) -> tuple[int, float, list[tuple[float, float]]]:
         if self._waveform is not None:
             return self._waveform
@@ -279,21 +325,23 @@ def _review_map(snapshot: reviewlib.ReviewSnapshot) -> dict[int, Any]:
     return {item.id: item for item in snapshot.review.items}
 
 
-def _cue_payload(snapshot: reviewlib.ReviewSnapshot) -> list[dict[str, object]]:
+def _cue_payload(
+    snapshot: reviewlib.ReviewSnapshot, transcript: Transcript | None
+) -> list[dict[str, object]]:
     targets = _target_map(snapshot)
     reviews = _review_map(snapshot)
-    term_warning_ids: set[int] = set()
-    if snapshot.translation is not None:
-        report = translatelib.check(
-            snapshot.cues,
-            snapshot.translation,
-            snapshot.translation.target_lang,
-        )
-        term_warning_ids = {issue.id for issue in report.term_issues}
+    issues_by_cue = review_issues.compute_issues(
+        snapshot.cues,
+        snapshot.translation,
+        snapshot.review,
+        snapshot.suggestions,
+        transcript,
+    )
     result: list[dict[str, object]] = []
     for cue in snapshot.cues.cues:
         target = targets.get(cue.id)
         review = reviews.get(cue.id)
+        issues = issues_by_cue.get(cue.id, [])
         duration = round(cue.end - cue.start, 3)
         source_profile, _ = translatelib.seg.resolve_profile(snapshot.cues.source_lang)
         source_cps = (
@@ -334,7 +382,8 @@ def _cue_payload(snapshot: reviewlib.ReviewSnapshot) -> list[dict[str, object]]:
                     or duration < snapshot.cues.params.min_dur
                     or duration > snapshot.cues.params.max_dur
                 ),
-                "term_warning": cue.id in term_warning_ids,
+                "term_warning": any(issue.kind == "term" for issue in issues),
+                "issues": [asdict(issue) for issue in issues],
                 "status": review.status.value if review is not None else "unreviewed",
                 "note": review.note if review is not None else None,
             }
@@ -342,12 +391,24 @@ def _cue_payload(snapshot: reviewlib.ReviewSnapshot) -> list[dict[str, object]]:
     return result
 
 
-def _snapshot_payload(snapshot: reviewlib.ReviewSnapshot) -> dict[str, object]:
+def _suggestions_payload(snapshot: reviewlib.ReviewSnapshot) -> list[object]:
+    if snapshot.suggestions is None:
+        return []
+    return [
+        suggestion.model_dump(mode="json")
+        for suggestion in snapshot.suggestions.suggestions
+    ]
+
+
+def _snapshot_payload(
+    snapshot: reviewlib.ReviewSnapshot, transcript: Transcript | None
+) -> dict[str, object]:
     return {
         "revision": snapshot.revision,
         "changed": snapshot.changed,
         "progress": asdict(snapshot.progress),
-        "cues": _cue_payload(snapshot),
+        "suggestions": _suggestions_payload(snapshot),
+        "cues": _cue_payload(snapshot, transcript),
     }
 
 
@@ -380,7 +441,7 @@ def _session_payload(manager: ReviewManager) -> dict[str, object]:
 def _domain_status(err: OpenBBQError) -> int:
     if err.code == "review_conflict":
         return 409
-    if err.code == "unknown_cue":
+    if err.code in {"unknown_cue", "unknown_suggestion"}:
         return 404
     if err.code in {
         "invalid_timeline",
@@ -389,6 +450,11 @@ def _domain_status(err: OpenBBQError) -> int:
         "review_blocked",
         "nothing_to_undo",
         "nothing_to_redo",
+        "suggestion_not_pending",
+        "suggestion_not_rejected",
+        "invalid_regex",
+        "invalid_batch",
+        "invalid_term",
     }:
         return 422
     return 400
@@ -514,7 +580,7 @@ def create_app(path: Path, lang: str | None, *, secret: str | None = None) -> Fa
     @app.get("/api/cues")
     def cues_state() -> dict[str, object]:
         with manager.session_lock:
-            return _snapshot_payload(manager.session.snapshot())
+            return _snapshot_payload(manager.session.snapshot(), manager.transcript())
 
     @app.post("/api/session/target")
     def switch_target(payload: SwitchTargetRequest) -> dict[str, object]:
@@ -522,7 +588,7 @@ def create_app(path: Path, lang: str | None, *, secret: str | None = None) -> Fa
             manager.switch(payload.target_lang, payload.base_revision)
             return {
                 **_session_payload(manager),
-                **_snapshot_payload(manager.session.snapshot()),
+                **_snapshot_payload(manager.session.snapshot(), manager.transcript()),
             }
 
     @app.patch("/api/cues/{cue_id}")
@@ -537,7 +603,7 @@ def create_app(path: Path, lang: str | None, *, secret: str | None = None) -> Fa
                 base_revision=payload.base_revision,
                 op_id=payload.op_id,
             )
-            return _snapshot_payload(result)
+            return _snapshot_payload(result, manager.transcript())
 
     @app.patch("/api/review/{cue_id}")
     def set_status(cue_id: int, payload: StatusPatch) -> dict[str, object]:
@@ -549,8 +615,135 @@ def create_app(path: Path, lang: str | None, *, secret: str | None = None) -> Fa
                     note=payload.note,
                     base_revision=payload.base_revision,
                     op_id=payload.op_id,
-                )
+                ),
+                manager.transcript(),
             )
+
+    @app.post("/api/cues/{cue_id}/dismissals")
+    def dismiss_issue(cue_id: int, payload: DismissalRequest) -> dict[str, object]:
+        with manager.session_lock:
+            return _snapshot_payload(
+                manager.session.dismiss_issue(
+                    cue_id,
+                    payload.kind,
+                    base_revision=payload.base_revision,
+                    op_id=payload.op_id,
+                ),
+                manager.transcript(),
+            )
+
+    @app.get("/api/suggestions")
+    def suggestions_state() -> dict[str, object]:
+        with manager.session_lock:
+            return {"suggestions": _suggestions_payload(manager.session.snapshot())}
+
+    @app.post("/api/suggestions/{suggestion_id}/accept")
+    def accept_suggestion(
+        suggestion_id: str, payload: MutationRequest
+    ) -> dict[str, object]:
+        with manager.session_lock:
+            return _snapshot_payload(
+                manager.session.accept_suggestion(
+                    suggestion_id,
+                    base_revision=payload.base_revision,
+                    op_id=payload.op_id,
+                ),
+                manager.transcript(),
+            )
+
+    @app.post("/api/suggestions/{suggestion_id}/reject")
+    def reject_suggestion(
+        suggestion_id: str, payload: MutationRequest
+    ) -> dict[str, object]:
+        with manager.session_lock:
+            return _snapshot_payload(
+                manager.session.reject_suggestion(
+                    suggestion_id,
+                    base_revision=payload.base_revision,
+                    op_id=payload.op_id,
+                ),
+                manager.transcript(),
+            )
+
+    @app.post("/api/suggestions/{suggestion_id}/reopen")
+    def reopen_suggestion(
+        suggestion_id: str, payload: MutationRequest
+    ) -> dict[str, object]:
+        with manager.session_lock:
+            return _snapshot_payload(
+                manager.session.reopen_suggestion(
+                    suggestion_id,
+                    base_revision=payload.base_revision,
+                    op_id=payload.op_id,
+                ),
+                manager.transcript(),
+            )
+
+    @app.post("/api/cues/batch")
+    def batch_replace(payload: BatchReplaceRequest) -> dict[str, object]:
+        with manager.session_lock:
+            result = manager.session.batch_replace(
+                payload.find,
+                payload.replace,
+                fields=payload.fields,
+                case_sensitive=payload.case_sensitive,
+                regex=payload.regex,
+                cue_ids=payload.cue_ids,
+                dry_run=payload.dry_run,
+                base_revision=payload.base_revision,
+                op_id=payload.op_id,
+            )
+            if payload.dry_run:
+                matches = cast(list[reviewlib.BatchMatch], result)
+                return {
+                    "matches": [asdict(match) for match in matches],
+                    "revision": manager.session.snapshot().revision,
+                }
+            assert isinstance(result, reviewlib.ReviewSnapshot)
+            return _snapshot_payload(result, manager.transcript())
+
+    @app.post("/api/cues/batch-status")
+    def batch_status(payload: BatchStatusRequest) -> dict[str, object]:
+        with manager.session_lock:
+            return _snapshot_payload(
+                manager.session.batch_status(
+                    payload.cue_ids,
+                    payload.status,
+                    note=payload.note,
+                    base_revision=payload.base_revision,
+                    op_id=payload.op_id,
+                ),
+                manager.transcript(),
+            )
+
+    @app.post("/api/cues/batch-delete")
+    def batch_delete(payload: BatchDeleteRequest) -> dict[str, object]:
+        with manager.session_lock:
+            return _snapshot_payload(
+                manager.session.batch_delete(
+                    payload.cue_ids,
+                    base_revision=payload.base_revision,
+                    op_id=payload.op_id,
+                ),
+                manager.transcript(),
+            )
+
+    @app.post("/api/glossary/terms")
+    def add_glossary_term(payload: GlossaryTermRequest) -> dict[str, object]:
+        with manager.session_lock:
+            result = manager.session.add_glossary_term(
+                payload.source,
+                payload.target,
+                note=payload.note,
+                keep=payload.keep,
+                base_revision=payload.base_revision,
+                op_id=payload.op_id,
+            )
+            return {
+                **_snapshot_payload(result.snapshot, manager.transcript()),
+                "glossary": result.glossary,
+                "term_report": asdict(result.report),
+            }
 
     @app.post("/api/cues/{cue_id}/split")
     def split_cue(cue_id: int, payload: SplitRequest) -> dict[str, object]:
@@ -565,7 +758,8 @@ def create_app(path: Path, lang: str | None, *, secret: str | None = None) -> Fa
                     target_right=payload.target_right,
                     base_revision=payload.base_revision,
                     op_id=payload.op_id,
-                )
+                ),
+                manager.transcript(),
             )
 
     @app.post("/api/cues/merge")
@@ -576,7 +770,8 @@ def create_app(path: Path, lang: str | None, *, secret: str | None = None) -> Fa
                     payload.cue_ids,
                     base_revision=payload.base_revision,
                     op_id=payload.op_id,
-                )
+                ),
+                manager.transcript(),
             )
 
     @app.post("/api/cues")
@@ -587,7 +782,8 @@ def create_app(path: Path, lang: str | None, *, secret: str | None = None) -> Fa
                     at=payload.at,
                     base_revision=payload.base_revision,
                     op_id=payload.op_id,
-                )
+                ),
+                manager.transcript(),
             )
 
     @app.delete("/api/cues/{cue_id}")
@@ -600,7 +796,8 @@ def create_app(path: Path, lang: str | None, *, secret: str | None = None) -> Fa
                     cue_id,
                     base_revision=payload.base_revision,
                     op_id=payload.op_id,
-                )
+                ),
+                manager.transcript(),
             )
 
     @app.post("/api/undo")
@@ -610,7 +807,8 @@ def create_app(path: Path, lang: str | None, *, secret: str | None = None) -> Fa
                 manager.session.undo(
                     base_revision=payload.base_revision,
                     op_id=payload.op_id,
-                )
+                ),
+                manager.transcript(),
             )
 
     @app.post("/api/redo")
@@ -620,7 +818,8 @@ def create_app(path: Path, lang: str | None, *, secret: str | None = None) -> Fa
                 manager.session.redo(
                     base_revision=payload.base_revision,
                     op_id=payload.op_id,
-                )
+                ),
+                manager.transcript(),
             )
 
     @app.get("/api/media")

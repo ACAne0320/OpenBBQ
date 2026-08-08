@@ -5,11 +5,12 @@ import socket
 import threading
 import webbrowser
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
 from ...core import review as reviewlib
+from ...core import review_prepare
 from ...core import workspace as ws
 from ...errors import OpenBBQError
 from ..output import Output
@@ -28,6 +29,24 @@ class ReviewResult(Result):
             f"  workspace: {self.workspace}\n"
             f"  language: {language}\n"
             "  press Ctrl-C to stop"
+        )
+
+
+class ReviewPrepareResult(Result):
+    data: dict[str, Any]
+
+    def payload(self) -> dict[str, object]:
+        return {"ok": True, **self.data}
+
+    def render(self) -> str:
+        if "written" in self.data:
+            return (
+                f"[green]✓[/] wrote {self.data['written']} suggestion(s) "
+                f"→ {self.data['path']}"
+            )
+        return (
+            f"review --prepare: {len(self.data.get('items', []))} cues; "
+            "answer the payload, then run the printed apply argv"
         )
 
 
@@ -80,10 +99,45 @@ def review(
         bool,
         typer.Option("--no-open", help="do not open the browser automatically"),
     ] = False,
+    prepare: Annotated[
+        bool,
+        typer.Option(
+            "--prepare",
+            help="print an agent pre-analysis payload instead of starting the server",
+        ),
+    ] = False,
+    apply: Annotated[
+        str | None,
+        typer.Option(
+            "--apply",
+            help="apply an agent pre-analysis response JSON file (with --prepare)",
+        ),
+    ] = None,
 ) -> None:
     """Open the local visual subtitle review and editing workspace."""
     output: Output = ctx.obj
     path = ws.resolve_workspace(workspace)
+    if apply is not None:
+        response_path = Path(apply).expanduser()
+        try:
+            raw = response_path.read_text(encoding="utf-8")
+        except OSError as error:
+            raise OpenBBQError(
+                "agent_response_not_found",
+                path=str(response_path),
+                fix="write the JSON response for the review --prepare payload",
+            ) from error
+        output.emit(
+            ReviewPrepareResult(
+                data=review_prepare.apply_prepare_response(path, to, raw)
+            )
+        )
+        return
+    if prepare:
+        output.emit(
+            ReviewPrepareResult(data=review_prepare.build_prepare_payload(path, to))
+        )
+        return
     selected_port = _available_port(port)
     secret = secrets.token_urlsafe(32)
     public_url = f"http://127.0.0.1:{selected_port}/"

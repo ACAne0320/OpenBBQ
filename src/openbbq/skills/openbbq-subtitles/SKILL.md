@@ -60,7 +60,12 @@ Repeat these steps until `done`:
    For `reusable: true`, `find` and `replacement` must be the smallest stable
    term without surrounding grammar. OpenBBQ records the glossary candidate
    and promotes reusable corrections; do not duplicate that correction in
-   `glossary_updates`.
+   `glossary_updates`. For a concrete, fixable suspicion about a cue, you may
+   attach a structured warning object `{"cue_id", "message", "patch"}` in
+   `warnings` (`patch` carries at least one of source/target/start/end and
+   `cue_id` must belong to this batch's `selected_ids`); it is archived as a
+   review suggestion and does not enter session warnings. General uncertainty
+   stays a free-text warning.
 3. `review_source` is exceptional. Handle it only when `agent next` reports a
    structural ASR blocker that deterministic repair could not resolve. A
    repeated run may use one visible segment to represent every identical
@@ -100,10 +105,15 @@ Do not hand-edit workspace data, create parallel leases, run visual QA, or use
 `fansub-compact`. Long-running fetch, transcription, and finish commands need
 reasonable time to complete.
 
-For professional refinement after `done`, open the workspace with
-`openbbq review --workspace '<ws>' --to zh`, or edit the exported subtitle in
-Aegisub or an NLE. Human edits are authoritative and should not be overwritten
-by rerunning the agent workflow.
+For professional refinement after `done`, you can first run
+`openbbq review --prepare --workspace '<ws>' --to zh` to get an analysis JSON
+(each cue's rule issues are already computed — do not duplicate deterministic
+checks), write a suggestions response matching its `response_schema`, apply it
+with `openbbq review --prepare --apply response.json --workspace '<ws>' --to zh`,
+then run `openbbq review --workspace '<ws>' --to zh` so the user opens a
+workbench already seeded with suggestions. Alternatively, edit the exported
+subtitle in Aegisub or an NLE. Human edits are authoritative and should not be
+overwritten by rerunning the agent workflow.
 
 OpenBBQ does not grant copyright permission; users remain responsible for the
 rights required to process someone else's video.

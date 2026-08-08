@@ -64,5 +64,13 @@ OpenBBQ review UI or import the ASS into Aegisub or an NLE. Once a complete,
 current human review exists, it is authoritative: the agent facade must not
 overwrite those targets or force another semantic pass.
 
+Before handing the workspace to a human reviewer, the agent can seed it with
+suggestions: run `openbbq review --prepare --workspace <workspace> --to zh`,
+answer the payload (rule issues are already computed — focus on semantic
+suspicions), apply the response with
+`openbbq review --prepare --apply response.json --workspace <workspace> --to zh`,
+then start `openbbq review`. The reviewer opens a workbench that already lists
+accept/reject suggestions.
+
 Visual QA and `fansub-compact` are never automatic. Run them only when the user
 explicitly requests those expert diagnostics or presets.

@@ -32,6 +32,7 @@ from openbbq.schemas import (
     Stage,
     StageState,
     StageStatus,
+    Suggestions,
     Transcript,
     Translation,
 )
@@ -260,6 +261,18 @@ def read_review(path: Path) -> Review:
             "invalid_review",
             path=str(path),
             fix="restore a review checkpoint or remove the malformed review file",
+        ) from e
+
+
+def read_suggestions(path: Path) -> Suggestions:
+    """Load + validate a review suggestions document."""
+    try:
+        return Suggestions.model_validate_json(path.read_text(encoding="utf-8"))
+    except (OSError, ValidationError) as e:
+        raise OpenBBQError(
+            "invalid_suggestions",
+            path=str(path),
+            fix="restore a review checkpoint or remove the malformed suggestions file",
         ) from e
 
 

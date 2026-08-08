@@ -12,11 +12,15 @@ import json
 import os
 import re
 import shutil
+import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, TypeVar
 
+from openbbq.core import glossary as glossarylib
+from openbbq.core import glossary_overlay
 from openbbq.core import segment as seg
 from openbbq.core import translate as translatelib
 from openbbq.core import workspace as ws
@@ -24,6 +28,8 @@ from openbbq.errors import OpenBBQError
 from openbbq.schemas import (
     Cue,
     Cues,
+    Dismissal,
+    Glossary,
     Manifest,
     Progress,
     Review,
@@ -32,6 +38,11 @@ from openbbq.schemas import (
     Stage,
     StageState,
     StageStatus,
+    Suggestion,
+    SuggestionDraft,
+    Suggestions,
+    SuggestionStatus,
+    Term,
     Translation,
     TranslationItem,
 )
@@ -58,9 +69,25 @@ class ReviewSnapshot:
     cues: Cues
     translation: Translation | None
     review: Review
+    suggestions: Suggestions | None
     revision: str
     progress: ReviewProgress
     changed: list[int]
+
+
+@dataclass(frozen=True)
+class GlossaryTermResult:
+    snapshot: ReviewSnapshot
+    glossary: str
+    report: glossarylib.PatchReport
+
+
+@dataclass(frozen=True)
+class BatchMatch:
+    cue_id: int
+    field: str  # "source" | "target"
+    spans: list[tuple[int, int]]
+    text: str  # matched field content, for preview
 
 
 @dataclass
@@ -69,6 +96,7 @@ class _Documents:
     cues: Cues
     translations: dict[str, Translation]
     reviews: dict[str | None, Review]
+    suggestions: dict[str | None, Suggestions]
 
 
 def review_path(path: Path, lang: str | None) -> Path:
@@ -79,10 +107,76 @@ def review_path(path: Path, lang: str | None) -> Path:
     )
 
 
+def suggestions_path(path: Path, lang: str | None) -> Path:
+    return path / (
+        "suggestions.source.json"
+        if lang is None
+        else f"suggestions.{ws.validate_lang(lang)}.json"
+    )
+
+
 def _lang_from_review_path(path: Path) -> str | None:
     if path.name == "review.source.json":
         return None
     return path.name[len("review.") : -len(".json")]
+
+
+def _lang_from_suggestions_path(path: Path) -> str | None:
+    if path.name == "suggestions.source.json":
+        return None
+    return path.name[len("suggestions.") : -len(".json")]
+
+
+def merge_suggestion_drafts(
+    path: Path,
+    lang: str | None,
+    cues: Cues,
+    translation: Translation | None,
+    drafts: list[SuggestionDraft],
+    *,
+    id_prefix: str,
+) -> Suggestions:
+    """Create-or-merge a suggestions document from producer drafts.
+
+    Existing entries and their statuses are preserved; each draft is appended
+    as a new pending suggestion with a collision-free id and the current
+    content hash.  Returns the document — the caller owns the (atomic) write.
+    """
+    file = suggestions_path(path, lang)
+    if file.is_file():
+        doc = ws.read_suggestions(file)
+        if doc.source_lang != cues.source_lang or doc.target_lang != lang:
+            raise OpenBBQError(
+                "invalid_suggestions",
+                path=str(file),
+                fix="remove or repair the malformed suggestions file",
+            )
+    else:
+        doc = Suggestions(source_lang=cues.source_lang, target_lang=lang)
+    cue_by_id = {cue.id: cue for cue in cues.cues}
+    existing_ids = {suggestion.id for suggestion in doc.suggestions}
+    now = _now()
+    for draft in drafts:
+        cue = cue_by_id.get(draft.cue_id)
+        if cue is None:
+            raise OpenBBQError("unknown_cue", id=draft.cue_id)
+        suggestion_id = f"{id_prefix}-{uuid.uuid4().hex[:12]}"
+        while suggestion_id in existing_ids:
+            suggestion_id = f"{id_prefix}-{uuid.uuid4().hex[:12]}"
+        existing_ids.add(suggestion_id)
+        doc.suggestions.append(
+            Suggestion(
+                id=suggestion_id,
+                cue_id=draft.cue_id,
+                kind=draft.kind,
+                severity=draft.severity,
+                message=draft.message,
+                patch=draft.patch,
+                content_hash=review_hash(cue, translation),
+                created_at=now,
+            )
+        )
+    return doc
 
 
 def _now() -> datetime:
@@ -105,7 +199,10 @@ def _translation_item(
     return next((item for item in translation.items if item.id == cue_id), None)
 
 
-def _review_hash(cue: Cue, translation: Translation | None) -> str:
+def review_hash(cue: Cue, translation: Translation | None) -> str:
+    """The content hash review state and suggestion staleness are keyed on.
+    Public seam for suggestion producers (translate apply, review --prepare).
+    """
     item = _translation_item(translation, cue.id)
     return _content_hash(
         cue,
@@ -127,7 +224,7 @@ def _progress(
             flagged += 1
         elif (
             item.status is ReviewStatus.REVIEWED
-            and item.reviewed_content_hash == _review_hash(cue, translation)
+            and item.reviewed_content_hash == review_hash(cue, translation)
         ):
             reviewed += 1
     total = len(cues.cues)
@@ -147,6 +244,9 @@ def _revision(path: Path) -> str:
     )
     names.extend(
         sorted((p.relative_to(path) for p in path.glob("review.*.json")), key=str)
+    )
+    names.extend(
+        sorted((p.relative_to(path) for p in path.glob("suggestions.*.json")), key=str)
     )
     for rel in names:
         full = path / rel
@@ -171,11 +271,17 @@ def _load_documents(path: Path) -> _Documents:
     reviews: dict[str | None, Review] = {}
     for review_file in sorted(path.glob("review.*.json")):
         reviews[_lang_from_review_path(review_file)] = ws.read_review(review_file)
+    suggestions: dict[str | None, Suggestions] = {}
+    for suggestions_file in sorted(path.glob("suggestions.*.json")):
+        suggestions[_lang_from_suggestions_path(suggestions_file)] = (
+            ws.read_suggestions(suggestions_file)
+        )
     return _Documents(
         manifest=manifest,
         cues=cues,
         translations=translations,
         reviews=reviews,
+        suggestions=suggestions,
     )
 
 
@@ -226,7 +332,7 @@ def _reconcile(docs: _Documents) -> bool:
             item = old.get(cue.id, ReviewItem(id=cue.id))
             if (
                 item.status is ReviewStatus.REVIEWED
-                and item.reviewed_content_hash != _review_hash(cue, translation)
+                and item.reviewed_content_hash != review_hash(cue, translation)
             ):
                 item.status = ReviewStatus.UNREVIEWED
                 item.reviewed_content_hash = None
@@ -274,15 +380,199 @@ def _validate_timeline(cues: Cues) -> None:
 
 
 def _reset_review_item(review: Review, cue_id: int) -> None:
+    """Reset a cue's review state after its content changed — including any
+    dismissals, which were issued against the previous content (Rule A)."""
     item = next((item for item in review.items if item.id == cue_id), None)
     if item is not None:
         item.status = ReviewStatus.UNREVIEWED
         item.reviewed_content_hash = None
+        item.dismissals = []
         item.updated_at = _now()
 
 
 def _touch_review(review: Review) -> None:
     review.revision += 1
+
+
+def _apply_cue_update(
+    docs: _Documents,
+    lang: str | None,
+    cue_id: int,
+    *,
+    source: str | None = None,
+    target: str | None = None,
+    start: float | None = None,
+    end: float | None = None,
+) -> None:
+    """The single cue-content mutation path: manual edits, suggestion accepts,
+    and batch replaces all funnel through here so worksheet sync, budget
+    recompute, review-item resets, and dismissal clearing stay identical.
+    """
+    cue = next((cue for cue in docs.cues.cues if cue.id == cue_id), None)
+    if cue is None:
+        raise OpenBBQError("unknown_cue", id=cue_id)
+    source_changed = source is not None and source != cue.source
+    time_changed = (start is not None and start != cue.start) or (
+        end is not None and end != cue.end
+    )
+    target_changed = False
+    if source is not None:
+        cue.source = source
+    if start is not None:
+        cue.start = start
+    if end is not None:
+        cue.end = end
+    for translation in docs.translations.values():
+        item = _translation_item(translation, cue_id)
+        if item is None:
+            raise OpenBBQError("id_mismatch", id=cue_id)
+        if source_changed:
+            item.source = cue.source
+        if time_changed:
+            item.budget = translatelib.budget_for_cue(
+                cue.start, cue.end, translation.params
+            )
+    if target is not None:
+        translation = _target_for(docs, lang)
+        if translation is None:
+            raise OpenBBQError("translation_required", id=cue_id)
+        item = _translation_item(translation, cue_id)
+        if item is None:
+            raise OpenBBQError("id_mismatch", id=cue_id)
+        target_changed = target != item.target
+        item.target = target
+    if source_changed or time_changed:
+        for review in docs.reviews.values():
+            _reset_review_item(review, cue_id)
+            _touch_review(review)
+    elif target_changed:
+        review = docs.reviews[lang]
+        _reset_review_item(review, cue_id)
+        _touch_review(review)
+
+
+def _review_blocked(cue: Cue, translation: Translation | None, cue_id: int) -> bool:
+    if not cue.source.strip():
+        return True
+    if translation is None:
+        return False
+    item = _translation_item(translation, cue_id)
+    return item is None or not translatelib.is_filled(item.target)
+
+
+def _set_review_status(
+    docs: _Documents,
+    lang: str | None,
+    cue_id: int,
+    status: ReviewStatus,
+    note: str | None,
+) -> None:
+    """Per-cue status mutation shared by set_status and batch_status.  Only
+    touches the document when something actually changes so the no-op guard
+    can recognize redundant submissions.
+    """
+    cue = next((cue for cue in docs.cues.cues if cue.id == cue_id), None)
+    if cue is None:
+        raise OpenBBQError("unknown_cue", id=cue_id)
+    translation = _target_for(docs, lang)
+    review = docs.reviews[lang]
+    item = next((item for item in review.items if item.id == cue_id), None)
+    if item is None:
+        raise OpenBBQError("id_mismatch", id=cue_id)
+    content_hash = (
+        review_hash(cue, translation) if status is ReviewStatus.REVIEWED else None
+    )
+    if (
+        item.status != status
+        or item.note != note
+        or item.reviewed_content_hash != content_hash
+    ):
+        item.status = status
+        item.note = note
+        item.updated_at = _now()
+        item.reviewed_content_hash = content_hash
+        _touch_review(review)
+
+
+def _find_suggestion(
+    docs: _Documents, lang: str | None, suggestion_id: str
+) -> Suggestion:
+    doc = docs.suggestions.get(lang)
+    suggestion = next(
+        (s for s in (doc.suggestions if doc is not None else [])
+         if s.id == suggestion_id),
+        None,
+    )
+    if suggestion is None:
+        raise OpenBBQError("unknown_suggestion", id=suggestion_id)
+    return suggestion
+
+
+def _batch_matches(
+    docs: _Documents,
+    lang: str | None,
+    pattern: re.Pattern[str],
+    fields: set[str],
+    cue_ids: list[int] | None,
+) -> list[BatchMatch]:
+    """Read-only match scan shared by dry-run previews and the execute path."""
+    translation = docs.translations.get(lang) if lang is not None else None
+    selected = set(cue_ids) if cue_ids is not None else None
+    matches: list[BatchMatch] = []
+    for cue in docs.cues.cues:
+        if selected is not None and cue.id not in selected:
+            continue
+        texts: list[tuple[str, str]] = []
+        if "source" in fields:
+            texts.append(("source", cue.source))
+        if "target" in fields and translation is not None:
+            item = _translation_item(translation, cue.id)
+            if item is not None and item.target is not None:
+                texts.append(("target", item.target))
+        for field, text in texts:
+            spans = [(m.start(), m.end()) for m in pattern.finditer(text)]
+            if spans:
+                matches.append(
+                    BatchMatch(cue_id=cue.id, field=field, spans=spans, text=text)
+                )
+    return matches
+
+
+def _default_glossary_name(path: Path) -> str:
+    """Derive a library-safe glossary name from the workspace directory."""
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", path.name).strip("-.")[:80]
+    cleaned = cleaned.lstrip("._-")
+    return cleaned or "workspace"
+
+
+def _merged_glossary(path: Path, name: str) -> Glossary | None:
+    """Base (library) + workspace overlay for refreshing worksheet refs.
+
+    A workspace overlay that was initialized without a base predates the
+    binding this mutation just recorded; merge its entries onto the freshly
+    bound base instead of failing the review write path.  A genuinely
+    conflicting overlay binding still surfaces the repair error.
+    """
+    try:
+        return glossary_overlay.merged(path, name)
+    except OpenBBQError as error:
+        if error.code != "glossary_overlay_binding_mismatch":
+            raise
+    overlay = glossary_overlay.read_optional(path)
+    if overlay is None or overlay.base_name is not None:
+        raise OpenBBQError(
+            "glossary_overlay_binding_mismatch",
+            overlay=None if overlay is None else overlay.base_name,
+            manifest=name,
+            fix="run openbbq agent next to repair the glossary selection",
+        )
+    base = glossarylib.load(name)
+    if not overlay.entries:
+        return base
+    merged, _ = glossarylib.upsert_terms(
+        base, [glossary_overlay.entry_patch(entry) for entry in overlay.entries]
+    )
+    return merged
 
 
 def _update_manifest(docs: _Documents, lang: str | None) -> None:
@@ -314,6 +604,8 @@ def _serialized(path: Path, docs: _Documents) -> dict[Path, str]:
         values[ws.worksheet_path(path, lang)] = translation.model_dump_json(indent=2)
     for lang, review in docs.reviews.items():
         values[review_path(path, lang)] = review.model_dump_json(indent=2)
+    for lang, suggestions in docs.suggestions.items():
+        values[suggestions_path(path, lang)] = suggestions.model_dump_json(indent=2)
     return values
 
 
@@ -321,6 +613,7 @@ def _capture(path: Path) -> dict[str, bytes | None]:
     files = [path / ws.MANIFEST_NAME, path / "cues.json"]
     files.extend(sorted(path.glob("translation.*.json")))
     files.extend(sorted(path.glob("review.*.json")))
+    files.extend(sorted(path.glob("suggestions.*.json")))
     return {
         str(file.relative_to(path)): file.read_bytes() if file.exists() else None
         for file in files
@@ -435,6 +728,7 @@ class ReviewSession:
             cues=docs.cues,
             translation=translation,
             review=review,
+            suggestions=docs.suggestions.get(self.lang),
             revision=_revision(self.path),
             progress=_progress(docs.cues, translation, review),
             changed=changed or [],
@@ -493,7 +787,12 @@ class ReviewSession:
             )
         before = _capture(self.path)
         docs = _load_documents(self.path)
+        baseline = _serialized(self.path, docs)
         mutate(docs)
+        if _serialized(self.path, docs) == baseline:
+            # No-op guard: an identical result must not write files, append
+            # undo history, bump the revision, or record the op_id.
+            return self.snapshot(changed=[])
         current_review = docs.reviews[self.lang]
         current_review.recent_op_ids = [
             *[item for item in current_review.recent_op_ids if item != op_id][-99:],
@@ -537,47 +836,15 @@ class ReviewSession:
         op_id: str,
     ) -> ReviewSnapshot:
         def apply(docs: _Documents) -> None:
-            cue = next((cue for cue in docs.cues.cues if cue.id == cue_id), None)
-            if cue is None:
-                raise OpenBBQError("unknown_cue", id=cue_id)
-            source_changed = source is not None and source != cue.source
-            time_changed = (start is not None and start != cue.start) or (
-                end is not None and end != cue.end
+            _apply_cue_update(
+                docs,
+                self.lang,
+                cue_id,
+                source=source,
+                target=target,
+                start=start,
+                end=end,
             )
-            target_changed = False
-            if source is not None:
-                cue.source = source
-            if start is not None:
-                cue.start = start
-            if end is not None:
-                cue.end = end
-            for translation in docs.translations.values():
-                item = _translation_item(translation, cue_id)
-                if item is None:
-                    raise OpenBBQError("id_mismatch", id=cue_id)
-                if source_changed:
-                    item.source = cue.source
-                if time_changed:
-                    item.budget = translatelib.budget_for_cue(
-                        cue.start, cue.end, translation.params
-                    )
-            if target is not None:
-                translation = _target_for(docs, self.lang)
-                if translation is None:
-                    raise OpenBBQError("translation_required", id=cue_id)
-                item = _translation_item(translation, cue_id)
-                if item is None:
-                    raise OpenBBQError("id_mismatch", id=cue_id)
-                target_changed = target != item.target
-                item.target = target
-            if source_changed or time_changed:
-                for review in docs.reviews.values():
-                    _reset_review_item(review, cue_id)
-                    _touch_review(review)
-            elif target_changed:
-                review = docs.reviews[self.lang]
-                _reset_review_item(review, cue_id)
-                _touch_review(review)
 
         return self._mutate(
             base_revision=base_revision,
@@ -600,29 +867,11 @@ class ReviewSession:
             if cue is None:
                 raise OpenBBQError("unknown_cue", id=cue_id)
             translation = _target_for(docs, self.lang)
-            target_item = _translation_item(translation, cue_id)
-            if status is ReviewStatus.REVIEWED:
-                if not cue.source.strip() or (
-                    translation is not None
-                    and (
-                        target_item is None
-                        or not translatelib.is_filled(target_item.target)
-                    )
-                ):
-                    raise OpenBBQError("review_blocked", id=cue_id)
-            review = docs.reviews[self.lang]
-            item = next((item for item in review.items if item.id == cue_id), None)
-            if item is None:
-                raise OpenBBQError("id_mismatch", id=cue_id)
-            item.status = status
-            item.note = note
-            item.updated_at = _now()
-            item.reviewed_content_hash = (
-                _review_hash(cue, translation)
-                if status is ReviewStatus.REVIEWED
-                else None
-            )
-            _touch_review(review)
+            if status is ReviewStatus.REVIEWED and _review_blocked(
+                cue, translation, cue_id
+            ):
+                raise OpenBBQError("review_blocked", id=cue_id)
+            _set_review_status(docs, self.lang, cue_id, status, note)
 
         return self._mutate(
             base_revision=base_revision,
@@ -723,6 +972,7 @@ class ReviewSession:
             cues=result.cues,
             translation=result.translation,
             review=result.review,
+            suggestions=result.suggestions,
             revision=result.revision,
             progress=result.progress,
             changed=changed,
@@ -848,6 +1098,7 @@ class ReviewSession:
             cues=result.cues,
             translation=result.translation,
             review=result.review,
+            suggestions=result.suggestions,
             revision=result.revision,
             progress=result.progress,
             changed=changed,
@@ -879,6 +1130,366 @@ class ReviewSession:
             op_id=op_id,
             changed=[cue_id],
             mutate=apply,
+        )
+
+    def dismiss_issue(
+        self,
+        cue_id: int,
+        kind: str,
+        *,
+        base_revision: str,
+        op_id: str,
+    ) -> ReviewSnapshot:
+        """Persist a per-cue issue dismissal; idempotent for a repeated kind."""
+
+        def apply(docs: _Documents) -> None:
+            if not any(cue.id == cue_id for cue in docs.cues.cues):
+                raise OpenBBQError("unknown_cue", id=cue_id)
+            review = docs.reviews[self.lang]
+            item = next((item for item in review.items if item.id == cue_id), None)
+            if item is None:
+                raise OpenBBQError("id_mismatch", id=cue_id)
+            if not any(d.kind == kind for d in item.dismissals):
+                item.dismissals.append(Dismissal(kind=kind, dismissed_at=_now()))
+                _touch_review(review)
+
+        return self._mutate(
+            base_revision=base_revision,
+            op_id=op_id,
+            changed=[cue_id],
+            mutate=apply,
+        )
+
+    def _suggestion_cue_id(self, suggestion_id: str) -> int | None:
+        docs = _load_documents(self.path)
+        doc = docs.suggestions.get(self.lang)
+        suggestion = next(
+            (s for s in (doc.suggestions if doc is not None else [])
+             if s.id == suggestion_id),
+            None,
+        )
+        return suggestion.cue_id if suggestion is not None else None
+
+    def _resolve_suggestion(
+        self,
+        suggestion_id: str,
+        *,
+        transition: Callable[[Suggestion], None],
+        base_revision: str,
+        op_id: str,
+    ) -> ReviewSnapshot:
+        def apply(docs: _Documents) -> None:
+            suggestion = _find_suggestion(docs, self.lang, suggestion_id)
+            transition(suggestion)
+
+        changed = self._suggestion_cue_id(suggestion_id)
+        return self._mutate(
+            base_revision=base_revision,
+            op_id=op_id,
+            changed=[changed] if changed is not None else [],
+            mutate=apply,
+        )
+
+    def accept_suggestion(
+        self,
+        suggestion_id: str,
+        *,
+        base_revision: str,
+        op_id: str,
+    ) -> ReviewSnapshot:
+        """Apply a pending suggestion's patch through the manual-edit path and
+        mark it accepted — one atomic write, one undo entry.  A stale
+        content_hash never blocks: drift is the reviewer's call, not ours.
+        """
+
+        def apply(docs: _Documents) -> None:
+            suggestion = _find_suggestion(docs, self.lang, suggestion_id)
+            if suggestion.status is not SuggestionStatus.PENDING:
+                raise OpenBBQError(
+                    "suggestion_not_pending",
+                    id=suggestion_id,
+                    status=suggestion.status.value,
+                )
+            patch = suggestion.patch
+            provided = patch.model_fields_set
+            _apply_cue_update(
+                docs,
+                self.lang,
+                suggestion.cue_id,
+                source=patch.source if "source" in provided else None,
+                target=patch.target if "target" in provided else None,
+                start=patch.start if "start" in provided else None,
+                end=patch.end if "end" in provided else None,
+            )
+            suggestion.status = SuggestionStatus.ACCEPTED
+            suggestion.resolved_at = _now()
+
+        changed = self._suggestion_cue_id(suggestion_id)
+        return self._mutate(
+            base_revision=base_revision,
+            op_id=op_id,
+            changed=[changed] if changed is not None else [],
+            mutate=apply,
+        )
+
+    def reject_suggestion(
+        self,
+        suggestion_id: str,
+        *,
+        base_revision: str,
+        op_id: str,
+    ) -> ReviewSnapshot:
+        def transition(suggestion: Suggestion) -> None:
+            if suggestion.status is not SuggestionStatus.PENDING:
+                raise OpenBBQError(
+                    "suggestion_not_pending",
+                    id=suggestion_id,
+                    status=suggestion.status.value,
+                )
+            suggestion.status = SuggestionStatus.REJECTED
+            suggestion.resolved_at = _now()
+
+        return self._resolve_suggestion(
+            suggestion_id,
+            transition=transition,
+            base_revision=base_revision,
+            op_id=op_id,
+        )
+
+    def reopen_suggestion(
+        self,
+        suggestion_id: str,
+        *,
+        base_revision: str,
+        op_id: str,
+    ) -> ReviewSnapshot:
+        """Rejected → pending, so a dismissed suggestion stays recoverable."""
+
+        def transition(suggestion: Suggestion) -> None:
+            if suggestion.status is not SuggestionStatus.REJECTED:
+                raise OpenBBQError(
+                    "suggestion_not_rejected",
+                    id=suggestion_id,
+                    status=suggestion.status.value,
+                )
+            suggestion.status = SuggestionStatus.PENDING
+            suggestion.resolved_at = None
+
+        return self._resolve_suggestion(
+            suggestion_id,
+            transition=transition,
+            base_revision=base_revision,
+            op_id=op_id,
+        )
+
+    def batch_replace(
+        self,
+        find: str,
+        replace: str,
+        *,
+        fields: Sequence[str],
+        case_sensitive: bool = False,
+        regex: bool = False,
+        cue_ids: list[int] | None = None,
+        dry_run: bool = False,
+        base_revision: str,
+        op_id: str,
+    ) -> list[BatchMatch] | ReviewSnapshot:
+        """Find/replace across cues.  ``dry_run`` previews matches without
+        mutating; execution is one ``_mutate`` — one atomic write, one undo
+        entry, all-or-nothing via the existing commit validation.
+        """
+        if not find:
+            raise OpenBBQError("invalid_batch", detail="find must not be empty")
+        field_set = set(fields)
+        if not field_set or field_set - {"source", "target"}:
+            raise OpenBBQError(
+                "invalid_batch", detail="fields must be drawn from source/target"
+            )
+        try:
+            pattern = re.compile(
+                find if regex else re.escape(find),
+                0 if case_sensitive else re.IGNORECASE,
+            )
+        except re.error as e:
+            raise OpenBBQError("invalid_regex", detail=str(e)) from e
+        docs = _load_documents(self.path)
+        if cue_ids is not None:
+            known = {cue.id for cue in docs.cues.cues}
+            missing = sorted({id_ for id_ in cue_ids if id_ not in known})
+            if missing:
+                raise OpenBBQError("unknown_cue", ids=missing)
+        matches = _batch_matches(docs, self.lang, pattern, field_set, cue_ids)
+        if dry_run:
+            return matches
+        matched_ids = {match.cue_id for match in matches}
+        changed = [cue.id for cue in docs.cues.cues if cue.id in matched_ids]
+
+        def apply(docs: _Documents) -> None:
+            selected = (
+                set(cue_ids) if cue_ids is not None else None
+            )
+            for cue in docs.cues.cues:
+                if selected is not None and cue.id not in selected:
+                    continue
+                if "source" in field_set:
+                    new_source = pattern.sub(lambda _: replace, cue.source)
+                    if new_source != cue.source:
+                        _apply_cue_update(docs, self.lang, cue.id, source=new_source)
+                if "target" in field_set:
+                    translation = _target_for(docs, self.lang)
+                    if translation is None:
+                        raise OpenBBQError("translation_required", id=cue.id)
+                    item = _translation_item(translation, cue.id)
+                    if item is None:
+                        raise OpenBBQError("id_mismatch", id=cue.id)
+                    if item.target is None:
+                        continue
+                    new_target = pattern.sub(lambda _: replace, item.target)
+                    if new_target != item.target:
+                        _apply_cue_update(docs, self.lang, cue.id, target=new_target)
+
+        return self._mutate(
+            base_revision=base_revision,
+            op_id=op_id,
+            changed=changed,
+            mutate=apply,
+        )
+
+    def batch_status(
+        self,
+        cue_ids: list[int],
+        status: ReviewStatus,
+        *,
+        note: str | None = None,
+        base_revision: str,
+        op_id: str,
+    ) -> ReviewSnapshot:
+        """Set one status on many cues.  Every cue is validated first; any
+        failure aborts the batch before anything is written.
+        """
+        if not cue_ids:
+            raise OpenBBQError("invalid_batch", detail="cue_ids must not be empty")
+
+        def apply(docs: _Documents) -> None:
+            by_id = {cue.id: cue for cue in docs.cues.cues}
+            missing = sorted({id_ for id_ in cue_ids if id_ not in by_id})
+            if missing:
+                raise OpenBBQError("unknown_cue", ids=missing)
+            translation = _target_for(docs, self.lang)
+            if status is ReviewStatus.REVIEWED:
+                blocked = [
+                    id_
+                    for id_ in cue_ids
+                    if _review_blocked(by_id[id_], translation, id_)
+                ]
+                if blocked:
+                    raise OpenBBQError("review_blocked", ids=blocked)
+            for cue_id in dict.fromkeys(cue_ids):
+                _set_review_status(docs, self.lang, cue_id, status, note)
+
+        return self._mutate(
+            base_revision=base_revision,
+            op_id=op_id,
+            changed=list(dict.fromkeys(cue_ids)),
+            mutate=apply,
+        )
+
+    def batch_delete(
+        self,
+        cue_ids: list[int],
+        *,
+        base_revision: str,
+        op_id: str,
+    ) -> ReviewSnapshot:
+        """Delete many cues in one atomic mutation.  Every id is validated
+        first; any failure aborts the batch before anything is written.
+        """
+        if not cue_ids:
+            raise OpenBBQError("invalid_batch", detail="cue_ids must not be empty")
+
+        def apply(docs: _Documents) -> None:
+            by_id = {cue.id for cue in docs.cues.cues}
+            missing = sorted({id_ for id_ in cue_ids if id_ not in by_id})
+            if missing:
+                raise OpenBBQError("unknown_cue", ids=missing)
+            ids = set(cue_ids)
+            docs.cues.cues = [cue for cue in docs.cues.cues if cue.id not in ids]
+            for translation in docs.translations.values():
+                translation.items = [
+                    item for item in translation.items if item.id not in ids
+                ]
+            for review in docs.reviews.values():
+                review.items = [item for item in review.items if item.id not in ids]
+                _touch_review(review)
+
+        return self._mutate(
+            base_revision=base_revision,
+            op_id=op_id,
+            changed=list(dict.fromkeys(cue_ids)),
+            mutate=apply,
+        )
+
+    def add_glossary_term(
+        self,
+        source: str,
+        target: str,
+        *,
+        note: str | None = None,
+        keep: bool = False,
+        base_revision: str,
+        op_id: str,
+    ) -> GlossaryTermResult:
+        """Append a term pair to the workspace-bound glossary and refresh every
+        loaded worksheet's frozen glossary refs, so term issues recompute with
+        the new term immediately ("fix once, clear everywhere").
+
+        The library file lives outside the workspace and is deliberately not
+        part of the undo capture: the term is durable user intent.
+        """
+        source = source.strip()
+        target = target.strip()
+        note = note.strip() if note else None
+        note = note or None
+        if not source or not target:
+            raise OpenBBQError(
+                "invalid_term",
+                fix="provide a non-blank source and target term",
+            )
+        report_box: list[glossarylib.PatchReport] = []
+        name_box: list[str] = []
+
+        def apply(docs: _Documents) -> None:
+            name = docs.manifest.glossary
+            if name is None:
+                name = _default_glossary_name(self.path)
+            if not glossarylib.glossary_path(name).is_file():
+                glossarylib.scaffold(name)
+            if docs.manifest.glossary is None:
+                ws.record_glossary_binding(self.path, docs.manifest, name)
+            values: dict[str, object] = {"source": source, "target": target}
+            if note is not None:
+                values["note"] = note
+            if keep:
+                values["keep"] = True
+            updated, report = glossarylib.upsert_terms(
+                glossarylib.load(name), [Term.model_validate(values)]
+            )
+            glossarylib.save(updated)
+            merged = _merged_glossary(self.path, name)
+            for translation in docs.translations.values():
+                translation.glossary = translatelib.glossary_refs(merged)
+            name_box.append(name)
+            report_box.append(report)
+
+        snapshot = self._mutate(
+            base_revision=base_revision,
+            op_id=op_id,
+            changed=[],
+            mutate=apply,
+        )
+        return GlossaryTermResult(
+            snapshot=snapshot, glossary=name_box[0], report=report_box[0]
         )
 
     def undo(self, *, base_revision: str, op_id: str) -> ReviewSnapshot:
@@ -969,7 +1580,7 @@ def require_complete_review(
             unreviewed.append(cue.id)
         elif item.status is ReviewStatus.FLAGGED:
             flagged.append(cue.id)
-        elif item.reviewed_content_hash != _review_hash(cue, translation):
+        elif item.reviewed_content_hash != review_hash(cue, translation):
             stale.append(cue.id)
     extra = sorted(set(review_of) - {cue.id for cue in cues.cues})
     if unreviewed or flagged or stale or extra:

@@ -17,7 +17,14 @@ from .cues import Budget, Cue, Cues, SegmentParams
 from .glossary import Glossary, Term
 from .manifest import Manifest, Progress, Source, SourceType, StageState
 from .qa import QaFrame, QaReport, QaVisualIssue, QaVisualIssueCode
-from .review import Review, ReviewItem, ReviewStatus
+from .review import Dismissal, Review, ReviewItem, ReviewStatus
+from .suggestions import (
+    Suggestion,
+    SuggestionDraft,
+    SuggestionPatch,
+    Suggestions,
+    SuggestionStatus,
+)
 from .transcript import ASRInfo, Segment, Transcript, Word
 from .translation import GlossaryRef, Translation, TranslationBrief, TranslationItem
 
@@ -65,6 +72,13 @@ __all__ = [
     "Review",
     "ReviewItem",
     "ReviewStatus",
+    "Dismissal",
+    # suggestions@1
+    "Suggestion",
+    "SuggestionDraft",
+    "SuggestionPatch",
+    "Suggestions",
+    "SuggestionStatus",
     # manifest@1
     "Manifest",
     "Source",

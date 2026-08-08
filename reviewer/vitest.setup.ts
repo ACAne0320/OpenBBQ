@@ -46,3 +46,18 @@ Object.defineProperty(window, "matchMedia", {
 });
 
 Element.prototype.scrollIntoView = () => undefined;
+
+if (typeof window.ResizeObserver === "undefined") {
+  Object.defineProperty(window, "ResizeObserver", {
+    configurable: true,
+    value: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    value: window.ResizeObserver,
+  });
+}

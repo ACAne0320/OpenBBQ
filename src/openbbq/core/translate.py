@@ -85,8 +85,10 @@ def budget_for_cue(start: float, end: float, params: SegmentParams) -> Budget:
     return _budget(start, end, params)
 
 
-def _glossary_refs(g: Glossary | None) -> list[GlossaryRef]:
-    """All terms are useful context, including pending note-only entries."""
+def glossary_refs(g: Glossary | None) -> list[GlossaryRef]:
+    """Freeze a glossary into worksheet refs. Public review seam for refreshing
+    a loaded worksheet after the bound glossary changes.
+    """
     if g is None:
         return []
     return [
@@ -154,7 +156,7 @@ def build_worksheet(
         source_lang=cues.source_lang,
         target_lang=target_lang,
         params=params,
-        glossary=_glossary_refs(glossary),
+        glossary=glossary_refs(glossary),
         brief=translation_rules.build_brief(
             cues.source_lang,
             target_lang,

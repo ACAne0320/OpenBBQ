@@ -243,10 +243,12 @@ Merges `accept`/`revise` decisions. Every decision needs a reason, and revisions
 ## `review`
 
 ```text
-openbbq review [--workspace PATH] [--to CODE] [--port PORT] [--no-open]
+openbbq review [--workspace PATH] [--to CODE] [--port PORT] [--no-open] [--prepare] [--apply FILE]
 ```
 
 Opens a browser editor that only listens on your own machine: video preview, waveform and line timeline, source and target editing, review notes and status. `--to` selects the initial translation worksheet; without it, review starts in source-only mode and you can pick a subtitle language in the editor. `--port` sets the port, `--no-open` skips launching a browser.
+
+`--prepare` prints an agent pre-analysis payload (cues with precomputed rule issues and a response schema) instead of starting the server; `--prepare --apply FILE` validates an agent's response and archives it as pending review suggestions. Neither step takes the review lock or starts a server.
 
 Edits are written atomically to `cues.json`, every affected `translation.<lang>.json`, and `review.<lang>.json` (or `review.source.json`). Only one review session holds the workspace lock at a time.
 

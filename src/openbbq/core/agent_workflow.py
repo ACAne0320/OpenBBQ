@@ -46,6 +46,7 @@ from openbbq.schemas import (
     Stage,
     StageState,
     StageStatus,
+    SuggestionDraft,
     Translation,
     TranslationEvidence,
     TranslationItem,
@@ -1184,7 +1185,14 @@ def next_action(
                     }
                 ],
                 "warnings": [
-                    "optional concise uncertainty that should not block the draft"
+                    "optional concise uncertainty that should not block the draft",
+                    {
+                        "cue_id": "selected cue id; a structured warning is archived as a review suggestion instead of a session warning",
+                        "message": "concise concrete suspicion a reviewer can act on",
+                        "patch": "candidate fix with at least one of source/target/start/end",
+                        "severity": "optional warning|info (default info)",
+                        "kind": "optional category (default agent_note)",
+                    },
                 ],
                 "glossary_updates": [
                     {
@@ -1291,17 +1299,28 @@ class _TranslateResponse(OpenBBQModel):
     translations: dict[int, str]
     source_fixes: list[AgentCueSourceFix] = Field(default_factory=list)
     glossary_updates: list[AgentGlossaryUpdate] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
+    warnings: list[str | SuggestionDraft] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_targets(self):
         if any(not target.strip() for target in self.translations.values()):
             raise ValueError("translations must be non-blank")
-        self.warnings = list(
+        legacy = list(
             dict.fromkeys(
-                warning.strip() for warning in self.warnings if warning.strip()
+                warning.strip()
+                for warning in self.warnings
+                if isinstance(warning, str) and warning.strip()
             )
         )
+        structured: list[SuggestionDraft] = []
+        seen: set[tuple[int, str]] = set()
+        for warning in self.warnings:
+            if isinstance(warning, SuggestionDraft):
+                key = (warning.cue_id, warning.message)
+                if key not in seen:
+                    seen.add(key)
+                    structured.append(warning)
+        self.warnings = [*legacy, *structured]
         if len(self.warnings) > MAX_AGENT_BATCH:
             raise ValueError(f"at most {MAX_AGENT_BATCH} warnings are allowed")
         return self
@@ -1525,6 +1544,17 @@ def _apply_translate(
             "agent_source_fix_out_of_batch",
             ids=sorted(fix_ids - set(lease.selected_ids)),
         )
+    structured_warnings = [
+        warning for warning in response.warnings if isinstance(warning, SuggestionDraft)
+    ]
+    warning_ids = {warning.cue_id for warning in structured_warnings}
+    if not warning_ids.issubset(lease.selected_ids):
+        raise OpenBBQError(
+            "agent_response_invalid",
+            action="translate",
+            ids=sorted(warning_ids - set(lease.selected_ids)),
+            detail="structured warnings must reference selected cue ids",
+        )
 
     cues_path = ws.require_artifact(
         workspace, manifest, Stage.SEGMENT, fix="openbbq segment"
@@ -1601,6 +1631,20 @@ def _apply_translate(
         documents[glossary_overlay.path(workspace)] = (
             updated_overlay.model_dump_json(indent=2) + "\n"
         )
+    if structured_warnings:
+        # Structured warnings are reviewer-facing suggestions, archived with
+        # the same atomic write as the worksheet they were computed against.
+        suggestions = reviewlib.merge_suggestion_drafts(
+            workspace,
+            session.target_lang,
+            candidate_cues,
+            candidate_worksheet,
+            structured_warnings,
+            id_prefix="tr",
+        )
+        documents[reviewlib.suggestions_path(workspace, session.target_lang)] = (
+            suggestions.model_dump_json(indent=2) + "\n"
+        )
     ws.write_texts_atomic(documents)
     if source_changed_ids:
         ws.refresh_artifact_provenance(workspace, cues_path, Stage.SEGMENT)
@@ -1619,7 +1663,7 @@ def _apply_translate(
     session.warnings.extend(
         AgentWarning(code="translation_advisory", detail=detail)
         for detail in response.warnings
-        if ("translation_advisory", detail) not in known_warnings
+        if isinstance(detail, str) and ("translation_advisory", detail) not in known_warnings
     )
     session.active_lease = None
     session.finished = None
@@ -1646,7 +1690,10 @@ def _apply_translate(
             [update for update in response.glossary_updates if update.reusable]
         )
         + len([fix for fix in response.source_fixes if fix.reusable]),
-        "warnings": len(response.warnings),
+        "warnings": len(
+            [warning for warning in response.warnings if isinstance(warning, str)]
+        ),
+        "suggestions": len(structured_warnings),
         "mechanical_warnings": {
             "over_budget": report.over_budget,
             "zero_budget": report.zero_budget,

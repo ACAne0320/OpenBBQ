@@ -23,5 +23,9 @@ export default defineConfig({
     outDir: resolve(__dirname, "../src/openbbq/review_ui/dist"),
     emptyOutDir: true,
     sourcemap: false,
+    // The review server CSP is `default-src 'self'`; inlined data: fonts would
+    // be blocked, so always emit fonts as real files under /assets.
+    assetsInlineLimit: (filePath) =>
+      /\.(woff2?|ttf|otf)$/.test(filePath) ? false : undefined,
   },
 });

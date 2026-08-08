@@ -15,12 +15,24 @@ class ReviewStatus(StrEnum):
     FLAGGED = "flagged"
 
 
+class Dismissal(OpenBBQModel):
+    """A reviewer-dismissed issue kind on one cue.
+
+    Persisted per cue so a deliberate "ignore" survives reloads; any content
+    edit to the cue clears the list (the ignore was about the old content).
+    """
+
+    kind: str = Field(min_length=1)
+    dismissed_at: datetime
+
+
 class ReviewItem(OpenBBQModel):
     id: int = Field(gt=0)
     status: ReviewStatus = ReviewStatus.UNREVIEWED
     reviewed_content_hash: str | None = None
     note: str | None = None
     updated_at: datetime | None = None
+    dismissals: list[Dismissal] = []
 
     @model_validator(mode="after")
     def validate_reviewed_hash(self) -> ReviewItem:

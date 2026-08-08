@@ -220,6 +220,18 @@ openbbq review --workspace workspaces/demo --to zh
 它支持修改原文/译文/时间、拆分/合并/新增/删除、撤销/重做，以及逐 cue 的
 reviewed/flagged 状态。修改会自动保存到 workspace 的权威数据。
 
+确定性检查（预算、时长/CPS、术语一致性、ASR 低置信词）会以逐 cue issue 的形式呈现，
+附问题总览、内联卡片与忽略功能；查找替换、多选批量操作、新增术语均已内置。
+agent 生成的修改建议以「接受/拒绝」卡片出现：翻译阶段的结构化 warning 会自动归档，
+也可以在打开页面前显式跑一次预分析来播种建议：
+
+```bash
+openbbq review --prepare --workspace workspaces/demo --to zh   # 输出分析 payload
+#（agent 回答该 payload，然后：）
+openbbq review --prepare --apply suggestions-response.json --workspace workspaces/demo --to zh
+openbbq review --workspace workspaces/demo --to zh
+```
+
 人工修改具有最高权威，自动流程不会覆盖。编辑完成后，应主动重新导出 SRT/ASS 和
 烧录视频。ASS 也可以导入 Aegisub 或其他剪辑软件继续处理。
 

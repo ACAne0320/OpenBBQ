@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "./api";
+import { api } from "../api/client";
+import { readTimelinePalette } from "./palette";
 import { constrainCueRange, cueMovementBounds, type CueBounds } from "./timeline-model";
 import {
   followTimelineCenter,
@@ -7,7 +8,7 @@ import {
   timelineViewRange,
   waveformPeakTime,
 } from "./timeline-viewport";
-import type { Cue, TimedWord, WaveformResponse } from "./types";
+import type { Cue, TimedWord, WaveformResponse } from "../api/types";
 
 interface Props {
   cues: Cue[];
@@ -24,54 +25,32 @@ interface Props {
   onSeek: (time: number) => void;
   onSelect: (id: number) => void;
   onTimeChange: (id: number, start: number, end: number) => Promise<void>;
+  /** Reports fetched word timings (consumed by split word-boundary snapping). */
+  onWordsLoaded?: (words: TimedWord[], range: { start: number; end: number }) => void;
 }
 
 type DragMode = "start" | "end" | "body";
 
+/**
+ * Interaction state machine (design §5.4):
+ * idle → (pointerdown on cue) pending → (≥4px move) dragging-edge/body;
+ * pointerup from pending = plain click (selection only, zero mutation);
+ * pointercancel always returns to idle without mutating.
+ * Empty-track pointerdown seeks immediately (seeking is instantaneous).
+ */
 interface DragState {
   cue: Cue;
   bounds: CueBounds;
   mode: DragMode;
-  pointerStart: number;
+  active: boolean;
+  pointerStartX: number;
+  pointerStartTime: number;
   draftStart: number;
   draftEnd: number;
   snapGuide: number | null;
 }
 
-const PALETTES = {
-  dark: {
-    background: "#101315",
-    foreground: "#e9e9e7",
-    muted: "#8b9396",
-    waveform: "#b7bec0",
-    waveformFill: "rgba(183, 190, 192, .17)",
-    cue: "#263238",
-    reviewed: "#244235",
-    flagged: "#5a3e27",
-    selected: "#9f3024",
-    selectedBorder: "#f05a43",
-    playhead: "#f05a43",
-    grid: "rgba(255,255,255,.08)",
-    word: "rgba(255,255,255,.14)",
-    handle: "#f05a43",
-  },
-  light: {
-    background: "#f5f5f3",
-    foreground: "#1d2224",
-    muted: "#70787b",
-    waveform: "#596469",
-    waveformFill: "rgba(89, 100, 105, .15)",
-    cue: "#dfe5e7",
-    reviewed: "#d7e8df",
-    flagged: "#f1dfca",
-    selected: "#f7d7d1",
-    selectedBorder: "#d9412d",
-    playhead: "#d9412d",
-    grid: "rgba(19,28,32,.09)",
-    word: "rgba(19,28,32,.17)",
-    handle: "#d9412d",
-  },
-} as const;
+const DRAG_THRESHOLD_PX = 4;
 
 export function Timeline({
   cues,
@@ -88,18 +67,26 @@ export function Timeline({
   onSeek,
   onSelect,
   onTimeChange,
+  onWordsLoaded,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<DragState | null>(null);
   const overlayDrawRef = useRef<() => void>(() => undefined);
+  const wheelContextRef = useRef({ zoom, duration, viewDuration: 2, width: 1 });
   const [size, setSize] = useState({ width: 900, height: large ? 250 : 168 });
   const [waveform, setWaveform] = useState<WaveformResponse | null>(null);
   const [words, setWords] = useState<TimedWord[]>([]);
   const [dragCueId, setDragCueId] = useState<number | null>(null);
   const [viewCenter, setViewCenter] = useState(currentTime);
-  const palette = PALETTES[theme];
+  const [palette, setPalette] = useState(() => readTimelinePalette(theme));
+  // Re-read in a passive effect: by then the ThemeProvider's layout effect has
+  // applied the theme class, so getComputedStyle sees the NEW theme (reading
+  // during render samples the pre-toggle class — one theme behind).
+  useEffect(() => {
+    setPalette(readTimelinePalette(theme));
+  }, [theme]);
   const viewDuration = Math.max(2, duration / zoom);
   const { start: viewStart, end: viewEnd } = timelineViewRange(viewCenter, duration, viewDuration);
   const { start: dataStart, end: dataEnd } = timelineDataRange(viewCenter, duration, viewDuration);
@@ -132,14 +119,12 @@ export function Timeline({
   useEffect(() => {
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      Promise.all([
-        api.waveform(dataStart, dataEnd, dataPixels),
-        api.words(dataStart, dataEnd),
-      ])
+      Promise.all([api.waveform(dataStart, dataEnd, dataPixels), api.words(dataStart, dataEnd)])
         .then(([peaks, wordResponse]) => {
           if (!controller.signal.aborted) {
             setWaveform(peaks);
             setWords(wordResponse.words);
+            onWordsLoaded?.(wordResponse.words, { start: dataStart, end: dataEnd });
           }
         })
         .catch(() => {
@@ -150,7 +135,7 @@ export function Timeline({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [dataStart, dataEnd, dataPixels]);
+  }, [dataStart, dataEnd, dataPixels, onWordsLoaded]);
 
   const visibleCues = useMemo(
     () => cues.filter((cue) => cue.end >= viewStart && cue.start <= viewEnd),
@@ -281,7 +266,6 @@ export function Timeline({
         roundRect(context, x + width - 4, cueTop + 5, 7, 24, 3);
       }
     }
-
   }, [size, waveform, words, visibleCues, selectedId, dragCueId, viewStart, viewEnd, palette, viewDuration]);
 
   useEffect(() => {
@@ -304,7 +288,7 @@ export function Timeline({
       context.clearRect(0, 0, size.width, size.height);
       const xForOverlay = (time: number) => ((time - viewStart) / (viewEnd - viewStart || 1)) * size.width;
       const drag = dragRef.current;
-      if (drag) {
+      if (drag?.active) {
         const cueTop = size.height - 49;
         const cueHeight = 34;
         const x = xForOverlay(drag.draftStart);
@@ -370,6 +354,30 @@ export function Timeline({
     overlayDrawRef.current();
   }, [currentTime]);
 
+  // Wheel pan via a native non-passive listener so preventDefault works; the
+  // pan distance follows the wheel delta magnitude (trackpad-friendly).
+  useEffect(() => {
+    wheelContextRef.current = { zoom, duration, viewDuration, width: size.width };
+  });
+
+  useEffect(() => {
+    const canvas = overlayCanvasRef.current;
+    if (!canvas) return;
+    const onWheel = (event: WheelEvent) => {
+      const context = wheelContextRef.current;
+      if (context.zoom <= 1 || context.width <= 0) return;
+      const delta = event.deltaX || event.deltaY;
+      if (delta === 0) return;
+      event.preventDefault();
+      const secondsPerPixel = context.viewDuration / context.width;
+      setViewCenter((center) =>
+        Math.max(0, Math.min(context.duration, center + delta * secondsPerPixel)),
+      );
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, []);
+
   const pointerPosition = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return Math.max(0, Math.min(size.width, event.clientX - rect.left));
@@ -398,18 +406,17 @@ export function Timeline({
     const rightDistance = Math.abs(x - xFor(hit.end));
     const mode: DragMode = leftDistance <= 10 ? "start" : rightDistance <= 10 ? "end" : "body";
     event.currentTarget.setPointerCapture(event.pointerId);
-    event.currentTarget.style.cursor = mode === "body" ? "grabbing" : "ew-resize";
     dragRef.current = {
       cue: hit,
       bounds: boundsFor(hit),
       mode,
-      pointerStart: time,
+      active: false,
+      pointerStartX: x,
+      pointerStartTime: time,
       draftStart: hit.start,
       draftEnd: hit.end,
       snapGuide: null,
     };
-    setDragCueId(hit.id);
-    overlayDrawRef.current();
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -423,8 +430,14 @@ export function Timeline({
       } else event.currentTarget.style.cursor = "grab";
       return;
     }
+    if (!drag.active) {
+      if (Math.abs(x - drag.pointerStartX) < DRAG_THRESHOLD_PX) return;
+      drag.active = true;
+      event.currentTarget.style.cursor = drag.mode === "body" ? "grabbing" : "ew-resize";
+      setDragCueId(drag.cue.id);
+    }
     const time = timeFor(x);
-    const delta = time - drag.pointerStart;
+    const delta = time - drag.pointerStartTime;
     if (drag.mode === "start") {
       const result = snap(time, drag.cue.id);
       const constrained = constrainCueRange(
@@ -443,20 +456,26 @@ export function Timeline({
       dragRef.current = { ...drag, draftEnd: constrained.end, snapGuide: result.guide };
     } else {
       const length = drag.cue.end - drag.cue.start;
-      const result = snap(drag.cue.start + delta, drag.cue.id, { includePlayhead: false, thresholdPixels: 3 });
+      const result = snap(drag.cue.start + delta, drag.cue.id, {
+        includePlayhead: false,
+        thresholdPixels: 3,
+      });
       const constrained = constrainCueRange(
         { start: result.time, end: result.time + length },
         "body",
         drag.bounds,
       );
-      dragRef.current = { ...drag, draftStart: constrained.start, draftEnd: constrained.end, snapGuide: result.guide };
+      dragRef.current = {
+        ...drag,
+        draftStart: constrained.start,
+        draftEnd: constrained.end,
+        snapGuide: result.guide,
+      };
     }
     overlayDrawRef.current();
   };
 
-  const handlePointerUp = async (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const completed = dragRef.current;
-    if (!completed) return;
+  const resetDrag = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -464,23 +483,31 @@ export function Timeline({
     dragRef.current = null;
     setDragCueId(null);
     overlayDrawRef.current();
-    await onTimeChange(
-      completed.cue.id,
-      Number(completed.draftStart.toFixed(3)),
-      Number(completed.draftEnd.toFixed(3)),
-    );
   };
 
-  const handleWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
-    if (zoom <= 1) return;
-    event.preventDefault();
-    const delta = event.deltaX || event.deltaY;
-    const nextCenter = viewCenter + Math.sign(delta) * Math.max(0.1, viewDuration * 0.1);
-    setViewCenter(Math.max(0, Math.min(duration, nextCenter)));
+  const handlePointerUp = async (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const completed = dragRef.current;
+    if (!completed) return;
+    resetDrag(event);
+    // Sub-threshold press = plain click: selection already happened, no mutation.
+    if (!completed.active) return;
+    const start = Number(completed.draftStart.toFixed(3));
+    const end = Number(completed.draftEnd.toFixed(3));
+    if (start === completed.cue.start && end === completed.cue.end) return;
+    await onTimeChange(completed.cue.id, start, end);
+  };
+
+  const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!dragRef.current) return;
+    resetDrag(event);
   };
 
   return (
-    <div ref={containerRef} className={`timeline-stack ${large ? "timeline-large" : ""}`} style={{ height: size.height }}>
+    <div
+      ref={containerRef}
+      className={`timeline-stack ${large ? "timeline-large" : ""}`}
+      style={{ height: size.height }}
+    >
       <canvas ref={baseCanvasRef} className="timeline timeline-base" aria-hidden="true" />
       <canvas
         ref={overlayCanvasRef}
@@ -489,9 +516,8 @@ export function Timeline({
         aria-label={ariaLabel}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        onWheel={handleWheel}
+        onPointerUp={(event) => void handlePointerUp(event)}
+        onPointerCancel={handlePointerCancel}
       />
     </div>
   );

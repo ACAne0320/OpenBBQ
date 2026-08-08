@@ -34,6 +34,10 @@ from openbbq.schemas import (
     Stage,
     StageState,
     StageStatus,
+    Suggestion,
+    SuggestionPatch,
+    Suggestions,
+    SuggestionStatus,
     Term,
     Transcript,
     Word,
@@ -192,7 +196,7 @@ def _translate_batch(
     path: Path,
     action: dict[str, Any],
     *,
-    warnings: list[str] | None = None,
+    warnings: list[Any] | None = None,
 ) -> dict[str, Any]:
     return _apply(
         path,
@@ -632,7 +636,11 @@ def test_translate_requires_exact_ids_policy_and_syncs_cue_scoped_source_fix(
     ]["instruction"]
     assert action["response_schema"]["generation_mode"] == "current_agent"
     assert len(action["selected_ids"]) <= 20
-    assert action["response_schema"]["warnings"]
+    warnings_schema = action["response_schema"]["warnings"]
+    assert isinstance(warnings_schema[0], str)
+    # The structured form is archived as a review suggestion, not a session warning.
+    assert warnings_schema[1]["cue_id"]
+    assert warnings_schema[1]["patch"]
 
     with pytest.raises(OpenBBQError) as policy_error:
         _apply(
@@ -989,6 +997,145 @@ def test_semantic_warnings_are_recorded_but_do_not_block_finish(
     session = ws.read_agent_session_optional(path, "zh")
     assert session is not None
     assert session.warnings[0].code == "translation_advisory"
+    # Legacy free-text warnings never create a suggestions file.
+    assert not reviewlib.suggestions_path(path, "zh").exists()
+
+
+def test_structured_warnings_become_review_suggestions(tmp_path: Path) -> None:
+    path, _ = _workspace(tmp_path, ["Codex can do this"])
+    _install_cues_and_worksheet(path, ["Codex can do this"])
+    action = _next(path)
+
+    result = _translate_batch(
+        path,
+        action,
+        warnings=[
+            {
+                "cue_id": 1,
+                "message": "the product name may need a different rendering",
+                "patch": {"target": "也许应该这样译"},
+                "severity": "warning",
+            }
+        ],
+    )
+
+    assert result["warnings"] == 0
+    assert result["suggestions"] == 1
+    doc = ws.read_suggestions(reviewlib.suggestions_path(path, "zh"))
+    assert doc.source_lang == "en"
+    assert doc.target_lang == "zh"
+    assert len(doc.suggestions) == 1
+    suggestion = doc.suggestions[0]
+    assert suggestion.id.startswith("tr-")
+    assert suggestion.status is SuggestionStatus.PENDING
+    assert suggestion.severity == "warning"
+    assert suggestion.kind == "agent_note"
+    assert suggestion.patch.target == "也许应该这样译"
+    assert suggestion.resolved_at is None
+    # The hash matches the canonical content just written.
+    cues = ws.read_cues(path / "cues.json")
+    worksheet = ws.read_translation(ws.worksheet_path(path, "zh"))
+    assert suggestion.content_hash == reviewlib.review_hash(cues.cues[0], worksheet)
+    # Structured warnings are not double-reported as session warnings, and the
+    # agent loop is otherwise untouched.
+    session = ws.read_agent_session_optional(path, "zh")
+    assert session is not None
+    assert session.warnings == []
+    assert _next(path)["action"] == "finish"
+
+
+def test_mixed_warnings_split_between_session_and_suggestions(tmp_path: Path) -> None:
+    path, _ = _workspace(tmp_path, ["first cue", "second cue"])
+    _install_cues_and_worksheet(path, ["first cue", "second cue"])
+    action = _next(path)
+
+    result = _translate_batch(
+        path,
+        action,
+        warnings=[
+            "general advisory, not cue-scoped",
+            {"cue_id": 2, "message": "concrete fix", "patch": {"target": "第二条候选"}},
+        ],
+    )
+
+    assert result["warnings"] == 1
+    assert result["suggestions"] == 1
+    session = ws.read_agent_session_optional(path, "zh")
+    assert session is not None
+    assert [warning.detail for warning in session.warnings] == [
+        "general advisory, not cue-scoped"
+    ]
+    doc = ws.read_suggestions(reviewlib.suggestions_path(path, "zh"))
+    assert [suggestion.cue_id for suggestion in doc.suggestions] == [2]
+
+
+def test_structured_warnings_validate_batch_membership_and_cap(tmp_path: Path) -> None:
+    path, _ = _workspace(tmp_path, ["only cue"])
+    _install_cues_and_worksheet(path, ["only cue"])
+    action = _next(path)
+
+    with pytest.raises(OpenBBQError) as raised:
+        _translate_batch(
+            path,
+            action,
+            warnings=[
+                {"cue_id": 99, "message": "out of batch", "patch": {"target": "译"}}
+            ],
+        )
+    assert raised.value.code == "agent_response_invalid"
+    assert raised.value.context["ids"] == [99]
+
+    with pytest.raises(OpenBBQError) as raised:
+        _translate_batch(
+            path,
+            action,
+            warnings=[
+                {"cue_id": 1, "message": f"suspicion {index}", "patch": {"target": f"译{index}"}}
+                for index in range(agent_workflow.MAX_AGENT_BATCH + 1)
+            ],
+        )
+    assert raised.value.code == "agent_response_invalid"
+
+
+def test_structured_warnings_merge_preserves_existing_suggestions(
+    tmp_path: Path,
+) -> None:
+    path, _ = _workspace(tmp_path, ["only cue"])
+    _install_cues_and_worksheet(path, ["only cue"])
+    existing = Suggestions(
+        source_lang="en",
+        target_lang="zh",
+        suggestions=[
+            Suggestion(
+                id="prep-abc123",
+                cue_id=1,
+                kind="agent_note",
+                message="earlier rejected note",
+                patch=SuggestionPatch(target="旧译"),
+                content_hash="sha256:" + "a" * 64,
+                status=SuggestionStatus.REJECTED,
+                created_at=datetime.now(timezone.utc),
+            )
+        ],
+    )
+    ws.write_text_atomic(
+        reviewlib.suggestions_path(path, "zh"), existing.model_dump_json(indent=2)
+    )
+    action = _next(path)
+
+    _translate_batch(
+        path,
+        action,
+        warnings=[{"cue_id": 1, "message": "new note", "patch": {"target": "新译"}}],
+    )
+
+    doc = ws.read_suggestions(reviewlib.suggestions_path(path, "zh"))
+    assert len(doc.suggestions) == 2
+    first, second = doc.suggestions
+    assert first.id == "prep-abc123"
+    assert first.status is SuggestionStatus.REJECTED
+    assert second.status is SuggestionStatus.PENDING
+    assert second.id != first.id
 
 
 def test_human_review_blocks_retranslation_and_can_replace_agent_evidence(

@@ -156,7 +156,7 @@ def merged_overlay(
         return base
     result, _ = glossarylib.upsert_terms(
         base,
-        [_entry_patch(entry) for entry in overlay.entries],
+        [entry_patch(entry) for entry in overlay.entries],
     )
     return result
 
@@ -208,7 +208,7 @@ def prepare_updates(
     # Validate against the effective base before replacing the sidecar.  This
     # catches alias ownership conflicts without leaving a half-applied overlay.
     base = _base_for_overlay(updated)
-    glossarylib.upsert_terms(base, [_entry_patch(entry) for entry in updated.entries])
+    glossarylib.upsert_terms(base, [entry_patch(entry) for entry in updated.entries])
     return updated, ignored
 
 
@@ -268,7 +268,9 @@ def prepare_updates_with_candidates(
     return updated, ignored, len(candidates)
 
 
-def _entry_patch(entry: GlossaryOverlayEntry) -> Term:
+def entry_patch(entry: GlossaryOverlayEntry) -> Term:
+    """The upsert patch an overlay entry represents (public review seam for
+    merging an unbound overlay onto a freshly bound base glossary)."""
     values: dict[str, object] = {
         "source": entry.term.source,
         "aliases": entry.term.aliases,

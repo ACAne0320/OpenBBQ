@@ -250,6 +250,20 @@ translation, timing, and review state. It supports source/target edits,
 split/merge/insert/delete, undo/redo, and cue-level reviewed/flagged states.
 Changes autosave to the canonical workspace data.
 
+Deterministic checks (budget, timing/CPS, glossary consistency, low-confidence
+ASR words) surface as per-cue issues with an issues overview, inline cards, and
+dismissal; find & replace, multi-select batch operations, and adding glossary
+terms are built in. Agent-generated suggestions appear as accept/reject cards:
+structured translate warnings are archived automatically, and an explicit
+pre-analysis pass can seed the workbench before you open it:
+
+```bash
+openbbq review --prepare --workspace workspaces/demo --to zh   # prints an analysis payload
+# (an agent answers the payload, then:)
+openbbq review --prepare --apply suggestions-response.json --workspace workspaces/demo --to zh
+openbbq review --workspace workspaces/demo --to zh
+```
+
 Human edits are authoritative. The automatic workflow does not overwrite them.
 After editing, regenerate derived SRT/ASS and the burned video deliberately.
 The ASS can also be imported into Aegisub or another editing application.
