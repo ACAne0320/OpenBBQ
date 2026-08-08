@@ -1,6 +1,6 @@
 [project]
 name = "openbbq"
-version = "0.0.11"
+version = "0.0.12"
 description = "Turn video into editable bilingual subtitle drafts and burned output with an AI agent."
 readme = "README.md"
 authors = [
