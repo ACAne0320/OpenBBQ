@@ -6,8 +6,8 @@ const keyLocation = `https://${host}/${key}.txt`;
 const sitemapPath = new URL("../dist/public/sitemap.xml", import.meta.url);
 
 const sitemap = await readFile(sitemapPath, "utf8");
-const urlList = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) =>
-  match[1].replaceAll("&amp;", "&"),
+const urlList = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].flatMap((match) =>
+  match[1] === undefined ? [] : [match[1].replaceAll("&amp;", "&")],
 );
 
 if (urlList.length === 0) {

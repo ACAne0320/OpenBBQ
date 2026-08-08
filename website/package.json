@@ -5,7 +5,7 @@
   "sideEffects": false,
   "scripts": {
     "dev": "waku dev",
-    "build": "waku build",
+    "build": "waku build && node scripts/finalize-seo.mjs",
     "start": "waku start",
     "preview:cloudflare": "wrangler dev",
     "deploy": "wrangler deploy",
