@@ -1,9 +1,9 @@
 ---
 title: Visual review
-description: Check subtitle text, timing, and translation in a local browser editor before publishing.
+description: Check subtitle text, timing, and translation in a local browser workbench before publishing.
 ---
 
-Visual review is the human checkpoint before you serve the video. OpenBBQ opens a local editor in your browser where you watch the video, read every subtitle line, fix text and timing, and mark each line as checked. Nothing is uploaded — the editor runs entirely on your own computer.
+Visual review is the human checkpoint before you serve the video. OpenBBQ opens a local workbench in your browser where you watch the video, read every subtitle line, fix text and timing, work through the issues it flags for you, and mark each line as checked. Nothing is uploaded — the workbench runs entirely on your own computer.
 
 ## Install the editor
 
@@ -25,13 +25,121 @@ Your browser opens on a local address that only your own computer can reach. Use
 - `--port PORT` — use a different port when the default one is busy.
 - `--no-open` — start the editor without opening a browser tab.
 
-## Everything on one screen
+## The workbench at a glance
 
-- The video — or the audio, in an audio workspace.
-- A waveform, so you can see where speech starts and stops.
-- The subtitle-line timeline.
-- Source text and translation side by side.
-- Each line's timing and review status.
+![The OpenBBQ review workbench: ① cue list ② media player ③ cue editor ④ waveform and cue track](/docs/review/overview.webp)
+
+One screen, four zones (drag the dividers to resize; widths survive a reload):
+
+1. **Cue list** — every subtitle line, with filters, search, and two tabs: List and Issues.
+2. **Media player** — the video (or audio), with always-visible controls and a live subtitle overlay.
+3. **Cue editor** — the current line's source, translation, timing, and note, plus its issue cards.
+4. **Waveform & cue track** — the whole timeline: waveform for finding pauses, blocks for subtitle lines.
+
+### The cue list: find the lines to look at
+
+![Cue list: filters, search, per-row issue icons, and the follow toggle](/docs/review/cue-list.webp)
+
+- Filter by status (unreviewed / reviewed / flagged / all) or by quality conditions like missing translation or over budget; the search box takes text and `#ID`.
+- Small icons at the end of a row are that line's issues — term, timing, budget, low-confidence words, agent suggestions. The shape says the kind, the color says the severity.
+- During playback the selection tracks the playhead. Scrolling the list only detaches its auto-scroll (an amber Resume follow button appears) — the selection itself is unaffected.
+- Shift-click for a range, ⌘/Ctrl-click for a set; a batch bar appears at the bottom.
+
+### The issues view: work down a list of problems
+
+![Issues view: issues grouped by kind; click a row to jump to its cue](/docs/review/issues-view.webp)
+
+Switch to the Issues tab and every flagged problem is grouped by kind — timing, terms, budget, low-confidence ASR, agent suggestions. Open a group to see the cues involved; click a row to jump straight to it. Fixed, dismissed, and rejected items collect under a collapsed section at the bottom of each group, ready for audit.
+
+### The player: what you see is what viewers get
+
+![Player: persistent control bar with a bilingual subtitle overlay](/docs/review/player.webp)
+
+- Seek, volume, playback speed, subtitle mode (bilingual / source / target / hidden), and fullscreen live on a permanent control bar — no hover required.
+- The overlay follows the playhead strictly: in the gaps between cues the picture is clean. The preview is what a viewer would see.
+- While playing, the selection follows the current cue and freezes the moment you pause. Clicking any cue during playback pauses the video and lands you there — the selection is never yanked away from under you.
+
+### The cue editor: everything about one line
+
+![Cue editor: source and translation, time inputs, issue cards, and a suggestion card](/docs/review/editor.webp)
+
+- Edit source and translation in place; they autosave after about half a second. Start/end use `MM:SS.mmm` inputs — invalid input or a start that isn't before the end gets an inline hint, never a silent write.
+- The header shows live duration, source reading speed, and the translation's character budget — updating as you type, not after a save.
+- Colored cards below are this line's issues: amber for rule warnings (budget / timing / terms), blue for hints (low-confidence ASR words), purple for agent suggestions. Fix the underlying problem and the card disappears on the spot; or Dismiss it — but if you later edit that line, the dismissal is voided and the card returns.
+- "Mark reviewed `Enter`" and "Flag `⇧F`" are the main review loop.
+
+### The waveform & cue track: the final word on timing
+
+![Timeline: waveform, word-boundary ticks, and draggable cue blocks](/docs/review/timeline.webp)
+
+- The small ticks under the waveform are ASR word boundaries; cue edges snap to them while dragging.
+- Drag a block's edges to retime it, or its body to move it whole. A plain click only selects — it never edits anything.
+- Scroll to pan, use the right-hand slider to zoom. Splitting snaps its default cut point to the nearest word boundary.
+
+## Three ways to work through a draft
+
+**Line by line** (the main loop): click a line, replay its segment (loop it if needed), fix it, press `Enter` to mark it reviewed and jump to the next unreviewed line. `Shift+Enter` saves and moves on without marking. Enter all the way down.
+
+**Continuous pass**: play through at 1.25× and pause when something looks wrong — the editor is already on the line you just heard. Fix it, press Space, keep going. The selection always tracks the playhead, so you never hunt for the line.
+
+**Issue-driven**: sweep the issues view by kind — "do all the term warnings first" — jumping from one problem line to the next.
+
+## Agent suggestions: it flags, you decide
+
+![A suggestion card: an agent-proposed rewrite, ready to accept or reject](/docs/review/suggestion-card.webp)
+
+Purple cards are change proposals left by the agent. Click the proposed text to load it into the editor and keep editing; Accept applies it as final content (one atomic write, one `⌘Z` to undo); Reject files it under the issues view where you can always bring it back. If the line has been edited since the suggestion was made, the card warns that it may be stale — but the decision is always yours.
+
+Suggestions come from two sources: ones the agent left behind while translating (zero extra cost), and an explicit pre-analysis pass before you start:
+
+```bash
+openbbq review --prepare --workspace workspaces/demo --to zh
+# hand the printed analysis request to your agent, then:
+openbbq review --prepare --apply suggestions-response.json --workspace workspaces/demo --to zh
+```
+
+Pre-analysis only happens when you ask for it — users who skip review pay nothing. See [Working with agents](/en/docs/guides/agents).
+
+## Find & replace: preview first, then commit
+
+![Find & replace: matches highlighted in a mandatory preview before replacing](/docs/review/find-replace.webp)
+
+Press `⌘F`. After typing a search you must preview first — it lists exactly which cues match with the matched text highlighted, and only then does the Replace N button enable. The whole batch is one atomic write, so a single `⌘Z` reverts it all. Case sensitivity and regular expressions are supported; the scope can be source, translation, or just the selected cues.
+
+## Batch operations: handle a whole row set at once
+
+![The batch bar: status changes and deletion for a multi-selection](/docs/review/batch-bar.webp)
+
+With several lines selected (Shift or ⌘/Ctrl-click), the batch bar can mark them reviewed / flagged / unreviewed, delete them (with confirmation), or confine a find & replace to just those lines. Every batch is all-or-nothing: if anything conflicts midway, not a single line is written.
+
+## Grow the glossary as you go: fix once, clear everywhere
+
+![The add-term dialog, launched from a text selection with fields prefilled](/docs/review/add-term.webp)
+
+Select a word in the source or translation and an Add term action floats up. Submit the source term and its standard translation, and the pair lands in the workspace's bound glossary — every related term warning across the whole file clears immediately. You can also start from a term warning card's "+ Add new term". The full glossary story lives in [Glossaries](/en/docs/guides/glossaries).
+
+## Shortcuts: one table, always current
+
+![The shortcut help overlay, generated from the same table that drives the keys](/docs/review/shortcuts.webp)
+
+Press `?` anytime to open this table (it's generated from the same source that executes the keys, so it can never drift). The everyday set:
+
+| Key | Action |
+| --- | --- |
+| `Space` | Play / pause |
+| `Enter` | Mark reviewed, jump to next unreviewed |
+| `Shift+Enter` | Save only, jump to next |
+| `J` / `K` / `L` | Back 2s at slow speed / pause / forward at 1.5× |
+| `[` / `]` | Set current line's start / end to the playhead |
+| `S` | Split the cue at the cursor |
+| `⌘F` | Find & replace |
+| `⌘Z` / `⇧⌘Z` | Undo / redo |
+
+## When everything is reviewed
+
+![The completion banner: progress, remaining open items, and a copyable export command](/docs/review/completion.webp)
+
+Once every line is marked reviewed, a quiet banner appears at the top: how many open issues remain, and the next-step export command with one-click copy. Exporting stays a terminal job — the workbench just hands off.
 
 ## Edits save themselves
 
@@ -63,4 +171,4 @@ Once a `review.zh.json` exists, OpenBBQ expects the review to be finished: targe
 openbbq review --to zh --workspace workspaces/demo
 ```
 
-`--allow-unreviewed` on export is for an intentional draft only — it lets the file through and marks nothing as reviewed. How this fits the bigger picture: [Quality gates](/en/docs/concepts/quality-gates).
+`--allow-unreviewed` at export time is for deliberate drafts — it lets the export through without marking anything reviewed. For where it sits in the pipeline, see [Quality gates](/en/docs/concepts/quality-gates).
