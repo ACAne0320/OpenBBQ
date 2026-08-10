@@ -301,7 +301,10 @@ export function HomePage({ locale }: { locale: Locale }) {
             </a>
           </div>
         </div>
-        <Terminal title={text.terminalTitle} lines={text.terminal} />
+        <div className="bbq-hero-stage">
+          <Terminal title={text.terminalTitle} lines={text.terminal} />
+          <img className="bbq-mascot" src="/mascot-wave-512.png" alt="" width="512" height="512" />
+        </div>
       </section>
 
       <section className="bbq-line-section">

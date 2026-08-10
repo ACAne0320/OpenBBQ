@@ -45,6 +45,9 @@ const config = defineConfig({
     root() {
       return (
         <>
+          <link rel="icon" type="image/png" sizes="32x32" href="/mascot-wave-32.png" />
+          <link rel="icon" type="image/png" sizes="16x16" href="/mascot-wave-16.png" />
+          <link rel="apple-touch-icon" href="/mascot-wave-180.png" />
           <link rel="preconnect" href="https://fonts.googleapis.com" />
           <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
           <link

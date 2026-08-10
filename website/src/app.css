@@ -52,6 +52,17 @@
     pointer-events: none;
   }
   .bbq-hero-copy { position: relative; }
+  .bbq-hero-stage { position: relative; }
+  .bbq-mascot {
+    position: absolute;
+    right: 0.75rem;
+    bottom: -1.75rem;
+    z-index: 2;
+    width: clamp(6rem, 9vw, 9rem);
+    height: auto;
+    pointer-events: none;
+    filter: drop-shadow(0 10px 24px rgb(231 71 46 / 18%));
+  }
   .bbq-hero h1 {
     max-width: 680px;
     margin: 0;
@@ -240,6 +251,7 @@
 
   @media (max-width: 860px) {
     .bbq-hero { grid-template-columns: 1fr; }
+    .bbq-mascot { position: static; display: block; width: 7.5rem; margin: 1.25rem auto 0; }
     .bbq-line-stages { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .bbq-gate-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .bbq-agents { grid-template-columns: 1fr; }

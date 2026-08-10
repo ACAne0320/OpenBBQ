@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/mascot-wave-512.png" alt="OpenBBQ mascot" width="160" />
+</p>
+
 # OpenBBQ
 
 [官网](https://openbbq.acane.dev/zh) · [在线文档](https://openbbq.acane.dev/zh/docs) · [English README](README.md)
