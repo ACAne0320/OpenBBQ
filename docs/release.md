@@ -63,4 +63,7 @@ git tag -a vX.Y.Z -m vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-Tags beginning with `v` trigger `.github/workflows/publish.yml`.
+Tags beginning with `v` trigger `.github/workflows/publish.yml`. The workflow runs
+the checks, publishes to PyPI, and then creates a GitHub Release for the tag with
+the built wheel and source distribution attached and auto-generated notes. For
+noteworthy versions, edit the release notes on GitHub afterwards.
