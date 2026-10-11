@@ -486,6 +486,7 @@ def finish(
                 "human_reviewed": human_reviewed,
                 "quality_warnings": agent_workflow.draft_warnings(cues, worksheet),
                 "glossary_published": publication.published,
+                "glossary_terms_published": list(publication.terms),
                 "warnings": [
                     warning.model_dump(mode="json") for warning in session.warnings
                 ],

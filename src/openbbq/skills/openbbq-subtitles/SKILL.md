@@ -91,7 +91,8 @@ Repeat these steps until `done`:
    `openbbq agent finish` command once. It exports the bilingual ASS, burns the
    video once, and validates the artifacts.
 5. For `done`, deliver the returned subtitle and video paths plus warnings.
-   Report the returned `quality` and `human_reviewed` values verbatim.
+   Report the returned `quality` and `human_reviewed` values verbatim, and list
+   any `glossary_terms_published` saved to the author glossary.
 
 Call `agent next` after every successful command; after a successful apply,
 act on its returned `next` (call `agent next` only when `next` is absent). Keep only one

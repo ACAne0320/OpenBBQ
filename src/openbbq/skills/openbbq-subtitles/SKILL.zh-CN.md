@@ -61,7 +61,8 @@ openbbq --json agent next --workspace '<ws>'
 4. `finish`：服从其 execution policy，只执行一次返回的
    `openbbq agent finish`。它会一次导出双语 ASS、一次烧录视频并验证产物。
 5. `done`：交付返回的字幕、视频路径和 warning，并原样报告返回的
-   `quality` 与 `human_reviewed`。
+   `quality` 与 `human_reviewed`；若 `glossary_terms_published` 非空，一并列出本次
+   写入作者术语表的术语。
 
 每次命令成功后调用 `agent next`；apply 成功后直接执行返回的 `next`（没有 `next` 时再
 调用 `agent next`）。同一时间只推进一个 action；重复调用会

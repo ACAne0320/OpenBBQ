@@ -212,6 +212,9 @@ evidence. Reusable discoveries go to the task-local
 `.openbbq/glossary-overlay.json`. Base glossary plus overlay are used during
 the task; the global library is updated only after successful delivery.
 
+Only canonical terms are published; ASR-misspelling aliases stay with the task
+so they cannot rewrite genuine uses of that word in the author's later videos.
+`done` lists the published terms in `glossary_terms_published`.
 Publication is conflict-safe and never overwrites an existing owner or value.
 A conflict or permission error leaves the overlay intact and returns a
 non-blocking retry warning.

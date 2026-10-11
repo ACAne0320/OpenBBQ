@@ -30,7 +30,10 @@ verdicts.
    same author and target language deterministically reuse the published
    glossary.
 6. Only after successful delivery does `agent finish` publish non-conflicting
-   reusable entries to the global library.
+   reusable canonical terms to the global library. Aliases stay in the task
+   overlay: an ASR misspelling of one recording must not rewrite genuine uses
+   of that word in later videos. `done` lists them in
+   `glossary_terms_published`.
 
 `review_source` may offer the same bounded fixes only when a structural ASR
 problem blocks segmentation. It is not a full-transcript glossary pass.

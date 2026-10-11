@@ -18,7 +18,7 @@ OpenBBQ 确定性地保证结构正确、翻译批次有界、产物新鲜和只
 低置信词、语速预算和 glossary 一致性只作为提示，不会制造强制审核队列。
 
 显式 `--glossary` 始终优先。否则，URL fetch 得到作者后，OpenBBQ 会自动绑定稳定的
-作者+目标语言 glossary。任务 overlay 中学到的术语会在交付后冲突安全地发布，并被
+作者+目标语言 glossary。任务 overlay 中学到的规范术语会在交付后冲突安全地发布（ASR 错拼别名只留在本任务），并被
 同作者、同目标语言的后续视频复用；不需要模型选择 glossary。
 
 专业用户可以在同一 workspace 中运行 `openbbq review`，或把 ASS 导入 Aegisub /

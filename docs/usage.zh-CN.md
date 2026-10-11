@@ -183,6 +183,8 @@ openbbq --json agent init '<source>' --workspace workspaces/demo --to zh --gloss
 参考证据命中的相关术语。可复用发现保存在任务级 `.openbbq/glossary-overlay.json`。任务中立即
 使用 base + overlay，但只在成功交付后更新全局库。
 
+发布只写入规范术语；ASR 错拼别名只在本任务内生效，不会进入全局库，以免改写同作者
+后续视频里该词的正常用法。done 输出的 `glossary_terms_published` 列出本次发布的术语。
 发布过程不会覆盖已有 owner 或字段。冲突、缺少绑定或权限失败会保留 overlay，并返回
 不阻塞视频交付的重试 warning。
 

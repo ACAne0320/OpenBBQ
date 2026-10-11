@@ -1711,14 +1711,21 @@ def test_glossary_publish_conflict_does_not_overwrite_global_entry(
     assert glossarylib.load("series").terms[0].target == "智能体"
 
 
-def test_glossary_publish_merges_safe_alias_and_preserves_existing_note(
+def test_glossary_publish_keeps_aliases_local_and_preserves_existing_note(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path / "home"))
     glossarylib.save(
         Glossary(
             name="series",
-            terms=[Term(source="tmux", keep=True, note="Existing translation rule")],
+            terms=[
+                Term(
+                    source="tmux",
+                    aliases=["t-mux"],
+                    keep=True,
+                    note="Existing translation rule",
+                )
+            ],
         )
     )
     workspace = tmp_path / "workspace"
@@ -1733,16 +1740,26 @@ def test_glossary_publish_merges_safe_alias_and_preserves_existing_note(
                 note="New observation from this video",
                 reusable=True,
                 evidence="ASR produced a case-only variant",
-            )
+            ),
+            agent_workflow.AgentGlossaryUpdate(
+                source="Windsurf",
+                aliases=["Windsor"],
+                keep=True,
+                reusable=True,
+                evidence="ASR misheard the product name in this recording",
+            ),
         ],
     )
 
     report = glossary_overlay.publish(workspace)
 
     assert report.published is True
-    term = glossarylib.load("series").terms[0]
-    assert term.aliases == ["Tmux"]
-    assert term.note == "Existing translation rule"
+    assert report.terms == ("tmux", "Windsurf")
+    terms = {term.source: term for term in glossarylib.load("series").terms}
+    assert terms["tmux"].aliases == ["t-mux"]
+    assert terms["tmux"].note == "Existing translation rule"
+    assert terms["Windsurf"].aliases == []
+    assert terms["Windsurf"].keep is True
 
 
 def test_glossary_publish_permission_failure_is_non_blocking_and_retryable(
@@ -1855,6 +1872,7 @@ def test_finish_is_media_idempotent_and_never_uses_compact_preset(
     second = json.loads(capsys.readouterr().out)
 
     assert first["artifact_ready"] is True
+    assert first["glossary_terms_published"] == []
     assert first["quality"] == "draft"
     assert first["human_reviewed"] is False
     assert second["artifact_ready"] is True

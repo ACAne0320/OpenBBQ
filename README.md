@@ -23,8 +23,8 @@ glossary consistency are advisory, not mandatory review queues.
 
 An explicit `--glossary` always wins. Otherwise, once a URL fetch identifies
 the author, OpenBBQ binds a stable author-and-target glossary automatically.
-Terms learned in the task overlay are published conflict-safely after delivery
-and reused by later videos from the same author in that target language—without
+Canonical terms learned in the task overlay are published conflict-safely after
+delivery (ASR-misspelling aliases stay with the task) and reused by later videos from the same author in that target language—without
 asking the model to choose a glossary.
 
 For professional work, open the same workspace with `openbbq review` or import

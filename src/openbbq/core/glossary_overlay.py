@@ -296,7 +296,13 @@ def _owners(terms: list[Term]) -> dict[str, str]:
 
 
 def publish(workspace: Path) -> PublishReport:
-    """Publish every non-conflicting reusable entry without overwriting data."""
+    """Publish every non-conflicting reusable entry without overwriting data.
+
+    Only canonical terms leave the workspace. Aliases are usually ASR
+    misspellings of one recording ("Windsor" for "Windsurf"); promoted
+    globally they would rewrite genuine uses of that word in every later
+    video by the same author, so they stay in the task overlay.
+    """
 
     overlay = read_optional(workspace)
     if overlay is None or not overlay.entries:
@@ -341,7 +347,7 @@ def publish(workspace: Path) -> PublishReport:
     published: list[str] = []
     conflicts: list[str] = []
     for entry in overlay.entries:
-        patch = entry.term
+        patch = entry.term.model_copy(update={"aliases": []})
         key = patch.source.casefold()
         owners = _owners(terms)
         foreign_form = next(
