@@ -220,6 +220,67 @@ def test_split_long_does_not_end_a_line_on_a_conjunction() -> None:
     assert pieces[0][-1].word == "parallel"
 
 
+def _boundaries(pieces: list[list[Word]]) -> list[tuple[str, str]]:
+    return [(a[-1].word, b[0].word) for a, b in zip(pieces, pieces[1:])]
+
+
+# Sentences from real transcripts whose most balanced boundary cuts a phrase.
+@pytest.mark.parametrize(
+    ("text", "boundary"),
+    [
+        (
+            "But along with this new model comes an entirely new design system "
+            "for the Gemini app called Neural Expressive.",
+            ("system", "for"),
+        ),
+        (
+            "I've often experienced it as an expectation that adds a lot of "
+            "pressure and difficulty surrounding birthdays and holidays",
+            ("pressure", "and"),
+        ),
+        (
+            "There's 7 minutes and 11 seconds from the point where we're "
+            "introduced to the hero of the south to when the episode then moves on",
+            ("introduced", "to"),
+        ),
+        (
+            "The first video I ever uploaded on this channel was focusing on "
+            "Avatar The Last Airbender and specifically how they use fight scenes",
+            ("focusing", "on"),
+        ),
+    ],
+)
+def test_split_long_does_not_cut_a_bound_phrase(
+    text: str, boundary: tuple[str, str]
+) -> None:
+    pieces = seg.split_long(_timed(text), EN)
+
+    assert _boundaries(pieces) == [boundary]
+
+
+def test_split_long_ignores_a_pause_after_a_contraction() -> None:
+    words = _timed(
+        "Something to know about his group is that they've been represented "
+        "so far as being highly capable and dangerous to everyone",
+        pause_after="they've",
+    )
+
+    pieces = seg.split_long(words, EN)
+
+    assert all(piece[-1].word != "they've" for piece in pieces)
+
+
+def test_split_long_moves_off_center_to_start_a_clause() -> None:
+    # The most balanced boundary is "release | night".
+    words = _timed(
+        "we watched it together on release night and the whole chat went quiet"
+    )
+
+    pieces = seg.split_long(words, _subtitle_line())
+
+    assert _boundaries(pieces) == [("night", "and")]
+
+
 def test_split_long_uses_largest_pause_when_no_punctuation() -> None:
     # gap 0.5s > pause_threshold 0.3 splits between the two words
     words = [W("hello", 0, 1.0), W("world", 1.5, 2.5)]

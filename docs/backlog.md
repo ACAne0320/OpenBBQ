@@ -5,21 +5,13 @@
 > 机态 CLI 契约、skill 打包与 `skill install`、glossary 工作流入 skill、
 > over_budget/term_issues/next 反馈面、models pull 断点续传、DESIGN.md 刷新等。
 
-## 待办
-
-- **断句会切开复合名词 / 修饰语**（`core/segment.py` `_best_split`）：
-  英文超过单行宽度（95）必须切开时，兜底按字符数取均衡点，只用
-  `_STRONG_GLUE_LEFT`（冠词、介词、连词、系动词等功能词）避开坏切点，
-  识别不了"形容词/名词 + 名词"。实例（Fireship I/O 2026，2026-10-11
-  pi + deepseek-flash 验证）：`an entirely new design | system for the
-  Gemini app` 被切开，译者只能写成"……全新的设计 | 这套系统名为…"，
-  出现重复；同类还有 `all these stupid | AI images`。
-  思路：兜底时优先在从句/短语边界前切（which / that / because / but /
-  while / where 之前，以及逗号）；仍无合适边界时再退回均衡点。改完用
-  该视频的 transcript 回放对比断句：
-  `seg.build_cues(transcript, seg.LANGUAGE_PROFILES["en"])`。
-
 ## 遗留观察（暂不排期，出现痛点再做）
+
+- **断句仍可能切开无限定词的名词修饰**（`core/segment.py`
+  `_break_penalty`）：词表规则能挡住限定词后、`of` 前、缩写/所有格后、
+  大写专名内部的切点，但识别不了 `all these stupid AI | images` 这种
+  "名词作定语 + 中心词"。往回看更远的限定词试过，误伤比收益多。真要做
+  得引入词性标注；回放语料用 `~/OpenBBQ Workspace/**/transcript.json`。
 
 - **`translate apply` 并发无锁**：两个并发 apply 靠"最后写者赢"，单 agent
   串行使用没问题；如果将来出现多 agent 并发填同一 worksheet 的场景，再加

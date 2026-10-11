@@ -72,6 +72,23 @@ _STRONG_GLUE_LEFT = frozenset(
         "than",
         "through",
         "between",
+        "during",
+        "across",
+        "against",
+        "around",
+        "behind",
+        "toward",
+        "towards",
+        "upon",
+        "despite",
+        "throughout",
+        "within",
+        "among",
+        "beyond",
+        "after",
+        "before",
+        "until",
+        "since",
         "which",
         "who",
         "whose",
@@ -79,14 +96,161 @@ _STRONG_GLUE_LEFT = frozenset(
         "or",
         "nor",
         "but",
+        "so",
+        "because",
+        "if",
+        "although",
+        "though",
+        "unless",
+        "whereas",
+        "while",
+        "when",
+        "where",
+        "how",
+        "why",
+        "what",
         "is",
         "are",
         "was",
         "were",
         "be",
         "been",
+        "can",
+        "could",
+        "will",
+        "would",
+        "should",
+        "might",
+        "must",
+        "may",
+        "not",
+        "very",
+        "as",
+        "i",
+        "he",
+        "she",
+        "we",
+        "they",
     }
 )
+# A line should not start on these: "a lot | of pressure", "the end | of it".
+_STRONG_GLUE_RIGHT = frozenset({"of"})
+# Contractions and possessives bind to the next word ("they've | been",
+# "Stark's | family", "don't | know").
+_CONTRACTION_RE = re.compile(r"['’](?:s|re|ve|m|ll|d|t)$", re.IGNORECASE)
+# Weaker hints that a phrase is still open: quantifiers and noun-leaning
+# adjectives ("the last | episode", "three | different groups"), the word
+# right after a determiner unless a preposition follows ("a fantastic |
+# exclamation point", but "their entirety | by just"), an -ly adverb
+# before its adjective ("incredibly | balanced"), and a number after its noun
+# ("season | 2").
+_WEAK_GLUE_LEFT = frozenset(
+    {
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "few",
+        "several",
+        "many",
+        "some",
+        "all",
+        "most",
+        "both",
+        "other",
+        "another",
+        "such",
+        "same",
+        "first",
+        "second",
+        "third",
+        "last",
+        "next",
+        "new",
+        "own",
+        "whole",
+        "entire",
+        "there",
+    }
+)
+_DETERMINERS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "every",
+        "each",
+        "this",
+        "these",
+        "those",
+        "my",
+        "your",
+        "his",
+        "her",
+        "its",
+        "our",
+        "their",
+    }
+)
+# Starting a line here opens a new clause, the natural place for a viewer to
+# pause: "... a design system | that Google uses everywhere".
+_CLAUSE_STARTERS = frozenset(
+    {
+        "and",
+        "but",
+        "or",
+        "so",
+        "because",
+        "which",
+        "that",
+        "who",
+        "whose",
+        "where",
+        "when",
+        "while",
+        "if",
+        "although",
+        "though",
+        "unless",
+        "whereas",
+        "how",
+        "why",
+        "what",
+    }
+)
+# Starting a line on a preposition opens a phrase, a weaker but still clean
+# place to cut: "an entirely new design system | for the Gemini app".
+_PHRASE_STARTERS = frozenset(
+    {
+        "for",
+        "with",
+        "without",
+        "in",
+        "on",
+        "at",
+        "from",
+        "into",
+        "about",
+        "during",
+        "through",
+        "across",
+        "against",
+        "between",
+        "after",
+        "before",
+    }
+)
+_FIRST_PERSON = frozenset({"i", "i'm", "i've", "i'd", "i'll"})
+_STRONG_GLUE = 2
+_WEAK_GLUE = 1
+_WEAK_GLUE_COST = 0.25
+_CLAUSE_START_CREDIT = 0.25
+_PHRASE_START_CREDIT = 0.15
 
 
 # --- language profiles --------------------------------------------------------
@@ -316,13 +480,62 @@ def _readable_split(words: list[Word], k: int, profile: LanguageProfile) -> bool
     )
 
 
+def _bare(word: str) -> str:
+    return word.strip(".,;:!?\"'“”‘" + _TRAILING_CLOSERS).replace("’", "'")
+
+
 def _break_penalty(words: list[Word], k: int, profile: LanguageProfile) -> int:
-    """Prefer boundaries that do not separate a strong glue word from its head."""
+    """How badly a boundary before ``words[k]`` cuts a phrase (0 = clean).
+
+    ``_STRONG_GLUE`` separates a word from what it binds to: a function word
+    from its head, "of" from its noun, a contraction from its verb, or the
+    halves of a capitalized name. ``_WEAK_GLUE`` marks a phrase that is probably
+    still open.
+    """
 
     if profile.cjk:
         return 0
-    left = words[k - 1].word.casefold().rstrip(".,;:!?" + _TRAILING_CLOSERS)
-    return 1 if left in _STRONG_GLUE_LEFT else 0
+    raw_left = _bare(words[k - 1].word)
+    raw_right = _bare(words[k].word)
+    left, right = raw_left.casefold(), raw_right.casefold()
+    if (
+        left in _STRONG_GLUE_LEFT
+        or right in _STRONG_GLUE_RIGHT
+        or _CONTRACTION_RE.search(left)
+    ):
+        return _STRONG_GLUE
+    if (
+        k >= 2
+        and raw_left[:1].isupper()
+        and raw_right[:1].isupper()
+        and left not in _FIRST_PERSON
+        and right not in _FIRST_PERSON
+    ):
+        return _STRONG_GLUE  # "Avatar The Last | Airbender"
+    if (
+        left in _WEAK_GLUE_LEFT
+        or (len(left) > 4 and left.endswith("ly"))
+        or right[:1].isdigit()
+        or (
+            k >= 2
+            and _bare(words[k - 2].word).casefold() in _DETERMINERS
+            and right not in _PHRASE_STARTERS
+        )
+    ):
+        return _WEAK_GLUE
+    return 0
+
+
+def _start_credit(words: list[Word], k: int, profile: LanguageProfile) -> float:
+    """How much a line starting at ``words[k]`` reads as a fresh unit."""
+    if profile.cjk:
+        return 0.0
+    right = _bare(words[k].word).casefold()
+    if right in _CLAUSE_STARTERS:
+        return _CLAUSE_START_CREDIT
+    if right in _PHRASE_STARTERS:
+        return _PHRASE_START_CREDIT
+    return 0.0
 
 
 def _fits(words: list[Word], profile: LanguageProfile) -> bool:
@@ -399,17 +612,17 @@ def _best_split(words: list[Word], profile: LanguageProfile) -> int:
         if gap > profile.pause_threshold:
             return gap_k
 
-    # Greedy fallback: split at the feasible word boundary nearest the character
+    # Fallback: split at the feasible word boundary nearest the character
     # midpoint, balancing the two pieces rather than cramming the first and
     # stranding a one-word widow (the remainder is then >= ~half, so it never
-    # bottoms out as a tiny tail). A single oversized first word is peeled off so
-    # we always make progress.
+    # bottoms out as a tiny tail). Never cut a phrase when a clean boundary
+    # exists; among boundaries that leave both halves on one line, a soft cut
+    # costs and a clause or phrase start earns part of the text's balance. A
+    # single oversized first word is peeled off so we always make progress.
     over_lines = not wrap_feasible(words, profile)
     over_dur = _duration(words) > profile.max_dur
     total = count_chars(_join(words, profile), profile)
-    best: tuple[int, int, int, int] | None = (
-        None  # (short-side penalty, glue penalty, balance, cand)
-    )
+    best: tuple[int, int, int, float, int] | None = None
     for cand in range(1, n):
         prefix = words[:cand]
         if over_lines and not wrap_feasible(prefix, profile):
@@ -417,15 +630,23 @@ def _best_split(words: list[Word], profile: LanguageProfile) -> int:
         if over_dur and _duration(prefix) > profile.max_dur:
             continue
         chars = count_chars(_join(prefix, profile), profile)
+        penalty = _break_penalty(words, cand, profile)
+        both_fit = _fits(prefix, profile) and _fits(words[cand:], profile)
+        cost = abs(2 * chars - total) / max(total, 1)
+        if penalty == _WEAK_GLUE:
+            cost += _WEAK_GLUE_COST
+        if both_fit:
+            cost -= _start_credit(words, cand, profile)
         key = (
             0 if _readable_split(words, cand, profile) else 1,
-            _break_penalty(words, cand, profile),
-            abs(2 * chars - total),
+            1 if penalty == _STRONG_GLUE else 0,
+            0 if both_fit else 1,
+            cost,
             cand,
         )
         if best is None or key < best:
             best = key
-    return best[3] if best is not None else 1
+    return best[4] if best is not None else 1
 
 
 def split_long(words: list[Word], profile: LanguageProfile) -> list[list[Word]]:
