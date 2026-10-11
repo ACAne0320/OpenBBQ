@@ -977,6 +977,8 @@ def next_action(
             "transcribe with the selected glossary context",
             "transcribe",
             "--gpu",
+            "--vad",
+            "--auto-download",
         )
 
     views, transcript, review, reference_words = _source_views(workspace, manifest)

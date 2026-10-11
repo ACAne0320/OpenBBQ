@@ -33,7 +33,9 @@ Repeat these steps until `done`:
    and run `inside_allowed` in the current environment. Fetch may require the
    host network and auth state. Transcription must use the returned outside-host
    GPU command; keep `--gpu`. Retry with `--cpu` only after that outside GPU
-   command actually fails and `execution.cpu_fallback` permits it. Do not
+   command actually fails and `execution.cpu_fallback` permits it. Keep the
+   returned `--vad` and `--auto-download` flags; the latter prepares the
+   separately cached Silero VAD model when needed. Do not
    otherwise add, remove, or reorder arguments. If the harness returns a live
    process/session ID, preserve it and poll that same session until it returns
    an exit code. While a session ID exists, empty stdout or completion of an

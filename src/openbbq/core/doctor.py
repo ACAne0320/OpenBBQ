@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import skill as skilllib
-from .asr import ASRBackend, all_backends
+from .asr import ASRBackend, VADBackend, all_backends
 
 _HOMEBREW_FFMPEG_FULL = (
     Path("/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"),
@@ -164,7 +164,7 @@ def _asr_backend(backend: ASRBackend) -> list[Check]:
     if not backend.is_available():
         return [Check(backend.name, False, "not installed", backend.install_hint)]
     cached = backend.cached_models()
-    return [
+    checks = [
         Check(backend.name, True, backend.version() or "installed"),
         Check(f"{backend.name} accel", True, backend.accelerator()),
         Check(
@@ -174,6 +174,18 @@ def _asr_backend(backend: ASRBackend) -> list[Check]:
             None if cached else "openbbq models pull large-v3",
         ),
     ]
+    if isinstance(backend, VADBackend):
+        vad_model = backend.default_vad_model()
+        vad_cached = backend.has_vad_model(vad_model)
+        checks.append(
+            Check(
+                f"{backend.name} VAD",
+                vad_cached,
+                f"{vad_model} cached" if vad_cached else f"{vad_model} not cached",
+                None if vad_cached else f"openbbq models pull-vad {vad_model}",
+            )
+        )
+    return checks
 
 
 def _agent_skill_at(target: Path, *, fix: str = "openbbq skill install") -> Check:

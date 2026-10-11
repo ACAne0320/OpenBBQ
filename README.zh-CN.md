@@ -40,6 +40,7 @@ OpenBBQ 确定性地保证结构正确、翻译批次有界、产物新鲜和只
 - [ffmpeg](https://www.ffmpeg.org/)，用于下载视频、合并音视频、抽取音频和视频烧录；如果有烧录字幕的需求，FFmpeg 还需要 `libass` 支持
 - 一个 ASR 后端，目前仅支持 [whisper.cpp](https://github.com/absadiki/pywhispercpp) (Python Binding)
 - 一个 ASR 模型，模型不随安装包一起下载，安装后用 `openbbq models list` 查看可用档位，再显式执行 `openbbq models pull ...`。
+- 一个用于在转录前检测人声区间的 Silero VAD 模型，执行 `openbbq models pull-vad silero-v6.2.0` 下载。
 - 如果需要下载的视频平台要求登录、人机验证或浏览器挑战，需要本机桌面浏览器；
 
 ## 安装
@@ -57,6 +58,7 @@ uv tool install 'openbbq[whispercpp]'
 openbbq doctor
 openbbq models list
 openbbq models pull large-v3-turbo
+openbbq models pull-vad silero-v6.2.0
 openbbq doctor
 ```
 

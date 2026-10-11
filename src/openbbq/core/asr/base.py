@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from openbbq.schemas import Segment
 
@@ -13,6 +13,7 @@ class Capability(StrEnum):
     WORD_TIMESTAMPS = "word_timestamps"
     PROGRESS = "progress"
     BIASING = "biasing"  # context biasing toward known terms (whisper: initial_prompt)
+    VAD = "vad"
     DIARIZATION = "diarization"
     ALIGNMENT = "alignment"
 
@@ -66,3 +67,16 @@ class ASRBackend(Protocol):
         bias: Sequence[str] | None = None,  # term biasing (Capability.BIASING), native per backend
         **opts: object,  # backend-specific knobs (e.g. whisper's raw initial_prompt)
     ) -> TranscriptResult: ...
+
+
+@runtime_checkable
+class VADBackend(Protocol):
+    """Optional model-management surface for ASR backends with native VAD."""
+
+    def available_vad_models(self) -> list[ModelInfo]: ...
+    def default_vad_model(self) -> str: ...
+    def has_vad_model(self, name: str) -> bool: ...
+    def resolve_vad_model(self, name: str) -> Path: ...
+    def pull_vad_model(
+        self, name: str, on_progress: Callable[[int, int], None] | None = None
+    ) -> Path: ...

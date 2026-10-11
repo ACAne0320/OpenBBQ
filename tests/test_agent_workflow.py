@@ -459,6 +459,8 @@ def test_fetch_and_transcribe_commands_declare_host_execution_policy(
     transcribe = _next(path)
 
     assert "--gpu" in transcribe["argv"]
+    assert "--vad" in transcribe["argv"]
+    assert "--auto-download" in transcribe["argv"]
     assert transcribe["execution"] == {
         "sandbox": "outside_required",
         "accelerator": "gpu",

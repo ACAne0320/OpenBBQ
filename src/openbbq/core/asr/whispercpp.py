@@ -14,14 +14,24 @@ from openbbq.errors import OpenBBQError
 from openbbq.schemas import Segment, Word
 
 from .base import Capability, ModelInfo, TranscriptResult
+from . import whispercpp_vad
 
 PROVIDER = "whisper.cpp"
+VAD_PROVIDER = "whisper.cpp-vad"
+DEFAULT_VAD_MODEL = "silero-v6.2.0"
+VAD_MODEL_SIZE_MB = 885_098 / 1024 / 1024
 
 DEFAULT_OPTS: dict[str, object] = {
     "token_timestamps": True,
     "split_on_word": True,
     "max_len": 0,
 }
+
+# A weak phrase can sit immediately before the next Silero region.  Search a
+# small amount backwards only after a genuinely long gap; doing this across
+# short effect gaps is what caused the opening words to be timestamped early.
+VAD_RECALL_LOOKBACK_S = 1.5
+VAD_RECALL_MIN_GAP_S = 3.0
 
 # whisper.cpp ggml catalog (HF `ggerganov/whisper.cpp`, resolve/main/ggml-<name>.bin),
 # sizes captured 2026-06-29; names mirror pywhispercpp.constants.AVAILABLE_MODELS.
@@ -68,7 +78,12 @@ _QUALITY_ORDER = ["large-v3", "large-v2", "large-v1", "medium", "small", "base",
 class WhisperCppBackend:
     name = PROVIDER
     install_hint = "pip install 'openbbq[whispercpp]'"
-    capabilities = {Capability.WORD_TIMESTAMPS, Capability.PROGRESS, Capability.BIASING}
+    capabilities = {
+        Capability.WORD_TIMESTAMPS,
+        Capability.PROGRESS,
+        Capability.BIASING,
+        Capability.VAD,
+    }
 
     # --- availability / environment -------------------------------------------
     def is_available(self) -> bool:
@@ -118,6 +133,49 @@ class WhisperCppBackend:
     def has_model(self, name: str) -> bool:
         return _ggml_path(name).is_file()
 
+    def available_vad_models(self) -> list[ModelInfo]:
+        return [ModelInfo(DEFAULT_VAD_MODEL, VAD_PROVIDER, VAD_MODEL_SIZE_MB)]
+
+    def default_vad_model(self) -> str:
+        return DEFAULT_VAD_MODEL
+
+    def has_vad_model(self, name: str) -> bool:
+        return _vad_path(name).is_file()
+
+    def resolve_vad_model(self, name: str) -> Path:
+        return _vad_path(name)
+
+    def pull_vad_model(
+        self, name: str, on_progress: Callable[[int, int], None] | None = None
+    ) -> Path:
+        info = _vad_info(name)
+        if info is None:
+            raise OpenBBQError(
+                "vad_model_missing",
+                model=name,
+                fix=f"openbbq models pull-vad {DEFAULT_VAD_MODEL}",
+            )
+        path = _vad_path(name)
+        if path.exists():
+            return path
+        endpoint = os.environ.get("HF_ENDPOINT", "https://huggingface.co").rstrip("/")
+        url = f"{endpoint}/ggml-org/whisper-vad/resolve/main/ggml-{name}.bin"
+        try:
+            models.download(url, path, on_progress, expected_size_mb=info.size_mb)
+        except models.DownloadSizeMismatch as e:
+            raise OpenBBQError(
+                "model_size_mismatch",
+                model=name,
+                expected_mb=round(e.expected_size_mb, 1),
+                actual_mb=round(e.actual_bytes / 1024 / 1024, 1),
+                fix=f"retry download: openbbq models pull-vad {name}",
+            ) from e
+        except OSError as e:
+            raise OpenBBQError(
+                "vad_model_download_failed", model=name, detail=str(e)
+            ) from e
+        return path
+
     def pull(
         self, name: str, on_progress: Callable[[int, int], None] | None = None
     ) -> Path:
@@ -159,10 +217,25 @@ class WhisperCppBackend:
             raise OpenBBQError(
                 "model_missing", model=model, fix=f"openbbq models pull {model}"
             )
-        Model, native = _pywhispercpp()
-        total = max(1, int(media.wav_duration(audio)))
+        duration = media.wav_duration(audio)
+        total = max(1, int(duration))
         raw_prompt = opts.pop("initial_prompt", None)
         use_gpu = opts.pop("use_gpu", None)
+        vad = opts.pop("vad", False)
+        vad_model = opts.pop("vad_model", None)
+        opts.pop("vad_model_path", None)
+        vad_path: Path | None = None
+        if bool(vad):
+            selected_vad_model = (
+                str(vad_model) if vad_model is not None else self.default_vad_model()
+            )
+            vad_path = self.resolve_vad_model(selected_vad_model)
+            if not vad_path.is_file():
+                raise OpenBBQError(
+                    "vad_model_missing",
+                    model=selected_vad_model,
+                    fix=f"openbbq models pull-vad {selected_vad_model}",
+                )
         prompt = _initial_prompt(bias, raw_prompt if isinstance(raw_prompt, str) else None)
         model_kwargs: dict[str, object] = {
             "print_progress": False,
@@ -171,6 +244,17 @@ class WhisperCppBackend:
         if isinstance(use_gpu, bool):
             model_kwargs["context_params"] = {"use_gpu": use_gpu}
         try:
+            regions: list[whispercpp_vad.SpeechRegion] = []
+            if vad_path is not None:
+                # Some bundled libwhisper builds crash when CPU VAD and Metal/CUDA
+                # ASR contexts share a process, so native detection is isolated.
+                regions = whispercpp_vad.coalesce_regions(
+                    whispercpp_vad.detect_speech_file(audio, vad_path),
+                    duration=duration,
+                )
+            # Importing the native ASR module before spawning VAD makes Metal
+            # initialization crash on macOS; load it only after VAD exits.
+            Model, native = _pywhispercpp()
             model_obj = Model(str(path), **model_kwargs)
             lang = _language(model_obj, audio, language)
             call_kw = {
@@ -181,9 +265,24 @@ class WhisperCppBackend:
             }
             if prompt is not None:
                 call_kw["initial_prompt"] = prompt
-            raw = model_obj.transcribe(str(audio), **call_kw)
-            words = _words_from_context(model_obj._ctx, native)
-            return TranscriptResult(segments=_to_segments(raw, words), language=lang)
+            if vad_path is None:
+                raw = model_obj.transcribe(str(audio), **call_kw)
+                words = _words_from_context(model_obj._ctx, native)
+                segments = _to_segments(raw, words)
+            else:
+                samples = model_obj._load_audio(str(audio))
+                segments = _transcribe_regions(
+                    model_obj,
+                    native,
+                    samples,
+                    regions,
+                    total,
+                    call_kw,
+                    on_progress,
+                )
+            return TranscriptResult(segments=segments, language=lang)
+        except OpenBBQError:
+            raise
         except Exception as e:
             raise OpenBBQError("transcribe_failed", detail=str(e)) from e
 
@@ -202,8 +301,32 @@ def _ggml_path(name: str) -> Path:
     return models.cache_dir(PROVIDER) / filename
 
 
+def _vad_path(name: str) -> Path:
+    """Resolve a VAD model without mixing it into the ASR model catalog/cache."""
+    path = Path(name).expanduser()
+    if path.is_file() or path.parent != Path("."):
+        return path.resolve()
+    filename = (
+        name
+        if name.startswith("ggml-") and name.endswith(".bin")
+        else f"ggml-{name}.bin"
+    )
+    return models.cache_dir(VAD_PROVIDER) / filename
+
+
 def _info(name: str) -> ModelInfo | None:
     return next((m for m in _CATALOG if m.name == name), None)
+
+
+def _vad_info(name: str) -> ModelInfo | None:
+    return next(
+        (
+            model
+            for model in WhisperCppBackend().available_vad_models()
+            if model.name == name
+        ),
+        None,
+    )
 
 
 def _quality_key(name: str) -> tuple[int, int, str]:
@@ -274,15 +397,95 @@ def _language(model_obj: Any, audio: Path, language: str | None) -> str:
 
 
 def _progress_callback(
-    on_progress: Callable[[int, int], None] | None, total: int
+    on_progress: Callable[[int, int], None] | None,
+    total: int,
+    offset: float = 0.0,
 ) -> Callable[[Any], None] | None:
     if on_progress is None:
         return None
 
     def cb(segment: Any) -> None:
-        on_progress(int(_seconds(segment.t1)), total)
+        on_progress(min(total, int(offset + _seconds(segment.t1))), total)
 
     return cb
+
+
+def _transcribe_regions(
+    model_obj: Any,
+    native: Any,
+    samples: Any,
+    regions: Sequence[whispercpp_vad.SpeechRegion],
+    total: int,
+    call_kw: dict[str, object],
+    on_progress: Callable[[int, int], None] | None,
+) -> list[Segment]:
+    segments: list[Segment] = []
+    for index, region in enumerate(regions):
+        previous = regions[index - 1] if index else None
+        chunk_start = _vad_chunk_start(region, previous)
+        start_sample = max(0, round(chunk_start * whispercpp_vad.SAMPLE_RATE))
+        end_sample = min(len(samples), round(region.end * whispercpp_vad.SAMPLE_RATE))
+        if end_sample <= start_sample:
+            continue
+        chunk_kw = {
+            **call_kw,
+            "new_segment_callback": _progress_callback(
+                on_progress, total, offset=chunk_start
+            ),
+        }
+        raw = model_obj.transcribe(samples[start_sample:end_sample], **chunk_kw)
+        words = _words_from_context(model_obj._ctx, native)
+        local = _to_segments(raw, words)
+        segments.extend(
+            _offset_segments(
+                local, offset=chunk_start, limit=region.end, start_id=len(segments)
+            )
+        )
+    if on_progress is not None:
+        on_progress(total, total)
+    return segments
+
+
+def _vad_chunk_start(
+    region: whispercpp_vad.SpeechRegion,
+    previous: whispercpp_vad.SpeechRegion | None,
+) -> float:
+    if previous is None or region.start - previous.end < VAD_RECALL_MIN_GAP_S:
+        return region.start
+    return max(previous.end, region.start - VAD_RECALL_LOOKBACK_S)
+
+
+def _offset_segments(
+    segments: Sequence[Segment],
+    *,
+    offset: float,
+    limit: float,
+    start_id: int,
+) -> list[Segment]:
+    result: list[Segment] = []
+    for segment in segments:
+        start = min(limit, max(offset, offset + segment.start))
+        end = min(limit, max(start, offset + segment.end))
+        words = [
+            Word(
+                word=word.word,
+                start=min(end, max(start, offset + word.start)),
+                end=min(end, max(start, offset + word.end)),
+                prob=word.prob,
+            )
+            for word in segment.words or []
+        ]
+        result.append(
+            Segment(
+                id=start_id + len(result),
+                start=start,
+                end=end,
+                text=segment.text,
+                words=words or None,
+                speaker=segment.speaker,
+            )
+        )
+    return result
 
 
 def _to_segments(raw: list[Any], words: list[list[Word]]) -> list[Segment]:

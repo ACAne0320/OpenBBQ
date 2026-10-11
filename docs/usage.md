@@ -128,6 +128,7 @@ Runtime setup:
 openbbq doctor
 openbbq models list
 openbbq models pull large-v3-turbo
+openbbq models pull-vad silero-v6.2.0
 ```
 
 Subtitle burning requires FFmpeg with the `ass` and `subtitles` filters.
@@ -140,7 +141,7 @@ Quote URLs in shells such as zsh. The equivalent atomic YouTube flow is:
 openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
 openbbq fetch --workspace workspaces/demo --max-height 1080
 openbbq extract-audio --workspace workspaces/demo
-openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu --vad
 openbbq segment --workspace workspaces/demo
 ```
 
@@ -149,7 +150,7 @@ For a local file, skip `fetch`:
 ```bash
 openbbq init --workspace workspaces/demo /path/to/video.mp4
 openbbq extract-audio --workspace workspaces/demo
-openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu --vad
 openbbq segment --workspace workspaces/demo
 ```
 
@@ -170,8 +171,15 @@ run outside a restricted sandbox. Use CPU only after the outside-sandbox GPU
 attempt actually fails:
 
 ```bash
-openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --cpu
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --cpu --vad
 ```
+
+VAD is enabled by default and uses the separately cached Silero model to detect
+speech regions. OpenBBQ transcribes slices from the original audio and adds each
+slice's absolute offset back to segment and word timestamps; it does not expose
+whisper.cpp's compressed VAD timeline. Use `--no-vad` only for compatibility,
+diagnosis, or when quiet speech is being clipped. A VAD load failure is an error;
+OpenBBQ does not silently continue without it.
 
 ## Glossaries
 

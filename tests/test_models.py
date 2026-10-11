@@ -10,7 +10,12 @@ import typer
 from openbbq.cli.commands import models as modelcmd
 from openbbq.cli.output import Output
 from openbbq.core import models
-from openbbq.core.asr.whispercpp import PROVIDER, WhisperCppBackend
+from openbbq.core.asr.whispercpp import (
+    DEFAULT_VAD_MODEL,
+    PROVIDER,
+    VAD_PROVIDER,
+    WhisperCppBackend,
+)
 from openbbq.errors import OpenBBQError
 
 B = WhisperCppBackend()
@@ -93,6 +98,31 @@ def test_default_model_is_none_when_empty(tmp_path, monkeypatch) -> None:
     assert B.default_model() is None
 
 
+def test_default_vad_model_uses_separate_cache(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path))
+    vad_path = models.cache_dir(VAD_PROVIDER) / f"ggml-{DEFAULT_VAD_MODEL}.bin"
+    vad_path.parent.mkdir(parents=True)
+    vad_path.write_bytes(b"vad")
+
+    assert B.default_vad_model() == DEFAULT_VAD_MODEL
+    assert B.has_vad_model(DEFAULT_VAD_MODEL) is True
+    assert B.resolve_vad_model(DEFAULT_VAD_MODEL) == vad_path
+    assert B.default_model() is None
+
+
+def test_models_list_includes_separate_vad_catalog(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path))
+
+    report = next(
+        model
+        for model in modelcmd.ModelsResult.of().models
+        if model.name == DEFAULT_VAD_MODEL
+    )
+
+    assert report.provider == VAD_PROVIDER
+    assert report.cached is False
+
+
 def test_catalog_entries_have_provider_and_size() -> None:
     catalog = B.available_models()
     assert catalog
@@ -110,6 +140,36 @@ def test_pull_returns_cached_path_without_download(tmp_path, monkeypatch) -> Non
     _cache(tmp_path, monkeypatch, "base")
     path = B.pull("base")
     assert path.is_file() and path.name == "ggml-base.bin"
+
+
+def test_pull_vad_model_uses_separate_official_repository(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OPENBBQ_HOME", str(tmp_path))
+    monkeypatch.setenv("HF_ENDPOINT", "https://hf.example.test/")
+    seen: dict[str, object] = {}
+
+    def fake_download(url, dst, on_progress=None, *, expected_size_mb=None) -> None:
+        seen.update(
+            url=url,
+            dst=dst,
+            on_progress=on_progress,
+            expected_size_mb=expected_size_mb,
+        )
+        dst.parent.mkdir(parents=True)
+        dst.write_bytes(b"vad")
+
+    monkeypatch.setattr(models, "download", fake_download)
+
+    path = B.pull_vad_model(DEFAULT_VAD_MODEL)
+
+    assert seen["url"] == (
+        "https://hf.example.test/ggml-org/whisper-vad/resolve/main/"
+        "ggml-silero-v6.2.0.bin"
+    )
+    assert path == models.cache_dir(VAD_PROVIDER) / "ggml-silero-v6.2.0.bin"
+    assert seen["dst"] == path
+    assert seen["expected_size_mb"] == pytest.approx(885_098 / 1024 / 1024)
 
 
 def test_has_model_accepts_direct_path(tmp_path, monkeypatch) -> None:
@@ -224,3 +284,20 @@ def test_machine_pull_reports_progress_on_stderr(tmp_path, monkeypatch, capsys) 
     assert json.loads(lines[0])["model"] == "base"
     assert "openbbq: pulling model base" in captured.err
     assert "openbbq: downloaded" in captured.err
+
+
+def test_machine_pull_vad_reports_model_and_path(tmp_path, monkeypatch, capsys) -> None:
+    class FakeBackend:
+        def pull_vad_model(self, name: str, on_progress=None):
+            path = tmp_path / f"ggml-{name}.bin"
+            path.write_bytes(b"vad")
+            return path
+
+    monkeypatch.setattr(modelcmd, "_vad_backend_for", lambda name: FakeBackend())
+
+    ctx = cast(typer.Context, SimpleNamespace(obj=Output(json_mode=True)))
+    modelcmd.pull_vad_model(ctx, DEFAULT_VAD_MODEL)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["model"] == DEFAULT_VAD_MODEL
+    assert payload["path"].endswith("ggml-silero-v6.2.0.bin")

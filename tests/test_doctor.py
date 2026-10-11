@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 from openbbq import __version__
 from openbbq.cli.commands.doctor import DoctorResult
 from openbbq.core import doctor
 from openbbq.core import skill as skilllib
+from openbbq.core.asr import ASRBackend, ModelInfo
 
 
 def test_ffmpeg_missing_hint_uses_platform_package_manager(monkeypatch) -> None:
@@ -155,3 +157,43 @@ def test_doctor_result_exposes_runtime_version_and_executable() -> None:
 
     assert result.version == __version__
     assert result.executable
+
+
+def test_asr_backend_reports_missing_default_vad_model() -> None:
+    class Backend:
+        name = "test-asr"
+        install_hint = "install test-asr"
+
+        def is_available(self) -> bool:
+            return True
+
+        def cached_models(self) -> list[str]:
+            return ["base"]
+
+        def version(self) -> str:
+            return "1.0"
+
+        def accelerator(self) -> str:
+            return "CPU"
+
+        def available_vad_models(self) -> list[ModelInfo]:
+            return [ModelInfo("silero-v6.2.0", "test-vad", 1.0)]
+
+        def default_vad_model(self) -> str:
+            return "silero-v6.2.0"
+
+        def has_vad_model(self, name: str) -> bool:
+            return False
+
+        def resolve_vad_model(self, name: str) -> Path:
+            return Path("/missing")
+
+        def pull_vad_model(self, name: str, on_progress=None) -> Path:
+            raise AssertionError("doctor must be read-only")
+
+    checks = doctor._asr_backend(cast(ASRBackend, Backend()))
+
+    vad = next(check for check in checks if check.name == "test-asr VAD")
+    assert vad.ok is False
+    assert vad.detail == "silero-v6.2.0 not cached"
+    assert vad.fix == "openbbq models pull-vad silero-v6.2.0"

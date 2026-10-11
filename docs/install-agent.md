@@ -80,6 +80,7 @@ Use the output to decide what is missing:
 - If FFmpeg is missing, install an FFmpeg build with `libass`. Hard-subtitle burning needs the `ass` and `subtitles` filters.
 - If the ASR backend is missing, install `pywhispercpp` by default. macOS wheels usually include Metal support. NVIDIA / Vulkan routes may need local toolkits and source builds.
 - If the model is missing, ask the user to confirm the model size, then run `openbbq models pull <model>`.
+- If the VAD model is missing, run `openbbq models pull-vad silero-v6.2.0`. It is stored separately from ASR models.
 - If YouTube requires login or human verification, run `openbbq auth browser-login youtube`.
 - Browser auth and authenticated `fetch` need a writable `OPENBBQ_HOME`
   (default: `~/.openbbq`). In a restricted sandbox, run them in a normal user
@@ -105,15 +106,19 @@ Production subtitles:
 
 ```bash
 openbbq models pull large-v3-turbo
+openbbq models pull-vad silero-v6.2.0
 ```
 
 If the user has trouble reaching Hugging Face, ask before using a mirror:
 
 ```bash
 HF_ENDPOINT=https://hf-mirror.com openbbq models pull large-v3-turbo
+HF_ENDPOINT=https://hf-mirror.com openbbq models pull-vad silero-v6.2.0
 ```
 
-Models are stored in OpenBBQ's global cache and reused across workspaces. They are not written into the video project directory.
+Models are stored in OpenBBQ's global cache and reused across workspaces. VAD
+models use a separate `whisper.cpp-vad` cache so they cannot be selected as ASR
+models. Models are not written into the video project directory.
 
 GPU transcription must run outside the restricted sandbox. If that host/GPU
 attempt genuinely fails and the reported execution policy permits fallback,

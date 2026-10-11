@@ -47,6 +47,7 @@ editable bilingual subtitles and burned output.
 - [ffmpeg](https://www.ffmpeg.org/), used for video download, audio/video merging, audio extraction, and video burning; subtitle burning also needs FFmpeg with `libass` support
 - An ASR backend. OpenBBQ currently supports [whisper.cpp](https://github.com/absadiki/pywhispercpp) through its Python binding
 - An ASR model. Models are not downloaded with the package. After installation, run `openbbq models list`, then explicitly run `openbbq models pull ...`
+- The Silero VAD model used to detect speech regions before transcription. Download it with `openbbq models pull-vad silero-v6.2.0`
 - A local desktop browser if the video platform requires login, human verification, or a browser challenge
 
 ## Install
@@ -64,6 +65,7 @@ uv tool install 'openbbq[whispercpp]'
 openbbq doctor
 openbbq models list
 openbbq models pull large-v3-turbo
+openbbq models pull-vad silero-v6.2.0
 openbbq doctor
 ```
 

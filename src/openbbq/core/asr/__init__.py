@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from openbbq.errors import OpenBBQError
 
-from .base import ASRBackend, Capability, ModelInfo, TranscriptResult
+from .base import ASRBackend, Capability, ModelInfo, TranscriptResult, VADBackend
 from .whispercpp import WhisperCppBackend
 
 __all__ = [
@@ -10,6 +10,7 @@ __all__ = [
     "Capability",
     "ModelInfo",
     "TranscriptResult",
+    "VADBackend",
     "get_backend",
     "all_backends",
 ]

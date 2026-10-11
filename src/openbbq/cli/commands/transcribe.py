@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 from rich.progress import (
@@ -16,7 +16,7 @@ from ...core import glossary as glossarylib
 from ...core import glossary_overlay
 from ...core import media
 from ...core import workspace as ws
-from ...core.asr import Capability, get_backend
+from ...core.asr import Capability, VADBackend, get_backend
 from ...errors import OpenBBQError
 from ...schemas import ASRInfo, Progress, Stage, StageState, StageStatus, Transcript
 from ..output import Output
@@ -41,12 +41,16 @@ class TranscribeResult(Result):
     model: str
     duration_s: float
     elapsed_s: float
+    vad: bool
+    vad_model: str | None = None
 
     def render(self) -> str:
+        vad = f"{self.vad_model}" if self.vad else "off"
         return (
             f"[green]✓[/] transcribed: {self.artifact}\n"
             f"  {self.segments} segments · {self.language} · {self.backend} {self.model}\n"
-            f"  length: {_clock(self.duration_s)}   elapsed: {self.elapsed_s:.1f}s"
+            f"  length: {_clock(self.duration_s)}   elapsed: {self.elapsed_s:.1f}s\n"
+            f"  VAD: {vad}"
         )
 
 
@@ -82,8 +86,18 @@ def transcribe(
     ] = True,
     auto_download: Annotated[
         bool,
-        typer.Option("--auto-download", help="download a missing named model first"),
+        typer.Option(
+            "--auto-download", help="download missing named ASR/VAD models first"
+        ),
     ] = False,
+    vad: Annotated[
+        bool,
+        typer.Option("--vad/--no-vad", help="detect speech regions with a VAD model"),
+    ] = True,
+    vad_model: Annotated[
+        str | None,
+        typer.Option("--vad-model", help="cached VAD model name or direct .bin path"),
+    ] = None,
 ) -> None:
     """Transcribe normalized audio to transcript.json."""
     output: Output = ctx.obj
@@ -106,6 +120,21 @@ def transcribe(
         )
     if not asr.is_available():
         raise OpenBBQError("missing_dependency", dep=asr.name, fix=asr.install_hint)
+
+    selected_vad_model: str | None = None
+    if vad:
+        if Capability.VAD not in asr.capabilities:
+            raise OpenBBQError("vad_unsupported", backend=asr.name, fix="use --no-vad")
+        vad_backend = cast(VADBackend, asr)
+        selected_vad_model = vad_model or vad_backend.default_vad_model()
+        if auto_download and not vad_backend.has_vad_model(selected_vad_model):
+            vad_backend.pull_vad_model(selected_vad_model)
+        if not vad_backend.has_vad_model(selected_vad_model):
+            raise OpenBBQError(
+                "vad_model_missing",
+                model=selected_vad_model,
+                fix=f"openbbq models pull-vad {selected_vad_model}",
+            )
 
     # Glossary biasing: canonical term sources go in as `bias` (backend-agnostic);
     # the prose `context` rides the initial_prompt alongside any explicit --prompt.
@@ -164,6 +193,8 @@ def transcribe(
                 bias=bias,
                 initial_prompt=prompt_text,
                 use_gpu=use_gpu,
+                vad=vad,
+                vad_model=selected_vad_model,
                 on_progress=heartbeat,
             )
         else:
@@ -186,6 +217,8 @@ def transcribe(
                     bias=bias,
                     initial_prompt=prompt_text,
                     use_gpu=use_gpu,
+                    vad=vad,
+                    vad_model=selected_vad_model,
                     on_progress=cb,
                 )
         transcript = Transcript(
@@ -234,6 +267,8 @@ def transcribe(
             model=name,
             duration_s=duration,
             elapsed_s=round(time.monotonic() - started, 2),
+            vad=vad,
+            vad_model=selected_vad_model,
             next="openbbq segment",
         )
     )

@@ -109,6 +109,7 @@ uv run pytest
 openbbq doctor
 openbbq models list
 openbbq models pull large-v3-turbo
+openbbq models pull-vad silero-v6.2.0
 ```
 
 烧录字幕需要 FFmpeg 提供 `ass` 和 `subtitles` filter。
@@ -121,7 +122,7 @@ zsh 等 shell 中应给 URL 加引号。等价的 YouTube 原子流程是：
 openbbq init --workspace workspaces/demo 'https://www.youtube.com/watch?v=...'
 openbbq fetch --workspace workspaces/demo --max-height 1080
 openbbq extract-audio --workspace workspaces/demo
-openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu --vad
 openbbq segment --workspace workspaces/demo
 ```
 
@@ -130,7 +131,7 @@ openbbq segment --workspace workspaces/demo
 ```bash
 openbbq init --workspace workspaces/demo /path/to/video.mp4
 openbbq extract-audio --workspace workspaces/demo
-openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --gpu --vad
 openbbq segment --workspace workspaces/demo
 ```
 
@@ -149,8 +150,13 @@ openbbq fetch --workspace workspaces/demo --max-height 1080
 只有 sandbox 外 GPU 确实失败后，才改用 CPU：
 
 ```bash
-openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --cpu
+openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language en --cpu --vad
 ```
+
+VAD 默认开启，使用独立缓存的 Silero 模型检测人声区间。OpenBBQ 会从原始音频切出
+这些区间进行转录，再把每个分块的绝对偏移加回 segment 和 word 时间；不会暴露
+whisper.cpp 压缩后的 VAD 时间轴。只有兼容、排错或轻声对白被裁掉时才使用
+`--no-vad`。VAD 加载失败会直接报错，OpenBBQ 不会静默关闭 VAD 后继续转录。
 
 ## Glossary
 

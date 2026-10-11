@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -72,6 +73,115 @@ def test_transcribe_model_missing_does_not_touch_stage(tmp_path, monkeypatch) ->
     assert ws.read_manifest(path).stages == manifest.stages
 
 
+def test_transcribe_vad_model_missing_does_not_touch_stage(
+    tmp_path, monkeypatch
+) -> None:
+    path, manifest = _workspace(tmp_path)
+    audio = path / "media" / "audio.16k.wav"
+    audio.parent.mkdir()
+    audio.write_bytes(b"not needed for this preflight")
+    manifest.stages[Stage.EXTRACT_AUDIO] = StageState(
+        status=StageStatus.DONE,
+        artifact="media/audio.16k.wav",
+        updated_at=datetime.now(timezone.utc),
+    )
+    ws.write_manifest(path, manifest)
+
+    class MissingVadBackend:
+        name = "test-asr"
+        install_hint = "install test-asr"
+        capabilities = {transcribecmd.Capability.VAD}
+
+        def default_model(self) -> str:
+            return "fake-model"
+
+        def has_model(self, name: str) -> bool:
+            return True
+
+        def is_available(self) -> bool:
+            return True
+
+        def default_vad_model(self) -> str:
+            return "silero-v6.2.0"
+
+        def has_vad_model(self, name: str) -> bool:
+            return False
+
+    monkeypatch.setattr(
+        transcribecmd, "get_backend", lambda backend: MissingVadBackend()
+    )
+
+    with pytest.raises(OpenBBQError) as raised:
+        transcribe(_ctx(), workspace=str(path), model="fake-model", vad=True)
+
+    assert raised.value.code == "vad_model_missing"
+    assert ws.read_manifest(path).stages == manifest.stages
+
+
+def test_transcribe_auto_downloads_vad_and_reports_configuration(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    path, manifest = _workspace(tmp_path)
+    audio = path / "media" / "audio.16k.wav"
+    audio.parent.mkdir()
+    audio.write_bytes(b"audio")
+    manifest.stages[Stage.EXTRACT_AUDIO] = StageState(
+        status=StageStatus.DONE,
+        artifact="media/audio.16k.wav",
+        updated_at=datetime.now(timezone.utc),
+    )
+    ws.write_manifest(path, manifest)
+    seen: dict[str, object] = {"vad_cached": False}
+
+    class VadBackend:
+        name = "test-asr"
+        install_hint = "install test-asr"
+        capabilities = {transcribecmd.Capability.VAD}
+
+        def default_model(self) -> str:
+            return "fake-model"
+
+        def has_model(self, name: str) -> bool:
+            return True
+
+        def is_available(self) -> bool:
+            return True
+
+        def default_vad_model(self) -> str:
+            return "silero-v6.2.0"
+
+        def has_vad_model(self, name: str) -> bool:
+            return bool(seen["vad_cached"])
+
+        def pull_vad_model(self, name: str, on_progress=None) -> Path:
+            seen["pulled"] = name
+            seen["vad_cached"] = True
+            return tmp_path / "ggml-silero-v6.2.0.bin"
+
+        def transcribe(self, *args, **kwargs):
+            seen["transcribe_kwargs"] = kwargs
+            return SimpleNamespace(language="en", segments=[])
+
+    monkeypatch.setattr(transcribecmd, "get_backend", lambda backend: VadBackend())
+    monkeypatch.setattr(transcribecmd.media, "wav_duration", lambda path: 2.0)
+
+    transcribe(
+        _ctx(),
+        workspace=str(path),
+        model="fake-model",
+        vad=True,
+        auto_download=True,
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert seen["pulled"] == "silero-v6.2.0"
+    kwargs = cast(dict[str, object], seen["transcribe_kwargs"])
+    assert kwargs["vad"] is True
+    assert kwargs["vad_model"] == "silero-v6.2.0"
+    assert payload["vad"] is True
+    assert payload["vad_model"] == "silero-v6.2.0"
+
+
 def test_transcribe_keyboard_interrupt_records_failed(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -109,7 +219,7 @@ def test_transcribe_keyboard_interrupt_records_failed(
     monkeypatch.setattr(transcribecmd.media, "wav_duration", lambda path: 2.0)
 
     with pytest.raises(KeyboardInterrupt):
-        transcribe(_ctx(), workspace=str(path), model="fake-model")
+        transcribe(_ctx(), workspace=str(path), model="fake-model", vad=False)
 
     failed = ws.read_manifest(path).stages[Stage.TRANSCRIBE]
     assert failed.status is StageStatus.FAILED

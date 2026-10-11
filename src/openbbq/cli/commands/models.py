@@ -15,7 +15,7 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from ...core.asr import ASRBackend, all_backends
+from ...core.asr import ASRBackend, VADBackend, all_backends
 from ...errors import OpenBBQError
 from ...schemas import OpenBBQModel
 from ..output import Output
@@ -55,18 +55,28 @@ class ModelsResult(Result):
 
     @classmethod
     def of(cls) -> ModelsResult:
-        return cls(
-            models=[
+        reports: list[ModelReport] = []
+        for backend in all_backends():
+            reports.extend(
                 ModelReport(
                     name=m.name,
                     provider=m.provider,
                     size_mb=m.size_mb,
                     cached=backend.has_model(m.name),
                 )
-                for backend in all_backends()
                 for m in backend.available_models()
-            ]
-        )
+            )
+            if isinstance(backend, VADBackend):
+                reports.extend(
+                    ModelReport(
+                        name=m.name,
+                        provider=m.provider,
+                        size_mb=m.size_mb,
+                        cached=backend.has_vad_model(m.name),
+                    )
+                    for m in backend.available_vad_models()
+                )
+        return cls(models=reports)
 
     def render(self) -> RenderableType:
         table = Table(show_header=True, header_style="bold", box=None)
@@ -96,7 +106,7 @@ class ModelPullResult(Result):
 
 @app.command(name="list")
 def list_models(ctx: typer.Context) -> None:
-    """List ASR models with provider, size, and cache state."""
+    """List ASR and VAD models with provider, size, and cache state."""
     output: Output = ctx.obj
     output.emit(ModelsResult.of())
 
@@ -107,6 +117,17 @@ def _backend_for(name: str) -> ASRBackend:
         if any(m.name == name for m in backend.available_models()):
             return backend
     raise OpenBBQError("model_missing", model=name, fix="openbbq models list")
+
+
+def _vad_backend_for(name: str) -> VADBackend:
+    for backend in all_backends():
+        if isinstance(backend, VADBackend) and any(
+            model.name == name for model in backend.available_vad_models()
+        ):
+            return backend
+    raise OpenBBQError(
+        "vad_model_missing", model=name, fix="openbbq models pull-vad --help"
+    )
 
 
 @app.command(name="pull")
@@ -148,6 +169,57 @@ def pull_model(
                 progress.update(task, completed=done, total=total or None)
 
             path = backend.pull(name, on_progress=cb)
+    output.emit(
+        ModelPullResult(
+            model=name,
+            path=str(path),
+            size_mb=round(path.stat().st_size / 1024 / 1024, 1),
+            elapsed_s=round(time.monotonic() - started, 2),
+        )
+    )
+
+
+@app.command(name="pull-vad")
+def pull_vad_model(
+    ctx: typer.Context,
+    name: Annotated[
+        str, typer.Argument(help="VAD model name, e.g. silero-v6.2.0")
+    ] = "silero-v6.2.0",
+) -> None:
+    """Download a VAD model into its separate OpenBBQ cache."""
+    output: Output = ctx.obj
+    started = time.monotonic()
+    backend = _vad_backend_for(name)
+    if output.json_mode:
+        typer.echo(
+            f"openbbq: pulling VAD model {name}; download progress is on stderr",
+            err=True,
+        )
+        last_report = 0.0
+
+        def cb(done: int, total: int) -> None:
+            nonlocal last_report
+            now = time.monotonic()
+            if done != total and last_report and now - last_report < 1.0:
+                return
+            last_report = now
+            typer.echo(_machine_progress_line(done, total), err=True)
+
+        path = backend.pull_vad_model(name, on_progress=cb)
+    else:
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+        ) as progress:
+            task = progress.add_task(f"pull VAD {name}", total=None)
+
+            def cb(done: int, total: int) -> None:
+                progress.update(task, completed=done, total=total or None)
+
+            path = backend.pull_vad_model(name, on_progress=cb)
     output.emit(
         ModelPullResult(
             model=name,

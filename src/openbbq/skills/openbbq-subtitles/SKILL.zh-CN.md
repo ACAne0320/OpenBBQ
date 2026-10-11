@@ -21,7 +21,8 @@ openbbq --json agent next --workspace '<ws>'
 1. `run_command`：原样执行返回的 `argv`，并服从 `execution.sandbox`。
    `outside_required` 必须在宿主机/沙箱外运行，`inside_allowed` 可在当前环境运行。
    fetch 可能需要宿主机网络与认证状态。transcribe 必须执行返回的沙箱外 GPU 命令并保留
-   `--gpu`；只有该 GPU 命令确实失败且 `execution.cpu_fallback` 允许时，才可改用
+   `--gpu`、`--vad` 与 `--auto-download`；其中 `--auto-download` 会按需准备独立的
+   Silero VAD 模型。只有该 GPU 命令确实失败且 `execution.cpu_fallback` 允许时，才可改用
    `--cpu` 重试。除此之外不要增加、删除或重排参数。若 harness 返回仍在运行的
    process/session ID，必须保留并轮询同一 session 直到得到 exit code；存在 session ID
    时，空 stdout 或外层 tool/cell 结束都不代表命令完成，不得重新执行 `argv`。

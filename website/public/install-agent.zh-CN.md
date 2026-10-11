@@ -77,6 +77,7 @@ JSON。Agent 需要解析输出时，优先显式使用 `--json`。
 - 缺 FFmpeg 时，安装带 `libass` 的 FFmpeg。烧录硬字幕需要 `ass` 和 `subtitles` filter。
 - 缺 ASR 后端时，默认补 `pywhispercpp`。macOS 通常可直接用 wheel 的 Metal 支持；NVIDIA / Vulkan 路线可能需要本机 toolkit 和源码编译。
 - 缺模型时，先让用户确认模型大小，再执行 `openbbq models pull <model>`。
+- 缺 VAD 模型时，执行 `openbbq models pull-vad silero-v6.2.0`；它与 ASR 模型分开缓存。
 - YouTube 需要登录或人机验证时，执行 `openbbq auth browser-login youtube`。
 - browser auth 和带登录态的 `fetch` 需要可写的 `OPENBBQ_HOME`（默认 `~/.openbbq`）。
   受限 sandbox 中请在普通用户环境里运行，或把 `OPENBBQ_HOME` 指到可写目录。
@@ -101,15 +102,18 @@ openbbq models pull base
 
 ```bash
 openbbq models pull large-v3-turbo
+openbbq models pull-vad silero-v6.2.0
 ```
 
 如果用户网络访问 Hugging Face 不稳定，可以让用户确认后设置镜像：
 
 ```bash
 HF_ENDPOINT=https://hf-mirror.com openbbq models pull large-v3-turbo
+HF_ENDPOINT=https://hf-mirror.com openbbq models pull-vad silero-v6.2.0
 ```
 
-模型放在 OpenBBQ 的全局缓存里，跨 workspace 复用，不写进视频项目目录。
+模型放在 OpenBBQ 的全局缓存里，跨 workspace 复用。VAD 模型使用独立的
+`whisper.cpp-vad` 缓存，避免被选成 ASR 模型；所有模型都不写进视频项目目录。
 
 GPU 转录必须在受限 sandbox 外运行。只有 host/GPU 尝试本身确实失败，并且返回的执行
 策略允许 fallback 时，才改用 `--cpu`；不能把 sandbox 内的 GPU 失败当作 GPU 路径
