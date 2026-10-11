@@ -54,6 +54,12 @@ For semantic actions:
 openbbq --json agent apply --workspace workspaces/demo response.json
 ```
 
+`agent init` and `agent apply` also return the following action as `next`, so
+an agent can continue without another `agent next` call. Local mechanical
+steps (extract, segment, worksheet creation) run inside `agent next` itself;
+only host-bound commands (fetch, transcribe, finish) come back as
+`run_command`.
+
 A normal run is:
 
 ```text

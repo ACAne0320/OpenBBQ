@@ -26,6 +26,12 @@ openbbq --json agent init '<source>' --workspace '<ws>' --to zh
 openbbq --json agent next --workspace '<ws>'
 ```
 
+When `agent init` or `agent apply` output includes `next`, that is the next
+action: act on it directly without calling `agent next` (calling it again only
+returns the same lease). OpenBBQ runs local mechanical steps such as audio
+normalization, segmentation, and worksheet creation itself; they never reach
+the agent.
+
 Repeat these steps until `done`:
 
 1. For `run_command`, execute the returned `argv` exactly. Obey
@@ -80,7 +86,8 @@ Repeat these steps until `done`:
 5. For `done`, deliver the returned subtitle and video paths plus warnings.
    Report the returned `quality` and `human_reviewed` values verbatim.
 
-Call `agent next` again after every successful command or apply. Keep only one
+Call `agent next` after every successful command; after a successful apply,
+act on its returned `next` (call `agent next` only when `next` is absent). Keep only one
 active action; repeated calls return the same lease. Continue while
 `must_continue` is true or `terminal` is false. Only `done` with
 `terminal: true` completes the task.

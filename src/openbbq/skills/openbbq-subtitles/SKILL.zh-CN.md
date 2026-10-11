@@ -16,6 +16,10 @@ openbbq --json agent init '<source>' --workspace '<ws>' --to zh
 openbbq --json agent next --workspace '<ws>'
 ```
 
+`agent init` 和 `agent apply` 的输出若带 `next`，它就是下一步 action，直接执行即可，
+不必再调用 `agent next`（再调用也只会返回同一个 lease）。音频规整、断句、建翻译表这类
+本地机械步骤由 OpenBBQ 自动完成，不会交给 agent。
+
 重复以下步骤，直到收到 `done`：
 
 1. `run_command`：原样执行返回的 `argv`，并服从 `execution.sandbox`。
@@ -55,7 +59,8 @@ openbbq --json agent next --workspace '<ws>'
 5. `done`：交付返回的字幕、视频路径和 warning，并原样报告返回的
    `quality` 与 `human_reviewed`。
 
-每次命令或 apply 成功后继续调用 `agent next`。同一时间只推进一个 action；重复调用会
+每次命令成功后调用 `agent next`；apply 成功后直接执行返回的 `next`（没有 `next` 时再
+调用 `agent next`）。同一时间只推进一个 action；重复调用会
 返回同一 lease。`must_continue` 为 true 或 `terminal` 为 false 时继续运行。只有
 `done` 且 `terminal: true` 才算完成。
 

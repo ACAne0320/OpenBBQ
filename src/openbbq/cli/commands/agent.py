@@ -20,6 +20,9 @@ from ..output import Output
 from ..results import Result
 from .burn import burn as burn_command
 from .export import export as export_command
+from .extract_audio import extract_audio as extract_audio_command
+from .segment import segment as segment_command
+from .translate import init as translate_init_command
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -48,6 +51,63 @@ class _DiscardOutput:
 
 def _capture_context() -> typer.Context:
     return cast(typer.Context, SimpleNamespace(obj=_DiscardOutput()))
+
+
+def _next_argv(path: Path) -> list[str]:
+    return ["openbbq", "--json", "agent", "next", "--workspace", str(path)]
+
+
+def _run_inline(path: Path, argv: list[str]) -> bool:
+    """Run a workspace-local mechanical step in-process; False if unknown."""
+    command = argv[2 : argv.index("--workspace")]
+    context = _capture_context()
+    if command == ["extract-audio"]:
+        extract_audio_command(context, workspace=str(path))
+    elif command == ["segment"]:
+        segment_command(context, workspace=str(path))
+    elif command[:2] == ["translate", "init"] and len(command) == 3:
+        translate_init_command(context, lang=command[2], workspace=str(path))
+    else:
+        return False
+    return True
+
+
+def _advance(path: Path, lang: str) -> dict[str, Any]:
+    """The next action, after running pending workspace-local steps inline.
+
+    ``inside_allowed`` steps (audio normalization, segmentation, worksheet
+    creation) need no host resources or judgement, so the agent never sees
+    them. Host-bound commands (fetch, transcribe, finish) and agent work
+    (translate, review_source) are returned unchanged. Call under the agent
+    workspace lock.
+    """
+    seen: set[tuple[str, ...]] = set()
+    while True:
+        session = ws.read_agent_session_optional(path, lang)
+        if session is None:
+            raise OpenBBQError("agent_session_not_found", lang=lang)
+        data = agent_workflow.next_action(path, ws.read_manifest(path), session)
+        if (
+            data.get("action") != "run_command"
+            or data["execution"]["sandbox"] != "inside_allowed"
+        ):
+            return data
+        argv = tuple(data["argv"])
+        if argv in seen or not _run_inline(path, list(argv)):
+            return data
+        seen.add(argv)
+
+
+def _advance_after_success(path: Path, lang: str) -> dict[str, Any] | None:
+    """Best-effort next action once a state change has already succeeded.
+
+    The change is committed, so a failure here must not look like a failed
+    init/apply; the agent sees it again from ``agent next``.
+    """
+    try:
+        return _advance(path, lang)
+    except OpenBBQError:
+        return None
 
 
 @app.command()
@@ -85,25 +145,18 @@ def init(
             to,
             glossary_name=glossary,
         )
-    output.emit(
-        AgentResult(
-            data={
-                "action": "initialized",
-                "workspace": str(path),
-                "target_lang": to,
-                "terminal": False,
-                "must_continue": True,
-                "next_argv": [
-                    "openbbq",
-                    "--json",
-                    "agent",
-                    "next",
-                    "--workspace",
-                    str(path),
-                ],
-            }
-        )
-    )
+        following = _advance_after_success(path, to)
+    data: dict[str, Any] = {
+        "action": "initialized",
+        "workspace": str(path),
+        "target_lang": to,
+        "terminal": False,
+        "must_continue": True,
+        "next_argv": _next_argv(path),
+    }
+    if following is not None:
+        data["next"] = following
+    output.emit(AgentResult(data=data))
 
 
 @app.command(name="next")
@@ -124,10 +177,7 @@ def next_command(
     path = ws.resolve_workspace(workspace)
     with ws.agent_workspace_lock(path):
         lang = agent_workflow.resolve_session_lang(path, to)
-        session = ws.read_agent_session_optional(path, lang)
-        if session is None:
-            raise OpenBBQError("agent_session_not_found", lang=lang)
-        data = agent_workflow.next_action(path, ws.read_manifest(path), session)
+        data = _advance(path, lang)
     output.emit(AgentResult(data=data))
 
 
@@ -171,23 +221,16 @@ def apply(
             session,
             raw,
         )
-    output.emit(
-        AgentResult(
-            data={
-                **data,
-                "terminal": False,
-                "must_continue": True,
-                "next_argv": [
-                    "openbbq",
-                    "--json",
-                    "agent",
-                    "next",
-                    "--workspace",
-                    str(path),
-                ],
-            }
-        )
-    )
+        following = _advance_after_success(path, lang)
+    data = {
+        **data,
+        "terminal": False,
+        "must_continue": True,
+        "next_argv": _next_argv(path),
+    }
+    if following is not None:
+        data["next"] = following
+    output.emit(AgentResult(data=data))
 
 
 def _fresh_stage_artifact(path: Path, stage: Stage, expected: Path) -> bool:

@@ -10,7 +10,9 @@ from typing import Any, cast
 import pytest
 import typer
 
+from openbbq.cli.commands.agent import apply as apply_command
 from openbbq.cli.commands.agent import finish as finish_command
+from openbbq.cli.commands.agent import next_command
 from openbbq.cli.commands.export import export as export_command
 from openbbq.cli.commands.segment import segment as segment_command
 from openbbq.cli.output import Output
@@ -1013,6 +1015,53 @@ def test_new_reusable_alias_normalizes_later_cues_without_retranslating_neighbor
             "keep": False,
         }
     ]
+
+
+def _emitted(capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
+    return json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+
+def test_agent_next_runs_workspace_local_steps_inline(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path, _ = _workspace(tmp_path, ["Hello there.", "How are you?"])
+
+    next_command(_ctx(), workspace=str(path), to=None)
+
+    action = _emitted(capsys)
+    assert action["action"] == "translate"
+    assert (path / "cues.json").is_file()
+    assert ws.worksheet_path(path, "zh").is_file()
+    next_command(_ctx(), workspace=str(path), to=None)
+    assert _emitted(capsys)["batch_id"] == action["batch_id"]
+
+
+def test_agent_apply_returns_the_following_action(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path, _ = _workspace(tmp_path, ["Hello there."])
+    next_command(_ctx(), workspace=str(path), to=None)
+    action = _emitted(capsys)
+    response = tmp_path / "response.json"
+    response.write_text(
+        json.dumps(
+            {
+                "batch_id": action["batch_id"],
+                "policy_hash": action["policy_hash"],
+                "generation_mode": action["generation_policy"]["mode"],
+                "translations": {"1": "你好"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    apply_command(_ctx(), response=str(response), workspace=str(path), to=None)
+
+    result = _emitted(capsys)
+    assert result["applied"] == "translate"
+    assert result["next"]["action"] == "finish"
+    next_command(_ctx(), workspace=str(path), to=None)
+    assert _emitted(capsys)["batch_id"] == result["next"]["batch_id"]
 
 
 def test_semantic_warnings_are_recorded_but_do_not_block_finish(
