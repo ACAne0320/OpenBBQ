@@ -80,8 +80,9 @@ LLM 或自动翻译脚本。脚本只能保存和提交 agent 已生成的结果
 边界的结构调整应留在 source review 中处理。
 
 若存在可靠的时间对齐参考字幕，个别 cue 可能带有简短 `reference_evidence`，只展示局部
-分歧。它是提示而非权威原文，应结合已提供的上下文和 glossary 判断。普通歧义不应触发
-联网搜索或重跑 ASR；保持 source 不变并返回 warning。可复用 source fix 应只包含最小
+分歧。它是提示而非权威原文，应结合已提供的上下文和 glossary 判断。Agent 可以联网
+核实较新的技术、产品或模型名、人名、影视/游戏作品名（只查证事实，不做机器翻译），但
+不应重跑 ASR；仍无法确定时保持 source 不变并返回 warning。可复用 source fix 应只包含最小
 稳定术语与 alias，不要带入周边语法。
 
 普通低置信 ASR 词、语速预算和 glossary 一致性都只作为提示。硬门禁只覆盖：schema

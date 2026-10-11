@@ -83,8 +83,10 @@ openbbq --json agent next --workspace '<ws>'
 - 若不确定是否为 ASR 错误，翻译当前原文并提交 warning，不要臆造修正。
 - 翻译阶段的 source fix 可以删除局部噪声，但不能删掉整条 cue；结构或边界调整应留给
   source review。
-- 优先使用 action 已提供的标题、作者、glossary 和局部参考证据。普通歧义不要自行联网
-  搜索或重新运行 ASR；保留 warning 交给后续人工精修。
+- 优先使用 action 已提供的标题、作者、glossary 和局部参考证据。遇到较新的技术、产品或
+  模型名、人名、影视/游戏作品等，可以联网搜索核实拼写和通行译名；搜索只用于查证事实，
+  不能借外部翻译服务生成译文。不要重新运行 ASR；仍无法确定时保留 warning 交给后续人工
+  精修。
 
 不要手改 workspace 数据、创建并行 lease、运行视觉 QA 或使用 `fansub-compact`。fetch、
 transcribe 和 finish 是长任务，应给出合理执行时间。

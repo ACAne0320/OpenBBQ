@@ -75,8 +75,9 @@ is reusable.
 
 Some cues include compact `reference_evidence` when a local phrase disagrees
 with an available timed caption. Treat it as a hint, not canonical source.
-Ordinary ambiguity should produce a warning; it should not trigger a web search,
-a second recognizer run, or a speculative rewrite.
+The agent may search the web to verify a recent name, term, or title, but an
+unresolved ambiguity should produce a warning; it should not trigger a second
+recognizer run or a speculative rewrite.
 
 OpenBBQ records that discovery in the task-local glossary overlay. For URL
 sources without an explicit glossary, fetched author metadata selects a stable

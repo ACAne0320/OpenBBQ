@@ -123,8 +123,11 @@ active action; repeated calls return the same lease. Continue while
 - A translation-stage source fix may remove local noise, but must not delete the
   whole cue. Leave structural or boundary changes for source review.
 - Use the supplied title, author, glossary, and local reference evidence first.
-  Do not search the web or rerun ASR for ordinary ambiguity; leave a warning
-  for later human refinement.
+  For recent technology, product or model names, people, or films, shows, and
+  games, you may search the web to verify spelling and established
+  translations; search only checks facts and must never generate translations
+  through an external service. Do not rerun ASR. If still unsure, leave a
+  warning for later human refinement.
 
 Do not hand-edit workspace data, create parallel leases, run visual QA, or use
 `fansub-compact`. Long-running fetch, transcription, and finish commands need

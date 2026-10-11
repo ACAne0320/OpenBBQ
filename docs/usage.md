@@ -98,9 +98,10 @@ the entire cue. Structural or boundary changes belong in source review.
 
 When available, a cue may include compact `reference_evidence` for a short
 local disagreement with the timed reference caption. Treat it as advisory and
-decide using the supplied context and glossary. Ordinary ambiguity should not
-trigger web search or another ASR run; leave the source unchanged and return a
-warning. A reusable source fix should contain the smallest stable term and
+decide using the supplied context and glossary. The agent may search the web to
+verify recent technology, product or model names, people, or titles of films,
+shows, and games (facts only, never machine translation), but must not rerun
+ASR; if still unsure, leave the source unchanged and return a warning. A reusable source fix should contain the smallest stable term and
 alias, not surrounding grammar.
 
 Ordinary low-confidence ASR words, reading-speed budgets, and glossary

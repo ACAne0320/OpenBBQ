@@ -1303,7 +1303,8 @@ def next_action(
             translate_payload["reference_policy"] = [
                 "reference_evidence is a local advisory hint, not canonical source",
                 "use context and glossary to decide; submit source_fix only when the correction is clear",
-                "when uncertain, translate the current source conservatively and return a warning instead of searching or rerunning ASR",
+                "a web search may verify a recent name, term, or title; never rerun ASR",
+                "when still uncertain, translate the current source conservatively and return a warning",
             ]
         payload = _new_lease(
             session,

@@ -307,7 +307,8 @@ def test_subtitle_skill_documents_draft_happy_path_in_both_languages() -> None:
         assert "must_continue" in content
         assert "cpu_fallback" in content
         assert "reference_evidence" in content
-        assert "search the web" in content or "自行联网" in content
+        assert "search the web" in content or "联网搜索" in content
+        assert "rerun ASR" in content or "重新运行 ASR" in content
         assert "smallest stable" in content or "最小稳定" in content
         assert "generation_policy" in content
         assert "generation_mode" in content

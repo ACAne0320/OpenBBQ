@@ -65,8 +65,8 @@ sandbox 外的宿主环境执行。重复机械命令会等待当前阶段，并
 提交当前 cue 内的有界 source fix，并判断该修正是否可复用。
 
 当局部短语与已有的定时参考字幕不一致时，cue 可能带有精简的
-`reference_evidence`。它只是线索，不是权威原文。普通歧义应该留下 warning，不应触发
-网页搜索、第二次识别或猜测式改写。
+`reference_evidence`。它只是线索，不是权威原文。Agent 可以联网核实较新的名称、术语或
+作品名，但仍无法确定的歧义应该留下 warning，不应触发第二次识别或猜测式改写。
 
 OpenBBQ 会把发现记录到任务本地 glossary overlay。URL 来源没有显式 glossary 时，
 fetch 得到的作者元数据会绑定稳定的“作者+目标语言” glossary。可复用且无冲突的条目
