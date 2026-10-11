@@ -11,6 +11,7 @@ here touches I/O.
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
@@ -23,6 +24,11 @@ _IDENTITY: Callable[[str], str] = lambda s: s  # noqa: E731 — default "no glos
 # quotes/brackets to look past when testing a word's terminal punctuation.
 _SENTENCE_END = ".!?。！？…"
 _SECONDARY = ",;:、；："
+# Periods that belong to an abbreviation rather than ending a sentence: dotted
+# acronyms ("I.O.", "U.S.") end one only when the next word is capitalized;
+# titles ("Dr.", "Mr.") always lead into a name.
+_DOTTED_ACRONYM_RE = re.compile(r"^(?:[A-Za-z]\.){2,}$")
+_TITLE_ABBREVIATIONS = frozenset({"mr.", "mrs.", "ms.", "dr.", "prof.", "st.", "vs."})
 _TRAILING_CLOSERS = "\"'”’」』）)】]}>"
 _MIN_COLLAPSED_WORDS = 3
 _MIN_BOUNDARY_PILEUP_WORDS = 5
@@ -282,13 +288,27 @@ def _fits(words: list[Word], profile: LanguageProfile) -> bool:
     return count_chars(_join(words, profile), profile) <= profile.max_chars_per_line
 
 
+def _abbreviation_continues(word: str, nxt: str | None) -> bool:
+    """Is ``word``'s final period an abbreviation the sentence runs through?"""
+    if nxt is None:
+        return False
+    token = word.strip(_TRAILING_CLOSERS)
+    if token.casefold() in _TITLE_ABBREVIATIONS:
+        return True
+    head = nxt.lstrip(_TRAILING_CLOSERS + "\"'“‘")[:1]
+    return bool(_DOTTED_ACRONYM_RE.match(token)) and not head.isupper()
+
+
 def group_sentences(words: list[Word]) -> list[list[Word]]:
     """① Cut the word stream into sentences at sentence-final punctuation."""
     sentences: list[list[Word]] = []
     cur: list[Word] = []
-    for w in words:
+    for i, w in enumerate(words):
         cur.append(w)
-        if _ends_with(w.word, _SENTENCE_END):
+        nxt = words[i + 1].word if i + 1 < len(words) else None
+        if _ends_with(w.word, _SENTENCE_END) and not _abbreviation_continues(
+            w.word, nxt
+        ):
             sentences.append(cur)
             cur = []
     if cur:

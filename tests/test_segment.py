@@ -107,6 +107,30 @@ def test_group_sentences_splits_on_terminal_punctuation() -> None:
     assert [[w.word for w in g] for g in groups] == [["Hello", "world."], ["Bye"]]
 
 
+def test_group_sentences_keeps_dotted_acronym_before_lowercase_continuation() -> None:
+    words = [
+        W("Google", 0, 0.5),
+        W("I.O.", 0.5, 1.0),
+        W("wrapped,", 1.0, 1.5),
+        W("and", 1.5, 2.0),
+        W("at", 2.0, 2.5),
+        W("I.O.", 2.5, 3.0),
+        W("It", 3.0, 3.5),
+        W("ended.", 3.5, 4.0),
+    ]
+    groups = seg.group_sentences(words)
+    assert [[w.word for w in g] for g in groups] == [
+        ["Google", "I.O.", "wrapped,", "and", "at", "I.O."],
+        ["It", "ended."],
+    ]
+
+
+def test_group_sentences_never_ends_on_a_title_abbreviation() -> None:
+    words = [W("Ask", 0, 0.5), W("Dr.", 0.5, 1.0), W("Smith.", 1.0, 1.5)]
+    groups = seg.group_sentences(words)
+    assert [[w.word for w in g] for g in groups] == [["Ask", "Dr.", "Smith."]]
+
+
 # --- split_long ---------------------------------------------------------------
 
 
