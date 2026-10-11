@@ -58,7 +58,9 @@ openbbq --json agent apply --workspace workspaces/demo response.json
 an agent can continue without another `agent next` call. Local mechanical
 steps (extract, segment, worksheet creation) run inside `agent next` itself;
 only host-bound commands (fetch, transcribe, finish) come back as
-`run_command`.
+`run_command`. The first translate batch carries `full_source`, the whole
+video's source, once; a batch that retranslates earlier cues lists them in
+`requeued` with a reason.
 
 A normal run is:
 

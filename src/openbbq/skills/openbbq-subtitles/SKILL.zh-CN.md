@@ -50,6 +50,9 @@ openbbq --json agent next --workspace '<ws>'
    `{"cue_id", "message", "patch"}`（`patch` 至少含 source/target/start/end 之一，
    `cue_id` 必须属于本批 `selected_ids`）；它会作为 review suggestion 归档，不会进入
    session warnings。一般性不确定仍用自由文本 warning。
+   第一批会附带 `full_source`（整片原文，只发这一次）：先通读，掌握主题、反复出现的
+   名字、梗和语气；整片反复出现的 ASR 错拼，用带 alias 的可复用 `glossary_updates`
+   一次性规范全片。批次若带 `requeued`，其中的 cue 之前译过，需要按 `reason` 重译。
 3. `review_source` 是罕见例外：仅在 `agent next` 报告确定性修复无法解决的结构性 ASR
    blocker 时处理。重复 run 可能用一个可见 segment 代表 issue 中列出的全部相同受影响
    ID；若整段 `reference_caption` 显示实际存在不同的连续语音，应替换该 issue，而不是

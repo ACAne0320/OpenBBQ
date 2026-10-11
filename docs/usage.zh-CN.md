@@ -47,7 +47,8 @@ openbbq --json agent apply --workspace workspaces/demo response.json
 
 `agent init` 和 `agent apply` 也会以 `next` 返回下一步 action，agent 无需再调用一次
 `agent next`。本地机械步骤（extract、segment、建翻译表）在 `agent next` 内部自动完成，
-只有依赖宿主机的命令（fetch、transcribe、finish）才会以 `run_command` 返回。
+只有依赖宿主机的命令（fetch、transcribe、finish）才会以 `run_command` 返回。第一批翻译
+会附带一次 `full_source`（整片原文）；需要重译旧 cue 的批次会在 `requeued` 里列出原因。
 
 正常流程是：
 

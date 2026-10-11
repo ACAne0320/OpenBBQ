@@ -74,6 +74,12 @@ Repeat these steps until `done`:
    `cue_id` must belong to this batch's `selected_ids`); it is archived as a
    review suggestion and does not enter session warnings. General uncertainty
    stays a free-text warning.
+   The first batch includes `full_source`, the whole video's source, sent only
+   once: read it first to learn the topic, recurring names, running jokes, and
+   tone. For an ASR misspelling that recurs across the video, submit one
+   reusable `glossary_updates` entry with the misspelling as an alias; OpenBBQ
+   normalizes every cue at once. If a batch includes `requeued`, those cues
+   were translated before and must be retranslated for the given `reason`.
 3. `review_source` is exceptional. Handle it only when `agent next` reports a
    structural ASR blocker that deterministic repair could not resolve. A
    repeated run may use one visible segment to represent every identical

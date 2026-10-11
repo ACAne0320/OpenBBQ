@@ -1017,6 +1017,94 @@ def test_new_reusable_alias_normalizes_later_cues_without_retranslating_neighbor
     ]
 
 
+def test_first_translate_batch_carries_full_source_once(tmp_path: Path) -> None:
+    sources = [f"scene {index} happens here" for index in range(1, 23)]
+    path, _ = _workspace(tmp_path, sources)
+    _install_cues_and_worksheet(path, sources)
+
+    first = _next(path)
+
+    assert [entry["id"] for entry in first["full_source"]] == list(range(1, 23))
+    assert first["full_source"][21]["source"] == "scene 22 happens here"
+    assert first["full_source_policy"]
+    _translate_batch(path, first)
+    second = _next(path)
+    assert second["selected_ids"] == [21, 22]
+    assert "full_source" not in second
+
+
+def test_full_source_is_omitted_for_very_long_transcripts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = ["a long scene", "another long scene"]
+    path, _ = _workspace(tmp_path, sources)
+    _install_cues_and_worksheet(path, sources)
+    monkeypatch.setattr(agent_workflow, "FULL_SOURCE_MAX_CHARS", 10)
+
+    assert "full_source" not in _next(path)
+
+
+def _code_report_session(tmp_path: Path, first_target: str) -> Path:
+    sources = ["you are watching the Code Report"] + [
+        f"scene {index}" for index in range(2, 22)
+    ]
+    path, _ = _workspace(tmp_path, sources)
+    _install_cues_and_worksheet(path, sources)
+    first = _next(path)
+    _apply(
+        path,
+        {
+            "batch_id": first["batch_id"],
+            "policy_hash": first["policy_hash"],
+            "generation_mode": first["generation_policy"]["mode"],
+            "translations": {
+                str(item_id): first_target if item_id == 1 else f"场景 {item_id}"
+                for item_id in first["selected_ids"]
+            },
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+    second = _next(path)
+    assert second["selected_ids"] == [21]
+    _apply(
+        path,
+        {
+            "batch_id": second["batch_id"],
+            "policy_hash": second["policy_hash"],
+            "generation_mode": second["generation_policy"]["mode"],
+            "translations": {"21": "场景 21"},
+            "source_fixes": [],
+            "glossary_updates": [
+                {
+                    "source": "The Code Report",
+                    "keep": True,
+                    "reusable": True,
+                    "evidence": "the channel's recurring show name",
+                }
+            ],
+        },
+    )
+    return path
+
+
+def test_later_glossary_term_already_honored_does_not_requeue_cue(
+    tmp_path: Path,
+) -> None:
+    path = _code_report_session(tmp_path, "你正在收看 The Code Report")
+
+    assert _next(path)["action"] == "finish"
+
+
+def test_requeued_cue_explains_why_it_needs_retranslation(tmp_path: Path) -> None:
+    path = _code_report_session(tmp_path, "你正在收看代码报告")
+
+    action = _next(path)
+
+    assert action["selected_ids"] == [1]
+    assert action["requeued"] == [{"id": 1, "reason": "glossary_changed"}]
+
+
 def _emitted(capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
     return json.loads(capsys.readouterr().out.strip().splitlines()[-1])
 

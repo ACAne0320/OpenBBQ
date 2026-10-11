@@ -56,6 +56,10 @@ from openbbq.schemas import (
 )
 
 MAX_AGENT_BATCH = 20
+# The first translate batch carries the whole source so the agent can learn
+# the topic, recurring names, and ASR misspellings before translating. Larger
+# transcripts fall back to per-batch context to keep the payload bounded.
+FULL_SOURCE_MAX_CHARS = 40_000
 _SOURCE_POLICY = "structural-source-repair@1"
 
 
@@ -565,6 +569,43 @@ def _translation_evidence_valid(
         and evidence.glossary_hash
         == _glossary_refs_hash(_cue_glossary_refs(worksheet, item.id))
     )
+
+
+def _evidence_gap(
+    session: AgentSession,
+    worksheet: Translation,
+    item: TranslationItem,
+    policy_hash: str,
+) -> str | None:
+    """Why a cue needs (re)translation, or None when its evidence is current."""
+    evidence = session.translation_evidence.get(item.id)
+    if evidence is None or not translatelib.is_filled(item.target):
+        return "untranslated"
+    if evidence.cue_hash != translatelib.item_hash(item):
+        return "cue_changed"
+    if evidence.policy_hash != policy_hash:
+        return "policy_changed"
+    if evidence.glossary_hash != _glossary_refs_hash(
+        _cue_glossary_refs(worksheet, item.id)
+    ):
+        return "glossary_changed"
+    return None
+
+
+def _target_honors_glossary(worksheet: Translation, item: TranslationItem) -> bool:
+    """Does the existing target already satisfy every glossary term on its cue?
+
+    Only mechanically checkable terms qualify: a free-form note cannot be
+    verified, so a cue carrying one is always retranslated.
+    """
+    target = (item.target or "").casefold()
+    for ref in _cue_glossary_refs(worksheet, item.id):
+        if ref.note:
+            return False
+        expected = ref.source if ref.keep else ref.target
+        if expected and expected.casefold() not in target:
+            return False
+    return True
 
 
 def stale_translation_evidence_ids(
@@ -1143,15 +1184,27 @@ def next_action(
     brief = _brief_for(worksheet, manifest, workspace)
     policy = translation_rules.policy_hash(brief)
     human_reviewed = human_review_is_complete(workspace, cues, worksheet)
-    missing_evidence = (
-        []
-        if human_reviewed
-        else [
-            item.id
-            for item in worksheet.items
-            if not _translation_evidence_valid(session, worksheet, item, policy)
-        ]
-    )
+    missing_evidence: list[int] = []
+    requeued: dict[int, str] = {}
+    refreshed = False
+    for item in [] if human_reviewed else worksheet.items:
+        gap = _evidence_gap(session, worksheet, item, policy)
+        if gap is None:
+            continue
+        if gap == "glossary_changed" and _target_honors_glossary(worksheet, item):
+            # A term learned later that the target already follows needs no
+            # retranslation; re-stamp the evidence against the new glossary.
+            evidence = session.translation_evidence[item.id]
+            evidence.glossary_hash = _glossary_refs_hash(
+                _cue_glossary_refs(worksheet, item.id)
+            )
+            refreshed = True
+            continue
+        missing_evidence.append(item.id)
+        if gap != "untranslated":
+            requeued[item.id] = gap
+    if refreshed:
+        ws.write_agent_session(workspace, session)
     if missing_evidence:
         generation_policy = translation_generation.resolve_policy()
         selected_ids = missing_evidence[:MAX_AGENT_BATCH]
@@ -1212,6 +1265,24 @@ def next_action(
                 ],
             },
         }
+        retranslate = [
+            {"id": item_id, "reason": requeued[item_id]}
+            for item_id in selected_ids
+            if item_id in requeued
+        ]
+        if retranslate:
+            translate_payload["requeued"] = retranslate
+        if not session.translation_evidence and (
+            sum(len(cue.source) for cue in cues.cues) <= FULL_SOURCE_MAX_CHARS
+        ):
+            translate_payload["full_source"] = [
+                {"id": cue.id, "source": cue.source} for cue in cues.cues
+            ]
+            translate_payload["full_source_policy"] = [
+                "full_source is the whole video's source, sent once with the first batch; read it before translating to learn the topic, recurring names, running jokes, and tone",
+                "for a recurring ASR misspelling anywhere in the video, submit a reusable glossary_update with the misspelling as an alias; OpenBBQ normalizes every matching cue at once",
+                "still translate exactly the selected_ids of each batch",
+            ]
         if any("reference_evidence" in item for item in items):
             translate_payload["reference_policy"] = [
                 "reference_evidence is a local advisory hint, not canonical source",
