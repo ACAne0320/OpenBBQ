@@ -228,6 +228,7 @@ def transcribe(
                 backend=asr.name,
                 model=name,
                 created_at=datetime.now(timezone.utc),
+                vad=vad,
             ),
             segments=result.segments,
         )

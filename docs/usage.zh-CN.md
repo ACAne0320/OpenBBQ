@@ -162,7 +162,9 @@ openbbq transcribe --workspace workspaces/demo --model large-v3-turbo --language
 VAD 默认开启，使用独立缓存的 Silero 模型检测人声区间。OpenBBQ 会从原始音频切出
 这些区间进行转录，再把每个分块的绝对偏移加回 segment 和 word 时间；不会暴露
 whisper.cpp 压缩后的 VAD 时间轴。只有兼容、排错或轻声对白被裁掉时才使用
-`--no-vad`。VAD 加载失败会直接报错，OpenBBQ 不会静默关闭 VAD 后继续转录。
+`--no-vad`。VAD 加载失败会直接报错，OpenBBQ 不会静默关闭 VAD 后继续转录。Agent
+流程中，transcribe 的执行策略（`vad_fallback`）允许在 `vad_*` 错误后显式改用
+`--no-vad` 重试一次，交付时会报告 `transcribed_without_vad`。
 
 ## Glossary
 

@@ -28,6 +28,7 @@ class ASRInfo(OpenBBQModel):
     backend: str
     model: str
     created_at: datetime
+    vad: bool | None = None  # None: transcribed before VAD use was recorded
 
 
 class Transcript(OpenBBQModel):

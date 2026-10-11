@@ -180,6 +180,8 @@ def test_transcribe_auto_downloads_vad_and_reports_configuration(
     assert kwargs["vad_model"] == "silero-v6.2.0"
     assert payload["vad"] is True
     assert payload["vad_model"] == "silero-v6.2.0"
+    transcript = ws.read_transcript(path / "transcript.json")
+    assert transcript.asr.vad is True
 
 
 def test_transcribe_keyboard_interrupt_records_failed(

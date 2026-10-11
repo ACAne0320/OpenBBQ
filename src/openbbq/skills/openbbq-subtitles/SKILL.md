@@ -42,7 +42,10 @@ Repeat these steps until `done`:
    GPU command; keep `--gpu`. Retry with `--cpu` only after that outside GPU
    command actually fails and `execution.cpu_fallback` permits it. Keep the
    returned `--vad` and `--auto-download` flags; the latter prepares the
-   separately cached Silero VAD model when needed. Do not
+   separately cached Silero VAD model when needed. Only when the failure's
+   error code starts with `vad_` and `execution.vad_fallback` permits it, retry
+   once with `--no-vad` in place of `--vad`; delivery then carries a
+   `transcribed_without_vad` warning. Do not
    otherwise add, remove, or reorder arguments. If the harness returns a live
    process/session ID, preserve it and poll that same session until it returns
    an exit code. While a session ID exists, empty stdout or completion of an

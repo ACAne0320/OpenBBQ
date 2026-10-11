@@ -469,12 +469,31 @@ def test_fetch_and_transcribe_commands_declare_host_execution_policy(
         "sandbox": "outside_required",
         "accelerator": "gpu",
         "cpu_fallback": "only_after_outside_gpu_failure",
+        "vad_fallback": "no_vad_only_after_vad_error",
         "reason_code": "native_gpu_and_model_cache",
         "concurrency": "wait_and_reuse_completed_stage",
         "process_session": "poll_until_exit",
         "empty_output": "not_completion_if_session_id_present",
         "retry": "never_rerun_argv_while_session_id_present",
     }
+
+
+def test_transcript_made_without_vad_is_reported_in_session_warnings(
+    tmp_path: Path,
+) -> None:
+    path, _ = _workspace(tmp_path, ["Hello there."])
+    transcript = ws.read_transcript(path / "transcript.json")
+    transcript.asr.vad = False
+    ws.write_text_atomic(
+        path / "transcript.json", transcript.model_dump_json(indent=2)
+    )
+
+    _next(path)
+    _next(path)
+
+    session = ws.read_agent_session_optional(path, "zh")
+    assert session is not None
+    assert [w.code for w in session.warnings] == ["transcribed_without_vad"]
 
 
 def test_fetched_url_auto_binds_a_stable_author_glossary(

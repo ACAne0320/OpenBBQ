@@ -188,7 +188,9 @@ speech regions. OpenBBQ transcribes slices from the original audio and adds each
 slice's absolute offset back to segment and word timestamps; it does not expose
 whisper.cpp's compressed VAD timeline. Use `--no-vad` only for compatibility,
 diagnosis, or when quiet speech is being clipped. A VAD load failure is an error;
-OpenBBQ does not silently continue without it.
+OpenBBQ does not silently continue without it. In the agent workflow the
+transcribe policy (`vad_fallback`) allows one explicit `--no-vad` retry after a
+`vad_*` error, and the delivery then reports `transcribed_without_vad`.
 
 ## Glossaries
 

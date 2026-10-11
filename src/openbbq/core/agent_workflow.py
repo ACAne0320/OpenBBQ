@@ -151,6 +151,9 @@ def _execution_policy(command: str) -> dict[str, str]:
             "sandbox": "outside_required",
             "accelerator": "gpu",
             "cpu_fallback": "only_after_outside_gpu_failure",
+            # Every VAD failure code starts with "vad_"; only then may the
+            # agent swap --vad for --no-vad, and delivery reports it.
+            "vad_fallback": "no_vad_only_after_vad_error",
             "reason_code": "native_gpu_and_model_cache",
             "concurrency": "wait_and_reuse_completed_stage",
         }
@@ -1025,6 +1028,19 @@ def next_action(
         )
 
     views, transcript, review, reference_words = _source_views(workspace, manifest)
+    if transcript.asr.vad is False and not any(
+        warning.code == "transcribed_without_vad" for warning in session.warnings
+    ):
+        session.warnings.append(
+            AgentWarning(
+                code="transcribed_without_vad",
+                detail=(
+                    "speech-region detection was skipped after a VAD failure; "
+                    "check music or silent passages for hallucinated lines"
+                ),
+            )
+        )
+        ws.write_agent_session(workspace, session)
     asr = asrlib.check(
         transcript,
         review,
