@@ -33,11 +33,16 @@ _TITLE_ABBREVIATIONS = frozenset({"mr.", "mrs.", "ms.", "dr.", "prof.", "st.", "
 _TRAILING_CLOSERS = "\"'”’」』）)】]}>"
 _MIN_COLLAPSED_WORDS = 3
 _MIN_BOUNDARY_PILEUP_WORDS = 5
+# Words a subtitle line should not end on, because they bind to what follows:
+# determiners, prepositions, conjunctions, and copulas (subtitle convention:
+# keep "every product", "and let ...", "was a fork" together).
 _STRONG_GLUE_LEFT = frozenset(
     {
         "a",
         "an",
         "the",
+        "every",
+        "each",
         "this",
         "that",
         "these",
@@ -56,9 +61,30 @@ _STRONG_GLUE_LEFT = frozenset(
         "with",
         "without",
         "by",
+        "in",
+        "on",
+        "at",
+        "into",
+        "onto",
+        "inside",
+        "about",
+        "like",
+        "than",
+        "through",
+        "between",
         "which",
         "who",
         "whose",
+        "and",
+        "or",
+        "nor",
+        "but",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
     }
 )
 
@@ -360,10 +386,13 @@ def _best_split(words: list[Word], profile: LanguageProfile) -> int:
     if punct_ks:
         return min(punct_ks, key=lambda k: abs(k - mid))
 
+    # A speaker's pause is a good boundary only where the text also allows
+    # one: a comedic beat after "every" must not strand it from its noun.
     gaps = [
         (words[i + 1].start - words[i].end, i + 1)
         for i in range(n - 1)
         if _readable_split(words, i + 1, profile)
+        and not _break_penalty(words, i + 1, profile)
     ]
     if gaps:
         gap, gap_k = max(gaps, key=lambda candidate: candidate[0])

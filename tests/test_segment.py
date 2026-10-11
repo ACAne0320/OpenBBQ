@@ -180,6 +180,46 @@ def test_split_long_rejects_a_punctuation_break_that_flashes_too_briefly() -> No
     assert [word.word for word in pieces[0]] != ["In", "episode", "3,"]
 
 
+def _timed(text: str, *, pause_after: str | None = None) -> list[Word]:
+    words: list[Word] = []
+    clock = 0.0
+    for token in text.split():
+        words.append(W(token, clock, clock + 0.2))
+        clock += 0.2 + (0.6 if token == pause_after else 0.05)
+    return words
+
+
+def _subtitle_line(**over: float | int) -> seg.LanguageProfile:
+    return seg.apply_overrides(
+        EN, max_chars_per_line=50, max_lines=1, max_dur=100.0, **over
+    )
+
+
+def test_split_long_ignores_a_pause_that_would_strand_a_determiner() -> None:
+    words = _timed(
+        "that future is Gemini hiding inside of every product like the "
+        "microplastics in your bloodstream",
+        pause_after="every",
+    )
+
+    pieces = seg.split_long(words, _subtitle_line(pause_threshold=0.3))
+
+    assert all(piece[-1].word != "every" for piece in pieces)
+
+
+def test_split_long_does_not_end_a_line_on_a_conjunction() -> None:
+    # The most balanced boundary falls right after "and".
+    words = _timed(
+        "the agents test the app in parallel and deploy everything to "
+        "production for you"
+    )
+
+    pieces = seg.split_long(words, _subtitle_line(pause_threshold=10.0))
+
+    assert len(pieces) == 2
+    assert pieces[0][-1].word == "parallel"
+
+
 def test_split_long_uses_largest_pause_when_no_punctuation() -> None:
     # gap 0.5s > pause_threshold 0.3 splits between the two words
     words = [W("hello", 0, 1.0), W("world", 1.5, 2.5)]
