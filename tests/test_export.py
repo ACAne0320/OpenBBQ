@@ -255,6 +255,23 @@ def test_render_ass_has_styles_and_dialogues() -> None:
     assert "Dialogue: 0,0:00:00.06,0:00:04.95,EN,,0,0,0,,Hello, everyone\n" in out
 
 
+def test_render_ass_target_keeps_zh_pause_and_latin_spacing_like_srt() -> None:
+    cues = _cues(Cue(id=1, start=0, end=4, source="inside this box"))
+    tr = _translation(
+        _item(1, "inside this box", "这个箱子里，有一台科视 CP2230 放映机。"),
+        params=SegmentParams(
+            max_cps=11,
+            max_chars_per_line=32,
+            max_lines=1,
+            min_dur=1,
+            max_dur=7,
+            min_gap=0.083,
+        ),
+    )
+    out = exp.render_ass(cues, exp.ExportMode.BILINGUAL, translation=tr)
+    assert "ZH_TOP,,0,0,0,,这个箱子里 有一台科视 CP2230 放映机\n" in out
+
+
 def test_render_ass_mobile_preset_uses_vertical_canvas_and_safe_margins() -> None:
     cues = _cues(Cue(id=1, start=0, end=1, source="Hello."))
     tr = _translation(_item(1, "Hello.", "你好。"))

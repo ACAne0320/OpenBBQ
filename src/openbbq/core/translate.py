@@ -365,20 +365,20 @@ def _worksheet_profile(worksheet: Translation) -> seg.LanguageProfile:
 
 
 _CJK_WRAP_TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:['’.-][A-Za-z0-9]+)*|[^\s]")
-_LATIN_WRAP_TOKEN_RE = re.compile(r"^[A-Za-z0-9]+(?:['’.-][A-Za-z0-9]+)*$")
 
 
 def wrap_target_lines(worksheet: Translation, text: str) -> list[str]:
     """Deterministically reflow target text without dropping or rewriting it."""
     profile = _worksheet_profile(worksheet)
     if profile.cjk:
-        raw_tokens = _CJK_WRAP_TOKEN_RE.findall(text)
-        tokens: list[str] = []
-        previous_latin = False
-        for token in raw_tokens:
-            latin = _LATIN_WRAP_TOKEN_RE.match(token) is not None
-            tokens.append(f" {token}" if latin and previous_latin else token)
-            previous_latin = latin
+        # Carry each token's preceding whitespace so pause-mark spaces and
+        # latin word gaps survive the reflow exactly as written.
+        tokens = [
+            f" {m.group()}"
+            if m.start() and text[m.start() - 1].isspace()
+            else m.group()
+            for m in _CJK_WRAP_TOKEN_RE.finditer(text)
+        ]
     else:
         tokens = text.split()
     return [line.strip() for line in seg.pack_lines(tokens, profile)]
