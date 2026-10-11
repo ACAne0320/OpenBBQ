@@ -73,10 +73,11 @@ def _snapshot(profile: seg.LanguageProfile) -> SegmentParams:
 
 
 def _budget(start: float, end: float, params: SegmentParams) -> Budget:
+    """Reading-speed budget (max_cps x duration). Screen width is a separate,
+    hard limit: see ``line_limit``.
+    """
     dur = round(end - start, 3)
-    max_chars = math.floor(
-        min(params.max_cps * dur, params.max_chars_per_line * params.max_lines)
-    )
+    max_chars = math.floor(params.max_cps * dur)
     return Budget(max_chars=max(max_chars, 0), seconds=dur)
 
 
@@ -365,6 +366,11 @@ def _worksheet_profile(worksheet: Translation) -> seg.LanguageProfile:
 
 
 _CJK_WRAP_TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:['’.-][A-Za-z0-9]+)*|[^\s]")
+
+
+def line_limit(worksheet: Translation) -> int:
+    """Hard rendered-width cap for one target, in ``segment.display_width`` units."""
+    return worksheet.params.max_chars_per_line * worksheet.params.max_lines
 
 
 def wrap_target_lines(worksheet: Translation, text: str) -> list[str]:

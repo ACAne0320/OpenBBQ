@@ -21,9 +21,11 @@ from typing import Any, Literal
 from pydantic import Field, ValidationError, model_validator
 
 from openbbq.core import asr_review as asrlib
+from openbbq.core import export as exportlib
 from openbbq.core import glossary as glossarylib
 from openbbq.core import glossary_overlay
 from openbbq.core import review as reviewlib
+from openbbq.core import segment as seg
 from openbbq.core import translate as translatelib
 from openbbq.core import translation_generation
 from openbbq.core import translation_rules
@@ -1164,6 +1166,7 @@ def next_action(
             "generation_policy": generation_policy.payload(),
             "brief": brief.model_dump(mode="json", exclude_none=True),
             "selected_ids": selected_ids,
+            "line_limit": _line_limit_payload(worksheet),
             "items": items,
             "neighbor_context": neighbor_context,
             "glossary": [
@@ -1482,6 +1485,16 @@ def _replace_occurrence(source: str, fix: AgentCueSourceFix) -> str:
     return source[: match.start()] + fix.replacement + source[match.end() :]
 
 
+def _line_limit_payload(worksheet: Translation) -> dict[str, object]:
+    profile, _ = seg.resolve_profile(worksheet.target_lang)
+    counting = (
+        "full-width glyph = 1; latin letter, digit, or space = 0.6"
+        if profile.cjk
+        else "every character, including spaces, = 1"
+    )
+    return {"max_width": translatelib.line_limit(worksheet), "counting": counting}
+
+
 def _apply_translate(
     workspace: Path,
     manifest: Manifest,
@@ -1589,6 +1602,16 @@ def _apply_translate(
         item_by_id[fix.cue_id].source = corrected
         source_changed_ids.add(fix.cue_id)
     translatelib.apply_targets(candidate_worksheet, response.translations)
+    over_width = exportlib.over_line_width(candidate_worksheet, lease.selected_ids)
+    if over_width:
+        raise OpenBBQError(
+            "translation_exceeds_line_width",
+            cues=over_width,
+            fix=(
+                "condense these targets to fit one line while keeping their "
+                "meaning, then resubmit the same batch"
+            ),
+        )
 
     updated_overlay, _, candidate_count = (
         glossary_overlay.prepare_updates_with_candidates(

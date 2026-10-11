@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
 import typer
 
 from openbbq.cli.commands.segment import segment
@@ -53,6 +54,13 @@ def test_count_chars_cjk_drops_whitespace() -> None:
     assert seg.count_chars("你 好 世 界", zh) == 4
 
 
+def test_display_width_counts_half_width_glyphs_narrower_in_cjk() -> None:
+    zh = seg.LANGUAGE_PROFILES["zh"]
+    assert seg.display_width("你好，世界", zh) == 5
+    assert seg.display_width("OpenAI Codex", zh) == pytest.approx(7.2)
+    assert seg.display_width("OpenAI Codex", EN) == 12
+
+
 def test_resolve_profile_hit_and_base_subtag() -> None:
     assert seg.resolve_profile("en") == (EN, False)
     assert seg.resolve_profile("zh-Hans") == (seg.LANGUAGE_PROFILES["zh"], False)
@@ -71,9 +79,9 @@ def test_apply_overrides_only_touches_given_fields() -> None:
 
 
 def test_default_english_profile_keeps_normal_long_sentences_whole() -> None:
-    assert EN.max_chars_per_line == 110
+    assert EN.max_chars_per_line == 95
     text = (
-        "This is a really cool example of how the first half of the series "
+        "This is a cool example of how the first half of the series "
         "sets up the second half's payoff."
     )
     tokens = text.split()

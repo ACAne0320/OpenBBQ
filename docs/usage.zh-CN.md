@@ -79,8 +79,9 @@ LLM 或自动翻译脚本。脚本只能保存和提交 agent 已生成的结果
 联网搜索或重跑 ASR；保持 source 不变并返回 warning。可复用 source fix 应只包含最小
 稳定术语与 alias，不要带入周边语法。
 
-普通低置信 ASR 词、显示预算和 glossary 一致性都只作为提示。硬门禁只覆盖：schema
-与时间轴有效、ID 完整、原文/译文非空、hash 当前、更新原子、产物 provenance
+普通低置信 ASR 词、语速预算和 glossary 一致性都只作为提示。硬门禁只覆盖：schema
+与时间轴有效、ID 完整、原文/译文非空、每条译文能单行显示（见翻译批次的
+`line_limit`）、hash 当前、更新原子、产物 provenance
 新鲜、最终文件非空，以及存在大量时间对齐参考语音的长字幕空洞。
 
 `finish` 只导出和烧录一次；横屏使用 `fansub`，竖屏使用 `mobile`。默认不运行视觉

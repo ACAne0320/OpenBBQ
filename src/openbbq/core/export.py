@@ -2,19 +2,28 @@
 subtitle file (SRT or ASS).
 
 Source/target split (DESIGN translate spec): cues.json carries the timeline +
-source, the per-language worksheet carries target. ASS export can reflow a
-target across the worksheet's configured line count without changing the source
-timeline or deleting target text.
+source, the per-language worksheet carries target. Bilingual ASS keeps one line
+per language (target over source); a line too wide for the safe area is
+horizontally condensed rather than wrapped. Only a worksheet configured for
+multiple lines, or a monolingual export, reflows the target.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+import math
 import re
 from typing import cast
+import unicodedata
 
-from openbbq.core.translate import is_filled, verify_integrity, wrap_target_lines
+from openbbq.core import segment as seg
+from openbbq.core.translate import (
+    is_filled,
+    line_limit,
+    verify_integrity,
+    wrap_target_lines,
+)
 from openbbq.errors import OpenBBQError
 from openbbq.schemas import Cue, Cues, Translation
 
@@ -109,6 +118,29 @@ def _one_line(text: str, lang: str) -> str:
     else:
         line = line.rstrip(_LATIN_TERMINAL_STRIP)
     return line
+
+
+def over_line_width(
+    translation: Translation, ids: list[int]
+) -> list[dict[str, object]]:
+    """Filled targets among ``ids`` whose rendered line exceeds the line limit.
+
+    Width is measured on the exported presentation (CJK pause marks become
+    spaces, terminal marks drop), in ``segment.display_width`` units.
+    """
+    profile, _ = seg.resolve_profile(translation.target_lang)
+    limit = line_limit(translation)
+    items = {item.id: item for item in translation.items}
+    over: list[dict[str, object]] = []
+    for item_id in ids:
+        target = items[item_id].target
+        if not is_filled(target):
+            continue
+        rendered = _one_line(cast("str", target), translation.target_lang)
+        width = round(seg.display_width(rendered, profile), 1)
+        if width > limit:
+            over.append({"id": item_id, "width": width, "max_width": limit})
+    return over
 
 
 def _lines(
@@ -417,6 +449,35 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
 
+# Average glyph advance as a fraction of the ASS font size, measured with libass
+# on the preset fonts: a full-width glyph (Hiragino Sans GB) is ~0.86, latin
+# text in Arial ~0.40. Lines estimated wider than the safe area are condensed
+# with \fscx down to _MIN_FIT_SCALE percent instead of wrapping.
+_FULL_WIDTH_EM = 0.86
+_LATIN_FONT_EM = 0.41
+_MIN_FIT_SCALE = 70
+_CJK_UNITS = seg.LANGUAGE_PROFILES["zh"]
+
+
+def _estimated_width(text: str, style: _AssStyle) -> float:
+    if style.name.startswith("ZH"):
+        return seg.display_width(text, _CJK_UNITS) * _FULL_WIDTH_EM * style.size
+    return style.size * sum(
+        _FULL_WIDTH_EM if unicodedata.east_asian_width(ch) in "WF" else _LATIN_FONT_EM
+        for ch in text
+    )
+
+
+def _fit_override(text: str, style: _AssStyle, config: _AssPresetConfig) -> str:
+    """``\\fscx`` override that keeps a single line inside the safe area."""
+    safe = config.play_res_x - style.margin_l - style.margin_r
+    width = _estimated_width(text, style)
+    if "\n" in text or width <= safe:
+        return ""
+    scale = max(_MIN_FIT_SCALE, math.floor(safe / width * 100))
+    return f"{{\\fscx{scale}}}"
+
+
 def _ass_style(lang: str, *, top: bool = False) -> str:
     base = _base_lang(lang)
     if base in _CJK_LANGS:
@@ -449,6 +510,8 @@ def render_ass(
     can use independent font size, outline, and vertical position.
     """
     targets = _checked_targets(cues, translation, mode, allow_missing, translation_lang)
+    config = _ASS_PRESETS[preset]
+    styles = {style.name: style for style in config.styles}
     events: list[str] = []
     for cue in cues.cues:
         start = _ass_timestamp(cue.start)
@@ -457,8 +520,9 @@ def render_ass(
         raw = targets.get(cue.id)
         target = None
         if translation is not None and is_filled(raw):
-            normalized_target = _one_line(cast("str", raw), translation.target_lang)
-            target = "\n".join(wrap_target_lines(translation, normalized_target))
+            target = _one_line(cast("str", raw), translation.target_lang)
+            if mode is not ExportMode.BILINGUAL or translation.params.max_lines > 1:
+                target = "\n".join(wrap_target_lines(translation, target))
         if mode is ExportMode.SOURCE or translation is None:
             rows = [(0, _ass_style(cues.source_lang), source)]
         elif mode is ExportMode.TARGET:
@@ -473,10 +537,16 @@ def render_ass(
                 else [(0, _ass_style(cues.source_lang), source)]
             )
         for layer, style, text in rows:
+            fit = _fit_override(text, styles[style], config)
             events.append(
-                f"Dialogue: {layer},{start},{end},{style},,0,0,0,,{_ass_text(text)}"
+                f"Dialogue: {layer},{start},{end},{style},,0,0,0,,{fit}{_ass_text(text)}"
             )
     return _ass_header(preset) + "\n".join(events) + ("\n" if events else "")
+
+
+# An unescaped ``{...}`` block is ASS override markup (e.g. the fit ``\fscx``);
+# literal braces in subtitle text are exported escaped as ``\{``.
+_ASS_OVERRIDE_RE = re.compile(r"(?<!\\)\{[^}]*\}")
 
 
 def is_bilingual_ass(
@@ -505,6 +575,7 @@ def is_bilingual_ass(
         # presentation-only and must not become the letter "n" in the semantic
         # comparison below.
         text = text.replace(r"\N", "").replace(r"\n", "")
+        text = _ASS_OVERRIDE_RE.sub("", text)
         return "".join(character.casefold() for character in text if character.isalnum())
 
     for index, cue in enumerate(cues.cues):

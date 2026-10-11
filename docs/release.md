@@ -34,7 +34,7 @@ the resulting draft:
   provenance are structurally complete and valid;
 - every translation batch has at most 20 cues and only one lease is active;
 - each batch contains the target-language brief and relevant glossary context;
-- ordinary low-confidence findings, display budgets, and glossary consistency
+- ordinary low-confidence findings, reading-speed budgets, and glossary consistency
   remain advisory instead of triggering a full source review or full-coverage
   AI audit;
 - the flow exports and burns once, then ends with `artifact_ready: true`,

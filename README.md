@@ -18,7 +18,7 @@ final subtitle.
 OpenBBQ keeps structural correctness, bounded translation batches, artifact
 freshness, and one-time export/burn deterministic. The agent handles
 translation and may correct an obvious ASR occurrence or learn a reusable
-glossary term while translating. Low-confidence words, display budgets, and
+glossary term while translating. Low-confidence words, reading-speed budgets, and
 glossary consistency are advisory, not mandatory review queues.
 
 An explicit `--glossary` always wins. Otherwise, once a URL fetch identifies

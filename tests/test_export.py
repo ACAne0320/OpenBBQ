@@ -5,11 +5,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
+import re
+
 import typer
 
 from openbbq.cli.commands.export import export
 from openbbq.cli.output import Output
 from openbbq.core import export as exp
+from openbbq.core import segment as seg
 from openbbq.core import review as reviewlib
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
@@ -270,6 +273,61 @@ def test_render_ass_target_keeps_zh_pause_and_latin_spacing_like_srt() -> None:
     )
     out = exp.render_ass(cues, exp.ExportMode.BILINGUAL, translation=tr)
     assert "ZH_TOP,,0,0,0,,这个箱子里 有一台科视 CP2230 放映机\n" in out
+
+
+def _zh_line(n: int) -> str:
+    return ("但我们仍需要一个能帮我们交付真正可用的全栈应用的工具" * 3)[:n]
+
+
+def _ass_rows(out: str) -> dict[str, str]:
+    return {
+        line.split(",", 9)[3]: line.split(",", 9)[9]
+        for line in out.splitlines()
+        if line.startswith("Dialogue:")
+    }
+
+
+def test_render_ass_bilingual_keeps_target_on_one_line_by_default() -> None:
+    cues = _cues(Cue(id=1, start=0, end=4, source="hello"))
+    tr = _translation(_item(1, "hello", _zh_line(25)))
+    out = exp.render_ass(cues, exp.ExportMode.BILINGUAL, translation=tr)
+    assert _ass_rows(out)["ZH_TOP"] == _zh_line(25)
+
+
+def test_render_ass_shrinks_overwide_single_lines_instead_of_wrapping() -> None:
+    source = "word " * 30
+    cues = _cues(Cue(id=1, start=0, end=4, source=source.strip()))
+    tr = _translation(_item(1, source.strip(), _zh_line(34)))
+    out = exp.render_ass(cues, exp.ExportMode.BILINGUAL, translation=tr)
+    rows = _ass_rows(out)
+    for style, text in (("ZH_TOP", _zh_line(34)), ("EN", source.strip())):
+        scale = re.fullmatch(r"\{\\fscx(\d+)\}(.*)", rows[style])
+        assert scale is not None, rows[style]
+        assert 70 <= int(scale.group(1)) < 100
+        assert scale.group(2) == text
+    assert exp.is_bilingual_ass(out, cues, tr) is True
+
+
+def test_default_profiles_fit_one_line_in_default_ass_preset() -> None:
+    zh = seg.LANGUAGE_PROFILES["zh"]
+    en = seg.LANGUAGE_PROFILES["en"]
+    source = ("an ordinary english sentence " * 5)[: en.max_chars_per_line]
+    cues = _cues(Cue(id=1, start=0, end=4, source=source))
+    target = _zh_line(zh.max_chars_per_line)
+    tr = _translation(
+        _item(1, source, target),
+        params=SegmentParams(
+            max_cps=zh.max_cps,
+            max_chars_per_line=zh.max_chars_per_line,
+            max_lines=1,
+            min_dur=1,
+            max_dur=7,
+            min_gap=0.083,
+        ),
+    )
+    rows = _ass_rows(exp.render_ass(cues, exp.ExportMode.BILINGUAL, translation=tr))
+    assert rows["ZH_TOP"] == target
+    assert rows["EN"] == source.rstrip()
 
 
 def test_render_ass_mobile_preset_uses_vertical_canvas_and_safe_margins() -> None:

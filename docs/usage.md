@@ -95,9 +95,10 @@ trigger web search or another ASR run; leave the source unchanged and return a
 warning. A reusable source fix should contain the smallest stable term and
 alias, not surrounding grammar.
 
-Ordinary low-confidence ASR words, display budgets, and glossary consistency
-are advisory. Hard gates are limited to valid schemas and timing, complete IDs,
-non-empty source/target content, current hashes, atomic updates, fresh
+Ordinary low-confidence ASR words, reading-speed budgets, and glossary
+consistency are advisory. Hard gates are limited to valid schemas and timing,
+complete IDs, non-empty source/target content, targets that fit one subtitle
+line (`line_limit` in each translate batch), current hashes, atomic updates, fresh
 provenance, non-empty final artifacts, and long subtitle gaps that contain
 substantial timed reference speech.
 

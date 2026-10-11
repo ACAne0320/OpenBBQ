@@ -15,7 +15,7 @@ OpenBBQ 提供默认的 `agent init/next/apply/finish` facade，让不同 Agent 
 
 OpenBBQ 确定性地保证结构正确、翻译批次有界、产物新鲜和只导出/烧录一次。Agent
 负责翻译，并可在翻译时修正明显的单处 ASR 错误或学习可复用的 glossary 术语。
-低置信词、显示预算和 glossary 一致性只作为提示，不会制造强制审核队列。
+低置信词、语速预算和 glossary 一致性只作为提示，不会制造强制审核队列。
 
 显式 `--glossary` 始终优先。否则，URL fetch 得到作者后，OpenBBQ 会自动绑定稳定的
 作者+目标语言 glossary。任务 overlay 中学到的术语会在交付后冲突安全地发布，并被

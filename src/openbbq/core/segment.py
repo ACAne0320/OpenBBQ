@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
@@ -83,11 +84,14 @@ class LanguageProfile:
 # one visual line per language, sized for the full subtitle-safe width rather
 # than conservative two-line broadcast wraps. Keep natural sentences whole
 # unless they exceed the real single-line screen budget or max duration.
+# Line widths are measured against the default 1080p ASS preset (1760px safe
+# width): Arial 44 fits ~100 latin chars, Hiragino 68 fits ~30 full-width
+# glyphs; both keep a small safety margin.
 # Pass --max-chars-per-line / --max-cps / ... for broadcast-strict subtitling.
 LANGUAGE_PROFILES: dict[str, LanguageProfile] = {
-    "en": LanguageProfile(21, 110, 1, 1.0, 7.0, 0.083, 0.3, cjk=False),
-    "zh": LanguageProfile(11, 32, 1, 1.0, 7.0, 0.083, 0.3, cjk=True),
-    "ja": LanguageProfile(5, 30, 1, 1.0, 7.0, 0.083, 0.3, cjk=True),
+    "en": LanguageProfile(21, 95, 1, 1.0, 7.0, 0.083, 0.3, cjk=False),
+    "zh": LanguageProfile(11, 28, 1, 1.0, 7.0, 0.083, 0.3, cjk=True),
+    "ja": LanguageProfile(5, 28, 1, 1.0, 7.0, 0.083, 0.3, cjk=True),
     "ko": LanguageProfile(14, 32, 1, 1.0, 7.0, 0.083, 0.3, cjk=False),  # per-char
 }
 DEFAULT_PROFILE = LANGUAGE_PROFILES["en"]  # generic latin fallback
@@ -133,6 +137,26 @@ def count_chars(text: str, profile: LanguageProfile) -> int:
     if profile.cjk:
         return sum(1 for ch in text if not ch.isspace())
     return len(text)
+
+
+# A half-width glyph (latin, digit, space) rendered in a CJK subtitle font is
+# ~0.58 of a full-width glyph; round up so the estimate stays conservative.
+_NARROW_GLYPH_WIDTH = 0.6
+
+
+def display_width(text: str, profile: LanguageProfile) -> float:
+    """Rendered single-line width in budget units (one unit = one CJK glyph).
+
+    Unlike ``count_chars`` (a reading-speed measure), this is the physical
+    width that decides whether a line fits the screen: CJK lines weigh
+    half-width glyphs and spaces lighter than full-width ones.
+    """
+    if not profile.cjk:
+        return float(count_chars(text, profile))
+    return sum(
+        1.0 if unicodedata.east_asian_width(ch) in "WF" else _NARROW_GLYPH_WIDTH
+        for ch in text
+    )
 
 
 # --- text reconstruction + line wrapping --------------------------------------

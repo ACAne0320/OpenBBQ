@@ -94,9 +94,14 @@ active action; repeated calls return the same lease. Continue while
   conditions, and key relationships.
 - Translate only the current cue. Use neighbors for disambiguation, never to
   move content between IDs.
-- Prefer meaning and alignment over aggressive shortening. If unsure about a
-  possible ASR error, translate the current source and include a warning instead
-  of inventing a correction.
+- Every target must fit on one subtitle line; the width limit is the batch
+  `line_limit`. Condense as subtitlers do while translating: keep facts,
+  numbers, negation, and key relationships; drop fillers, repetition, and
+  redundant modifiers. No need to measure widths yourself beforehand: for an
+  over-wide target, apply returns the exact cue ids and widths; condense only
+  those cues and resubmit the same batch.
+- If unsure about a possible ASR error, translate the current source and
+  include a warning instead of inventing a correction.
 - A translation-stage source fix may remove local noise, but must not delete the
   whole cue. Leave structural or boundary changes for source review.
 - Use the supplied title, author, glossary, and local reference evidence first.

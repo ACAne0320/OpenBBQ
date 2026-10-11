@@ -104,13 +104,13 @@ def test_build_worksheet_budget_and_snapshot() -> None:
     assert generic is False
     zh = seg.LANGUAGE_PROFILES["zh"]
     assert doc.params.max_cps == zh.max_cps  # snapshot of the target profile
-    expected = math.floor(min(zh.max_cps * 2.0, zh.max_chars_per_line * zh.max_lines))
+    expected = math.floor(zh.max_cps * 2.0)
     assert doc.items[0].budget.max_chars == expected
     assert doc.items[0].budget.seconds == 2.0
     assert doc.items[0].target is None and doc.items[0].source == "hello world"
     assert doc.schema_ == "openbbq/translation@2"
     assert doc.brief is not None
-    assert doc.brief.ruleset == "zh-Hans@1"
+    assert doc.brief.ruleset == "zh-Hans@2"
     assert doc.brief.generic_translation_rules is False
 
 
@@ -126,26 +126,26 @@ def test_simplified_chinese_translation_rules_are_target_language_scoped(
         glossary_context="AI agents",
     )
 
-    assert brief.ruleset == "zh-Hans@1"
+    assert brief.ruleset == "zh-Hans@2"
     assert brief.generic_translation_rules is False
     assert brief.title == "Demo"
     assert brief.author == "Channel"
     assert brief.domain_context == "AI agents"
-    assert len(brief.rules) == 4
+    assert len(brief.rules) == 5
     assert any("当前 cue" in rule for rule in brief.rules)
     assert any("语境明确匹配" in rule for rule in brief.rules)
-    assert any("字符预算仅供参考" in rule for rule in brief.rules)
+    assert any("单行显示" in rule for rule in brief.rules)
 
 
 @pytest.mark.parametrize("lang", ["zh-TW", "zh-Hant", "zh-HK", "fr"])
 def test_unsupported_target_language_rules_use_generic_fallback(lang: str) -> None:
     brief = translation_rules.build_brief(source_lang="en", target_lang=lang)
 
-    assert brief.ruleset == "generic@1"
+    assert brief.ruleset == "generic@2"
     assert brief.generic_translation_rules is True
-    assert len(brief.rules) == 4
+    assert len(brief.rules) == 5
     assert any("current source" in rule for rule in brief.rules)
-    assert any("character budget as guidance" in rule for rule in brief.rules)
+    assert any("one subtitle line" in rule for rule in brief.rules)
 
 
 def test_build_worksheet_target_line_override_increases_visual_capacity() -> None:
@@ -154,9 +154,18 @@ def test_build_worksheet_target_line_override_increases_visual_capacity() -> Non
     default, _ = tr.build_worksheet(cues, None, "zh")
     two_lines, _ = tr.build_worksheet(cues, None, "zh", max_lines=2)
 
-    assert default.items[0].budget.max_chars == 32
+    assert tr.line_limit(default) == 28
     assert two_lines.params.max_lines == 2
-    assert two_lines.items[0].budget.max_chars == 44
+    assert tr.line_limit(two_lines) == 56
+
+
+def test_budget_measures_reading_speed_not_screen_width() -> None:
+    cues = _cues(Cue(id=1, start=0.0, end=4.0, source="hello world"))
+
+    doc, _ = tr.build_worksheet(cues, None, "zh")
+
+    # 11 cps x 4 s; the 28-wide single-line cap is enforced separately.
+    assert doc.items[0].budget.max_chars == 44
 
 
 def test_wrap_target_lines_preserves_mixed_cjk_and_latin_text() -> None:
@@ -523,7 +532,8 @@ def test_init_accepts_target_line_budget_overrides(
     assert payload["max_lines"] == 2
     assert doc.params.max_chars_per_line == 20
     assert doc.params.max_lines == 2
-    assert doc.items[0].budget.max_chars == 40
+    assert tr.line_limit(doc) == 40
+    assert doc.items[0].budget.max_chars == 44
 
 
 def test_init_refuses_overwrite_without_force(tmp_path) -> None:
@@ -733,7 +743,7 @@ def test_translate_batch_returns_bounded_items_context_and_next_cursor(
         "source 5",
     ]
     brief = cast(dict[str, object], payload["brief"])
-    assert brief["ruleset"] == "zh-Hans@1"
+    assert brief["ruleset"] == "zh-Hans@2"
     assert doc.brief is not None
     assert payload["policy_hash"] == translation_rules.policy_hash(doc.brief)
 

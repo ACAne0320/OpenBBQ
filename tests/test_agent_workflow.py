@@ -765,6 +765,59 @@ def test_translate_allows_pre_generation_policy_lease_to_finish(
     assert applied["generation_mode"] == "current_agent"
 
 
+def _translate_one(path: Path, action: dict[str, Any], target: str) -> dict[str, Any]:
+    return _apply(
+        path,
+        {
+            "batch_id": action["batch_id"],
+            "policy_hash": action["policy_hash"],
+            "generation_mode": action["generation_policy"]["mode"],
+            "translations": {"1": target},
+            "source_fixes": [],
+            "glossary_updates": [],
+        },
+    )
+
+
+def test_translate_action_exposes_single_line_width_limit(tmp_path: Path) -> None:
+    path, _ = _workspace(tmp_path, ["hello"])
+    _install_cues_and_worksheet(path, ["hello"])
+
+    action = _next(path)
+
+    assert action["line_limit"]["max_width"] == 28
+    assert "0.6" in action["line_limit"]["counting"]
+
+
+def test_translate_rejects_target_wider_than_one_line_and_keeps_lease(
+    tmp_path: Path,
+) -> None:
+    path, _ = _workspace(tmp_path, ["hello"])
+    _install_cues_and_worksheet(path, ["hello"])
+    action = _next(path)
+
+    with pytest.raises(OpenBBQError) as raised:
+        _translate_one(path, action, "一" * 29)
+
+    assert raised.value.code == "translation_exceeds_line_width"
+    assert raised.value.context["cues"] == [{"id": 1, "width": 29.0, "max_width": 28}]
+    assert ws.read_translation(ws.worksheet_path(path, "zh")).items[0].target is None
+    assert _next(path) == action
+
+
+def test_translate_line_width_counts_latin_narrower_than_cjk(tmp_path: Path) -> None:
+    path, _ = _workspace(tmp_path, ["hello"])
+    _install_cues_and_worksheet(path, ["hello"])
+    action = _next(path)
+    # 32 non-space glyphs, but only 24.4 full-width units once rendered.
+    target = "我们用OpenAI Codex和Gemini Flash做了对比测试"
+
+    result = _translate_one(path, action, target)
+
+    assert result["applied"] == "translate"
+    assert ws.read_translation(ws.worksheet_path(path, "zh")).items[0].target == target
+
+
 def test_cue_scoped_source_fix_allows_empty_replacement_to_delete_noise(
     tmp_path: Path,
 ) -> None:
