@@ -97,3 +97,13 @@ def test_unexpected_exception_emits_internal_json_and_traceback(
     assert code == 1
     assert data == {"error": "internal", "message": "boom"}
     assert "Traceback" in stderr
+
+
+def test_cli_catches_the_abort_that_bundled_click_raises() -> None:
+    # typer moved the Abort its bundled click raises between 0.26 and 0.27;
+    # catching the wrong class would turn Ctrl-C into an internal error.
+    from typer._click import core
+
+    import openbbq.cli as cli
+
+    assert cli.Abort is core.Abort

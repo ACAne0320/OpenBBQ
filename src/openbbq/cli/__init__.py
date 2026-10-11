@@ -7,12 +7,16 @@ from typing import Protocol, cast
 
 import typer
 from typer._click import ClickException  # typer >=0.26 bundles click privately
-from typer._click.exceptions import Abort
 from typer.main import get_command
 
 from ..errors import OpenBBQError
 from .app import app
 from .output import Output
+
+try:  # typer 0.26 raises the Abort of its privately bundled click
+    from typer._click.exceptions import Abort
+except ImportError:  # typer >=0.27 raises its public typer.Abort
+    from typer import Abort
 
 __all__ = ["app", "main"]
 
