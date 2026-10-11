@@ -122,6 +122,27 @@ def installed_skill_path(
     return root / name.value / "SKILL.md"
 
 
+def outdated_installs(name: SkillName = _DEFAULT_SKILL) -> list[Path]:
+    """Installed copies of ``name`` that match no packaged language version.
+
+    Missing installs are not reported: an agent may run OpenBBQ without the
+    skill. Only a stale copy is harmful, because the agent follows it.
+    """
+    packaged = {
+        packaged_skill_content(language, name=name) for language in SkillLanguage
+    }
+    stale: list[Path] = []
+    for agent in SUPPORTED_AGENTS:
+        path = installed_skill_path(target_for_agent(agent), name=name)
+        try:
+            installed = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if installed not in packaged:
+            stale.append(path)
+    return stale
+
+
 def _packaged_files(
     *,
     name: SkillName,

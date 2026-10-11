@@ -18,7 +18,8 @@ openbbq --json agent next --workspace '<ws>'
 
 `agent init` 和 `agent apply` 的输出若带 `next`，它就是下一步 action，直接执行即可，
 不必再调用 `agent next`（再调用也只会返回同一个 lease）。音频规整、断句、建翻译表这类
-本地机械步骤由 OpenBBQ 自动完成，不会交给 agent。
+本地机械步骤由 OpenBBQ 自动完成，不会交给 agent。若 `agent init` 返回
+`skill_outdated` warning，交付时把它连同 `fix_argv` 告诉用户。
 
 重复以下步骤，直到收到 `done`：
 

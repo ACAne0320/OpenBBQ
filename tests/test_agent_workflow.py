@@ -12,6 +12,7 @@ import typer
 
 from openbbq.cli.commands.agent import apply as apply_command
 from openbbq.cli.commands.agent import finish as finish_command
+from openbbq.cli.commands.agent import init as init_command
 from openbbq.cli.commands.agent import next_command
 from openbbq.cli.commands.export import export as export_command
 from openbbq.cli.commands.segment import segment as segment_command
@@ -21,6 +22,7 @@ from openbbq.core import export as exportlib
 from openbbq.core import glossary as glossarylib
 from openbbq.core import glossary_overlay
 from openbbq.core import review as reviewlib
+from openbbq.core import skill as skilllib
 from openbbq.core import translate as translatelib
 from openbbq.core import workspace as ws
 from openbbq.errors import OpenBBQError
@@ -1150,6 +1152,47 @@ def test_agent_apply_returns_the_following_action(
     assert result["next"]["action"] == "finish"
     next_command(_ctx(), workspace=str(path), to=None)
     assert _emitted(capsys)["batch_id"] == result["next"]["batch_id"]
+
+
+def test_agent_init_returns_first_action_and_flags_outdated_skill(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stale = tmp_path / "skills" / "openbbq-subtitles" / "SKILL.md"
+    monkeypatch.setattr(skilllib, "outdated_installs", lambda: [stale])
+
+    init_command(
+        _ctx(),
+        source="https://www.youtube.com/watch?v=example",
+        workspace=str(tmp_path / "work"),
+        to="zh",
+        glossary=None,
+    )
+
+    result = _emitted(capsys)
+    assert result["action"] == "initialized"
+    assert result["next"]["action"] == "run_command"
+    assert result["next"]["argv"][2] == "fetch"
+    assert result["warnings"][0]["code"] == "skill_outdated"
+    assert str(stale) in result["warnings"][0]["detail"]
+
+
+def test_outdated_installs_ignores_missing_and_accepts_any_packaged_language(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    claude = tmp_path / ".claude" / "skills" / "openbbq-subtitles" / "SKILL.md"
+    codex = tmp_path / ".codex" / "skills" / "openbbq-subtitles" / "SKILL.md"
+    claude.parent.mkdir(parents=True)
+    codex.parent.mkdir(parents=True)
+    claude.write_text(
+        skilllib.packaged_skill_content(skilllib.SkillLanguage.ZH_CN),
+        encoding="utf-8",
+    )
+    codex.write_text("an older skill", encoding="utf-8")
+
+    assert skilllib.outdated_installs() == [codex]
 
 
 def test_semantic_warnings_are_recorded_but_do_not_block_finish(

@@ -12,6 +12,7 @@ from ...core import export as exportlib
 from ...core import glossary as glossarylib
 from ...core import glossary_overlay
 from ...core import media
+from ...core import skill as skilllib
 from ...core import workspace as ws
 from ...errors import OpenBBQError
 from ...schemas import Cues, Stage, Translation
@@ -110,6 +111,27 @@ def _advance_after_success(path: Path, lang: str) -> dict[str, Any] | None:
         return None
 
 
+def _skill_warnings() -> list[dict[str, object]]:
+    stale = skilllib.outdated_installs()
+    if not stale:
+        return []
+    return [
+        {
+            "code": "skill_outdated",
+            "detail": "installed OpenBBQ skill differs from this OpenBBQ version: "
+            + ", ".join(str(path) for path in stale),
+            "fix_argv": [
+                "openbbq",
+                "skill",
+                "install",
+                "--agent",
+                "all",
+                "--force",
+            ],
+        }
+    ]
+
+
 @app.command()
 def init(
     ctx: typer.Context,
@@ -156,6 +178,9 @@ def init(
     }
     if following is not None:
         data["next"] = following
+    warnings = _skill_warnings()
+    if warnings:
+        data["warnings"] = warnings
     output.emit(AgentResult(data=data))
 
 

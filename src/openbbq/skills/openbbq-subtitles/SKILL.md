@@ -30,7 +30,8 @@ When `agent init` or `agent apply` output includes `next`, that is the next
 action: act on it directly without calling `agent next` (calling it again only
 returns the same lease). OpenBBQ runs local mechanical steps such as audio
 normalization, segmentation, and worksheet creation itself; they never reach
-the agent.
+the agent. If `agent init` returns a `skill_outdated` warning, report it with
+its `fix_argv` when you deliver.
 
 Repeat these steps until `done`:
 
