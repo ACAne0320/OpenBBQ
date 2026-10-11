@@ -35,6 +35,13 @@ MIN_REPEAT_SPAN_S = 5.0
 MAX_DECISION_BATCH = 20
 MIN_COLLAPSED_WORDS = 3
 MIN_BOUNDARY_PILEUP_WORDS = 5
+# A collapsed segment is retimed without review when most of its words keep
+# real timestamps to anchor the rest: decoder hallucinations ("Music by ...",
+# "Thank you so much.") collapse three quarters or more of their words, while
+# real speech loses a few, and how many varies from run to run.
+MIN_ANCHORED_RETIME_WORDS = 6
+MAX_ANCHORED_RETIME_SHARE = 1 / 2
+MIN_RETIMED_WORD_S = 0.04
 REFERENCE_RECOVERY_SIMILARITY = 0.72
 REFERENCE_RECOVERY_SEQUENCE_SIMILARITY = 0.65
 REFERENCE_TIMING_REPAIR_MIN_SHIFT_S = 1.0
@@ -690,6 +697,115 @@ def _has_collapsed_timeline(segment: Segment) -> bool:
     )
 
 
+def _unanchored_word_indexes(segment: Segment) -> set[int]:
+    """Words whose timestamps are zero-length or piled onto the segment end."""
+    words = segment.words or []
+    return {
+        index
+        for index, word in enumerate(words)
+        if word.end <= word.start + 1e-6 or word.start >= segment.end - 0.005
+    }
+
+
+def _retime_from_anchors(segment: Segment) -> Segment | None:
+    """Spread unanchored words between their timed neighbors, or ``None``.
+
+    Each run of unanchored words takes the gap between the surrounding anchors,
+    shared by word length. A gap too short for its run absorbs the neighboring
+    anchors until it fits. Returns ``None`` when too few anchors survive to
+    trust the segment's timing.
+    """
+
+    words = list(segment.words or [])
+    unanchored = _unanchored_word_indexes(segment)
+    if (
+        len(words) < MIN_ANCHORED_RETIME_WORDS
+        or not unanchored
+        or len(unanchored) > len(words) * MAX_ANCHORED_RETIME_SHARE
+    ):
+        return None
+    anchors = [word for index, word in enumerate(words) if index not in unanchored]
+    if any(
+        word.start < segment.start - 0.01 or word.end > segment.end + 0.01
+        for word in anchors
+    ) or any(
+        later.start < earlier.start for earlier, later in zip(anchors, anchors[1:])
+    ):
+        return None
+
+    def runs(indexes: set[int]) -> list[tuple[int, int]]:
+        found: list[tuple[int, int]] = []
+        for index in sorted(indexes):
+            if found and found[-1][1] == index - 1:
+                found[-1] = (found[-1][0], index)
+            else:
+                found.append((index, index))
+        return found
+
+    def window(first: int, last: int) -> tuple[float, float]:
+        start = words[first - 1].end if first > 0 else segment.start
+        end = words[last + 1].start if last + 1 < len(words) else segment.end
+        return start, end
+
+    def cramped(first: int, last: int) -> bool:
+        start, end = window(first, last)
+        return end - start < MIN_RETIMED_WORD_S * (last - first + 1)
+
+    retimed = set(unanchored)
+    while True:
+        cramped_runs = [run for run in runs(retimed) if cramped(*run)]
+        if not cramped_runs:
+            break
+        if len(retimed) == len(words):
+            return None
+        for first, last in cramped_runs:
+            retimed.update({max(first - 1, 0), min(last + 1, len(words) - 1)})
+
+    for first, last in runs(retimed):
+        start, end = window(first, last)
+        weights = [
+            max(len(words[index].word.strip()), 1) for index in range(first, last + 1)
+        ]
+        clock = start
+        for offset, index in enumerate(range(first, last + 1)):
+            step = (end - start) * weights[offset] / sum(weights)
+            words[index] = words[index].model_copy(
+                update={"start": clock, "end": clock + step}
+            )
+            clock += step
+    repaired = segment.model_copy(update={"words": words})
+    return None if _has_collapsed_timeline(repaired) else repaired
+
+
+def _auto_retimed(segment: Segment, reference: tuple[Word, ...]) -> Segment | None:
+    """A collapsed segment repaired without review, when that is safe.
+
+    Safe means the anchors carry the timing and a timed reference, if any,
+    agrees with the ASR text; disagreement stays a review decision.
+    """
+
+    if not _has_collapsed_timeline(segment):
+        return None
+    if reference:
+        _matched, score = _best_reference_match(segment, reference)
+        if score < REFERENCE_RECOVERY_SIMILARITY:
+            return None
+    return _retime_from_anchors(segment)
+
+
+def retime_collapsed_segments(
+    transcript: Transcript,
+    reference_words: list[Word] | tuple[Word, ...] = (),
+) -> Transcript:
+    """Apply every review-free collapsed-timestamp repair."""
+
+    reference = tuple(reference_words)
+    segments = [
+        _auto_retimed(segment, reference) or segment for segment in transcript.segments
+    ]
+    return transcript.model_copy(update={"segments": segments})
+
+
 def _reference_word_keys(words: tuple[Word, ...]) -> list[str]:
     return [
         " ".join(_normalized_words(word.word)) or word.word.casefold() for word in words
@@ -742,6 +858,8 @@ def _timeline_anomalies(
     recovering = False
     reference_cursor: float | None = None
     for index, segment in enumerate(transcript.segments):
+        if _auto_retimed(segment, reference_words) is not None:
+            continue
         collapsed = _has_collapsed_timeline(segment)
         window_reference = _reference_window(
             reference_words,
@@ -1094,7 +1212,10 @@ def _validate_decision(issue: Issue | Anomaly, decision: AsrDecision) -> None:
             raise OpenBBQError(
                 "asr_decision_invalid",
                 id=issue.id,
-                detail="timeline anomalies require a timed replacement or explicit drop",
+                detail=(
+                    "timeline anomalies take replace or drop; replace with the "
+                    "segment's own text to keep it and retime its words"
+                ),
             )
         if decision.action == "replace" and decision.find is not None:
             raise OpenBBQError(
@@ -1586,11 +1707,16 @@ def resolved_transcript(
     """
 
     if review is None or review.transcript_hash != transcript_hash(transcript):
-        return transcript
-    reviewed = apply_segment_decisions(
-        transcript,
-        review,
-        reference_words=reference_words,
+        return retime_collapsed_segments(transcript, reference_words)
+    # Retime before phrase replacements so the repair sees the same segments
+    # anomaly detection did.
+    reviewed = retime_collapsed_segments(
+        apply_segment_decisions(
+            transcript,
+            review,
+            reference_words=reference_words,
+        ),
+        reference_words,
     )
     decisions_by_segment: dict[int, list[tuple[str, AsrDecision]]] = {}
     for issue_id, decision in review.decisions.items():

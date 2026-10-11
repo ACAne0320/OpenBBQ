@@ -773,6 +773,82 @@ controlling<00:00:04.500><c> the</c><00:00:05.500><c> worker</c><00:00:06.500><c
     assert resolved.segments[1].start == 4.5
 
 
+def _anchored_segment(collapsed: Sequence[int], *, words: int = 12) -> Segment:
+    """A 0.5s-per-word segment whose ``collapsed`` words have zero length."""
+    tokens = [f"word{index}" for index in range(words)]
+    segment = _timed_segment(0, 0.0, words * 0.5, " ".join(tokens), tokens)
+    assert segment.words is not None
+    for index in collapsed:
+        point = segment.words[collapsed[0]].start
+        segment.words[index].start = point
+        segment.words[index].end = point
+    return segment
+
+
+def _assert_usable_timeline(segment: Segment) -> None:
+    words = segment.words or []
+    assert all(word.end > word.start for word in words)
+    assert all(
+        later.start >= earlier.end - 1e-9 for earlier, later in zip(words, words[1:])
+    )
+    assert segment.start <= words[0].start and words[-1].end <= segment.end
+
+
+def test_anchored_collapsed_words_are_retimed_without_review() -> None:
+    transcript = _transcript(_anchored_segment([4, 5, 6]))
+
+    assert asr_review.extract_anomalies(transcript) == []
+    resolved = asr_review.resolved_transcript(transcript, None)
+
+    repaired = resolved.segments[0]
+    assert repaired.text == transcript.segments[0].text
+    _assert_usable_timeline(repaired)
+    words = repaired.words or []
+    assert (words[4].start, words[6].end) == (2.0, 3.5)  # the gap between anchors
+    assert words[0] == (transcript.segments[0].words or [])[0]
+
+
+def test_retiming_widens_a_gap_too_short_for_its_words() -> None:
+    segment = _anchored_segment([4, 5, 6])
+    assert segment.words is not None
+    segment.words[7].start = 2.0  # the next anchor leaves no room
+    transcript = _transcript(segment)
+
+    resolved = asr_review.resolved_transcript(transcript, None)
+
+    assert asr_review.extract_anomalies(transcript) == []
+    _assert_usable_timeline(resolved.segments[0])
+
+
+@pytest.mark.parametrize(
+    ("collapsed", "words"),
+    [([1, 2, 3], 4), ([2, 3, 4, 5, 6, 7, 8], 12)],
+    ids=["too-short-to-anchor", "too-few-anchors"],
+)
+def test_mostly_collapsed_segment_still_needs_review(
+    collapsed: list[int], words: int
+) -> None:
+    transcript = _transcript(_anchored_segment(collapsed, words=words))
+
+    issues = asr_review.extract_anomalies(transcript)
+
+    assert [issue.code for issue in issues] == ["collapsed_word_timestamps"]
+
+
+def test_anchored_collapse_still_needs_review_when_the_reference_disagrees() -> None:
+    transcript = _transcript(_anchored_segment([4, 5, 6]))
+    reference = [
+        Word(word=word, start=index * 0.5, end=(index + 1) * 0.5, prob=1.0)
+        for index, word in enumerate(
+            "the caption says something else entirely over here today".split()
+        )
+    ]
+
+    issues = asr_review.extract_anomalies(transcript, reference_words=reference)
+
+    assert [issue.code for issue in issues] == ["collapsed_word_timestamps"]
+
+
 def test_collapsed_timestamp_anomaly_cannot_be_accepted() -> None:
     transcript = _transcript(
         Segment(

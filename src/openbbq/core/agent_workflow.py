@@ -1102,7 +1102,7 @@ def next_action(
                     "resolve only the listed structural ASR blockers",
                     "accept repeated speech only when the neighboring context shows it is intentional",
                     "a repeated_segment_run uses one visible representative for all identical affected segment_ids; if its span-level reference_caption contains different continuous speech, replace the issue with that caption instead of dropping the span",
-                    "timeline anomalies require a timed replacement or an explicit drop",
+                    "decide a timeline anomaly with replace or drop: replace without find rewrites the whole segment and retimes its words, so replace with the reference_caption when that is the real speech, or with the segment's own text to keep speech whose timing was lost; drop speech that was never said, such as music credits or silence hallucinations",
                     "optional source_fixes are occurrence-scoped; set reusable only when the correction is a stable term for future related videos",
                 ],
                 "selected_segment_ids": selected_ids,
@@ -1137,8 +1137,8 @@ def next_action(
                         "detector issue id": {
                             "action": "accept | replace | drop | keep_first",
                             "reason": "short evidence",
-                            "find": "required for word replacement",
-                            "replacement": "required for replacement",
+                            "find": "omit for a detector issue, which replaces the whole segment",
+                            "replacement": "full segment text, required for replace",
                         }
                     },
                     "source_fixes": [

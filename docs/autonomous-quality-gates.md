@@ -73,7 +73,11 @@ force the model to invent a correction.
 
 `review_source` is reserved for a genuine structural blocker, such as damaged
 timing or repetition that prevents valid segmentation. It is not a review of
-every transcript segment. Source fixes are occurrence-scoped; only an explicit
+every transcript segment. A segment whose word timestamps collapsed only in
+part is retimed between its surviving word timestamps without review, unless
+a timed reference caption disagrees with its text; review is left for segments
+that lost most of their timing, which is how decoder hallucinations usually
+look. Source fixes are occurrence-scoped; only an explicit
 reusable glossary alias may affect later matching occurrences.
 
 A long repeated run is one detector issue and uses one visible representative

@@ -273,6 +273,25 @@ def test_low_confidence_words_are_advisory_and_do_not_trigger_source_review(
     assert ws.read_manifest(path).stages[Stage.SEGMENT].status is StageStatus.DONE
 
 
+def test_partly_collapsed_word_timing_is_repaired_without_source_review(
+    tmp_path: Path,
+) -> None:
+    path, _ = _workspace(
+        tmp_path, ["So that is a brief overview of what this tool buys us today"]
+    )
+    transcript = ws.read_transcript(path / "transcript.json")
+    words = transcript.segments[0].words
+    assert words is not None
+    for word in words[4:7]:
+        word.end = word.start
+    ws.write_text_atomic(path / "transcript.json", transcript.model_dump_json(indent=2))
+
+    action = _next(path)
+
+    assert action["action"] == "run_command"
+    assert "segment" in action["argv"]
+
+
 def test_structural_source_review_lease_is_bounded_idempotent_and_strict(
     tmp_path: Path,
 ) -> None:
