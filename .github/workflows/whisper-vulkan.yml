@@ -38,6 +38,9 @@ jobs:
           - os: ubuntu-latest
             cmake_args: "-DGGML_NATIVE=OFF"
 
+    env:
+      PROJECT_DIR: .
+
     steps:
       - name: Checkout pywhispercpp
         uses: actions/checkout@v7
@@ -45,6 +48,15 @@ jobs:
           repository: absadiki/pywhispercpp
           ref: v${{ inputs.pywhispercpp }}
           submodules: true
+
+      # ggml-vulkan builds its shader generator as a nested CMake project; under
+      # D:\a\OpenBBQ\OpenBBQ its MSBuild tracking logs pass the 260-character path limit.
+      - name: Use a short build path
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cp -r . /c/p
+          echo 'PROJECT_DIR=C:\p' >> "$GITHUB_ENV"
 
       - name: Install Vulkan SDK
         if: runner.os == 'Windows'
@@ -63,7 +75,7 @@ jobs:
         run: python -m pip install cibuildwheel==4.3.1
 
       - name: Build wheels
-        run: python -m cibuildwheel --output-dir wheelhouse
+        run: python -m cibuildwheel "${{ env.PROJECT_DIR }}" --output-dir wheelhouse
         env:
           CIBW_BUILD: "cp312-* cp313-* cp314-*"
           CIBW_ARCHS: auto64
