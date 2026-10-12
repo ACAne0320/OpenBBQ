@@ -66,6 +66,18 @@ jobs:
           cache: true
           stripdown: true
 
+      # Bundle the Khronos loader (vulkan-1.dll) so the wheel still imports, and
+      # falls back to the CPU, on machines without a Vulkan runtime.
+      - name: Expose the Vulkan loader to delvewheel
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          loader=$(find "$(cygpath -u "$VULKAN_SDK")" -iname vulkan-1.dll -path '*x64*' | head -1)
+          [ -n "$loader" ] || loader=$(find "$(cygpath -u "$VULKAN_SDK")" -iname vulkan-1.dll | head -1)
+          echo "loader: $loader"
+          [ -n "$loader" ]
+          cygpath -w "$(dirname "$loader")" >> "$GITHUB_PATH"
+
       - name: Install Python
         uses: actions/setup-python@v7
         with:
