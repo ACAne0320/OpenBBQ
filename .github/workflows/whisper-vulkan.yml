@@ -99,13 +99,15 @@ jobs:
           CIBW_ENVIRONMENT: >-
             CMAKE_ARGS="${{ matrix.cmake_args }}"
             GGML_VULKAN=1
-            PYWHISPERCPP_VERSION=${{ env.WHEEL_VERSION }}
+            SETUPTOOLS_SCM_PRETEND_VERSION=${{ env.WHEEL_VERSION }}
           # setup.py repairs Windows wheels itself.
           CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: ""
 
-      - name: List wheels
+      - name: Check wheel versions
         shell: bash
-        run: ls -l wheelhouse
+        run: |
+          ls -l wheelhouse
+          ! ls wheelhouse | grep -v -F "pywhispercpp-${WHEEL_VERSION}-"
 
       - name: Upload wheels
         uses: actions/upload-artifact@v7
