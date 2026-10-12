@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from typing import Any
 
@@ -107,3 +109,17 @@ def test_cli_catches_the_abort_that_bundled_click_raises() -> None:
     import openbbq.cli as cli
 
     assert cli.Abort is core.Abort
+
+
+def test_machine_output_is_utf8_even_when_the_locale_is_not() -> None:
+    # Windows pipes default to the ANSI code page (cp1252 / cp936); agents read UTF-8.
+    proc = subprocess.run(
+        [sys.executable, "-c", "from openbbq.cli import main; main()", "--json", "字幕"],
+        capture_output=True,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+    )
+
+    assert proc.returncode == 2
+    data = _single_json(proc.stdout.decode("utf-8"))
+    assert data["error"] == "usage"
+    assert "字幕" in data["message"]

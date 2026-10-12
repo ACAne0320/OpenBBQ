@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import io
 import sys
 import traceback
 from typing import Protocol, cast
@@ -39,6 +40,14 @@ def _disable_no_args_help(command: object) -> None:
             _disable_no_args_help(child)
 
 
+def _use_utf8_streams() -> None:
+    # Agents read our output as UTF-8, but Windows pipes default to the ANSI
+    # code page (cp1252 / cp936), which can't carry CJK text.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
+
+
 def main() -> None:
     """Console entry point, split by audience.
 
@@ -48,6 +57,7 @@ def main() -> None:
     success, domain errors (exit 1) and usage errors (exit 2) alike, so
     ``--json`` is honored uniformly.
     """
+    _use_utf8_streams()
     if "--json" not in sys.argv and sys.stdout.isatty():
         try:
             app()

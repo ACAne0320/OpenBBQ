@@ -11,8 +11,15 @@ permissions:
 
 jobs:
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout
@@ -42,4 +49,4 @@ jobs:
       - name: Smoke test wheel
         run: |
           uv run --isolated --no-project --with dist/*.whl openbbq --help
-          uv run --isolated --no-project --with dist/*.whl openbbq --json doctor | python3 -c "import json, sys; json.load(sys.stdin)"
+          uv run --isolated --no-project --with dist/*.whl openbbq --json doctor | uv run --no-project python -c "import json, sys; json.load(sys.stdin)"

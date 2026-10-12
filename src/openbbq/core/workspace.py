@@ -5,16 +5,18 @@ imports cli/output — failures surface as OpenBBQError.
 
 from __future__ import annotations
 
+import errno
 import json
 import hashlib
 import os
 import re
+import sys
 import tempfile
-import fcntl
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import IO, Any, cast
 from urllib.parse import parse_qs, urlparse
 
 from pydantic import ValidationError
@@ -38,6 +40,34 @@ from openbbq.schemas import (
 )
 
 MANIFEST_NAME = "manifest.json"
+
+if sys.platform == "win32":
+    import msvcrt
+
+    def _lock_file(handle: IO[str]) -> None:
+        """Block until this handle holds an exclusive lock on byte 0 of the file."""
+        handle.seek(0)
+        while True:
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                return
+            except OSError as error:
+                if error.errno not in (errno.EACCES, errno.EDEADLOCK):
+                    raise
+            time.sleep(0.05)
+
+    def _unlock_file(handle: IO[str]) -> None:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _lock_file(handle: IO[str]) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+
+    def _unlock_file(handle: IO[str]) -> None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 _PROVENANCE_PATH = Path(".openbbq") / "artifacts.json"
 _ASR_REVIEW_PATH = Path(".openbbq") / "asr-review.json"
 _QA_PATH = Path(".openbbq") / "qa.json"
@@ -345,11 +375,11 @@ def agent_workspace_lock(workspace: Path):
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with lock_path.open("a+") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            _lock_file(handle)
             try:
                 yield
             finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                _unlock_file(handle)
     except OSError as error:
         raise OpenBBQError(
             "agent_workspace_lock_failed",
@@ -375,7 +405,7 @@ def stage_execution_lock(workspace: Path, stage: Stage):
         ) from error
     with handle:
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            _lock_file(handle)
         except OSError as error:
             raise OpenBBQError(
                 "stage_execution_lock_failed",
@@ -386,7 +416,7 @@ def stage_execution_lock(workspace: Path, stage: Stage):
         try:
             yield
         finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            _unlock_file(handle)
 
 
 def qa_path(workspace: Path) -> Path:
