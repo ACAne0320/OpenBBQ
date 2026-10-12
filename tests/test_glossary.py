@@ -134,7 +134,7 @@ def test_load_malformed_is_invalid(
     _home(tmp_path, monkeypatch)
     p = gl.glossary_path("broken")
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text('{"schema":"openbbq/glossary@1"}')  # missing required `name`
+    p.write_text('{"schema":"openbbq/glossary@1"}', encoding="utf-8")  # missing required `name`
     with pytest.raises(OpenBBQError) as exc:
         gl.load("broken")
     assert exc.value.code == "invalid_glossary"

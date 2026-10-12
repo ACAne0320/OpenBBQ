@@ -14,6 +14,7 @@ from ...core import glossary_overlay
 from ...core import media
 from ...core import skill as skilllib
 from ...core import workspace as ws
+from ...core.processes import pid_alive
 from ...errors import OpenBBQError
 from ...schemas import Cues, Stage, Translation
 from ..delivery import assess_delivery
@@ -301,16 +302,6 @@ def _fresh_agent_subtitle(
     return actual == expected
 
 
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 @app.command()
 def finish(
     ctx: typer.Context,
@@ -340,7 +331,7 @@ def finish(
                 "agent_finish_not_ready",
                 fix=f"run openbbq agent next --workspace {path}",
             )
-        if session.finish_pid is not None and _pid_alive(session.finish_pid):
+        if session.finish_pid is not None and pid_alive(session.finish_pid):
             raise OpenBBQError(
                 "agent_finish_in_progress",
                 pid=session.finish_pid,

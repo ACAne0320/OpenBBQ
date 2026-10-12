@@ -437,7 +437,7 @@ def test_new_session_skips_glossary_selection_and_returns_mechanical_argv(
     }
     stored = ws.read_agent_session_optional(path, "zh")
     assert stored is not None
-    sidecar = json.loads(ws.agent_session_path(path, "zh").read_text())
+    sidecar = json.loads(ws.agent_session_path(path, "zh").read_text(encoding="utf-8"))
     assert sidecar["schema"] == "openbbq/agent-session@2"
 
 

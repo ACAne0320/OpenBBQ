@@ -129,12 +129,27 @@ def derive_slug(source_type: SourceType, ref: str) -> str:
 # --- manifest I/O -------------------------------------------------------------
 
 
+def _replace(source: Path, target: Path) -> None:
+    # Windows refuses to replace a file while another handle has it open
+    # (a concurrent reader or writer); those handles are short-lived.
+    for _ in range(100):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if sys.platform != "win32":
+                raise
+            time.sleep(0.02)
+    os.replace(source, target)
+
+
 def write_text_atomic(path: Path, content: str) -> None:
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
             "w",
             encoding="utf-8",
+            newline="",  # write "\n" as-is: identical bytes on every platform
             dir=path.parent,
             prefix=f".{path.name}.",
             suffix=".tmp",
@@ -144,7 +159,7 @@ def write_text_atomic(path: Path, content: str) -> None:
             tmp.write(content)
             tmp.flush()
             os.fsync(tmp.fileno())
-        os.replace(tmp_path, path)
+        _replace(tmp_path, path)
         try:
             directory_fd = os.open(path.parent, os.O_RDONLY)
         except OSError:
@@ -475,7 +490,7 @@ def write_reference_caption(workspace: Path, content: str) -> Path:
 def _workspace_path_key(workspace: Path, path: Path) -> str:
     resolved = path.expanduser().resolve()
     try:
-        return str(resolved.relative_to(workspace.resolve()))
+        return resolved.relative_to(workspace.resolve()).as_posix()
     except ValueError:
         return str(resolved)
 

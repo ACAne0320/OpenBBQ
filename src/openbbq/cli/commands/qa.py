@@ -173,7 +173,7 @@ def render(
         )
         evidence.append(
             qalib.FrameEvidence(
-                path=str(frame_path.relative_to(path)),
+                path=frame_path.relative_to(path).as_posix(),
                 cue_id=point.cue_id,
                 at=point.at,
                 file=frame_path,

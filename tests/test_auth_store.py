@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import stat
+import sys
 from time import time
 
 from openbbq.core.auth import store
@@ -35,7 +36,8 @@ def test_auth_store_saves_status_exports_and_clears(tmp_path, monkeypatch) -> No
         mode = stat.S_IMODE(exported.stat().st_mode)
         assert "# Netscape HTTP Cookie File" in text
         assert "\tSID\tsecret" in text
-        assert mode == 0o600
+        if sys.platform != "win32":  # Windows has no POSIX permission bits
+            assert mode == 0o600
     finally:
         exported.unlink(missing_ok=True)
 

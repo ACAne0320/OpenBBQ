@@ -221,7 +221,7 @@ def export(
 
     # record the artifact relative to the workspace when it lives inside it
     try:
-        artifact = str(dest.relative_to(path))
+        artifact = dest.relative_to(path).as_posix()
     except ValueError:
         artifact = str(dest)
     ws.record_stage(

@@ -193,7 +193,7 @@ def init(
     if wpath.exists() and not force:
         raise OpenBBQError(
             "translation_exists",
-            path=str(wpath.relative_to(path)),
+            path=wpath.relative_to(path).as_posix(),
             fix="edit it, or pass --force to regenerate (discards filled targets)",
         )
 

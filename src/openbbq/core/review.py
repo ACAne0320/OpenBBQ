@@ -21,6 +21,7 @@ from typing import Callable, TypeVar
 
 from openbbq.core import glossary as glossarylib
 from openbbq.core import glossary_overlay
+from openbbq.core.processes import pid_alive
 from openbbq.core import segment as seg
 from openbbq.core import translate as translatelib
 from openbbq.core import workspace as ws
@@ -250,7 +251,7 @@ def _revision(path: Path) -> str:
     )
     for rel in names:
         full = path / rel
-        digest.update(str(rel).encode("utf-8"))
+        digest.update(rel.as_posix().encode("utf-8"))
         digest.update(b"\0")
         if full.exists():
             digest.update(full.read_bytes())
@@ -615,7 +616,7 @@ def _capture(path: Path) -> dict[str, bytes | None]:
     files.extend(sorted(path.glob("review.*.json")))
     files.extend(sorted(path.glob("suggestions.*.json")))
     return {
-        str(file.relative_to(path)): file.read_bytes() if file.exists() else None
+        file.relative_to(path).as_posix(): file.read_bytes() if file.exists() else None
         for file in files
     }
 
@@ -750,7 +751,7 @@ class ReviewSession:
         ws.write_text_atomic(
             journal,
             json.dumps(
-                {"op_id": op_id, "checkpoint": str(checkpoint.relative_to(self.path))},
+                {"op_id": op_id, "checkpoint": checkpoint.relative_to(self.path).as_posix()},
                 ensure_ascii=False,
             ),
         )
@@ -1623,13 +1624,12 @@ class ReviewLock:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             pid = int(data["pid"])
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            self.path.unlink(missing_ok=True)
-            return True
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             return False
-        return False
+        if pid_alive(pid):
+            return False
+        self.path.unlink(missing_ok=True)
+        return True
 
     def release(self) -> None:
         if self._held:

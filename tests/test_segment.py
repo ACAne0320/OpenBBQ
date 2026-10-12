@@ -541,7 +541,7 @@ def _workspace(tmp_path: Path) -> tuple[Path, Manifest]:
 
 
 def _with_transcript(path: Path, manifest: Manifest, transcript: Transcript) -> None:
-    (path / "transcript.json").write_text(transcript.model_dump_json())
+    (path / "transcript.json").write_text(transcript.model_dump_json(), encoding="utf-8")
     manifest.stages[Stage.TRANSCRIBE] = StageState(
         status=StageStatus.DONE,
         artifact="transcript.json",
@@ -562,7 +562,7 @@ def test_segment_missing_input_errors(tmp_path) -> None:
 
 def test_segment_invalid_transcript_errors(tmp_path) -> None:
     path, manifest = _workspace(tmp_path)
-    (path / "transcript.json").write_text("{not valid json")
+    (path / "transcript.json").write_text("{not valid json", encoding="utf-8")
     manifest.stages[Stage.TRANSCRIBE] = StageState(
         status=StageStatus.DONE,
         artifact="transcript.json",
@@ -596,7 +596,7 @@ def test_segment_writes_cues_and_records_stage(tmp_path) -> None:
     assert cues_path.exists()
     from openbbq.schemas import Cues
 
-    doc = Cues.model_validate_json(cues_path.read_text())
+    doc = Cues.model_validate_json(cues_path.read_text(encoding="utf-8"))
     assert doc.source_lang == "en"
     assert [c.id for c in doc.cues] == [1]
     assert ws.read_manifest(path).stages[Stage.SEGMENT].status is StageStatus.DONE

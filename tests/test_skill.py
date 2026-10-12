@@ -249,7 +249,7 @@ def test_skill_show_returns_packaged_content(
 
     data = _single_json(stdout)
     assert code == 0
-    assert data["path"].endswith("skills/openbbq-subtitles/SKILL.md")
+    assert Path(data["path"]).as_posix().endswith("skills/openbbq-subtitles/SKILL.md")
     assert data["content"] == skilllib.packaged_skill_content()
 
 
@@ -262,7 +262,7 @@ def test_skill_show_can_return_chinese_content(
 
     data = _single_json(stdout)
     assert code == 0
-    assert data["path"].endswith("skills/openbbq-subtitles/SKILL.zh-CN.md")
+    assert Path(data["path"]).as_posix().endswith("skills/openbbq-subtitles/SKILL.zh-CN.md")
     assert data["content"] == skilllib.packaged_skill_content(
         skilllib.SkillLanguage.ZH_CN
     )
@@ -280,7 +280,7 @@ def test_skill_show_can_choose_bilibili_cover_skill(
     data = _single_json(stdout)
     name = skilllib.SkillName.BILIBILI_COVER_SAFE_AREA
     assert code == 0
-    assert data["path"].endswith("skills/bilibili-cover-safe-area/SKILL.md")
+    assert Path(data["path"]).as_posix().endswith("skills/bilibili-cover-safe-area/SKILL.md")
     assert data["content"] == skilllib.packaged_skill_content(name=name)
 
 

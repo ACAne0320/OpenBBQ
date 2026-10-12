@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1262,7 +1263,9 @@ def test_check_command_is_read_only_and_reports_next_action(
     payload = _payload(capsys)
     assert payload["ready"] is False
     assert payload["unresolved"] == 1
-    assert payload["next"] == f"openbbq asr batch --workspace {path} --limit 20"
+    assert payload["next"] == (
+        f"openbbq asr batch --workspace {shlex.quote(str(path))} --limit 20"
+    )
     assert (path / "manifest.json").read_bytes() == manifest_before
     assert not ws.asr_review_path(path).exists()
 

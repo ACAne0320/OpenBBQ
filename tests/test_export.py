@@ -441,7 +441,7 @@ def _workspace(tmp_path: Path) -> tuple[Path, Manifest]:
 
 
 def _with_cues(path: Path, manifest: Manifest, doc: Cues) -> None:
-    (path / "cues.json").write_text(doc.model_dump_json())
+    (path / "cues.json").write_text(doc.model_dump_json(), encoding="utf-8")
     manifest.stages[Stage.SEGMENT] = StageState(
         status=StageStatus.DONE,
         artifact="cues.json",
@@ -451,7 +451,7 @@ def _with_cues(path: Path, manifest: Manifest, doc: Cues) -> None:
 
 
 def _with_worksheet(path: Path, doc: Translation, lang: str = "zh") -> None:
-    ws.worksheet_path(path, lang).write_text(doc.model_dump_json())
+    ws.worksheet_path(path, lang).write_text(doc.model_dump_json(), encoding="utf-8")
 
 
 def _with_complete_review(path: Path, lang: str = "zh") -> None:
@@ -478,7 +478,7 @@ def test_export_missing_input_errors(tmp_path) -> None:
 
 def test_export_invalid_cues_errors(tmp_path) -> None:
     path, manifest = _workspace(tmp_path)
-    (path / "cues.json").write_text("{not valid json")
+    (path / "cues.json").write_text("{not valid json", encoding="utf-8")
     manifest.stages[Stage.SEGMENT] = StageState(
         status=StageStatus.DONE,
         artifact="cues.json",
@@ -512,7 +512,7 @@ def test_export_writes_ass_with_default_extension(tmp_path) -> None:
 
     ass = path / "out" / "en.ass"
     assert ass.exists()
-    assert "[V4+ Styles]" in ass.read_text()
+    assert "[V4+ Styles]" in ass.read_text(encoding="utf-8")
     assert ws.read_manifest(path).stages[Stage.EXPORT].artifact == "out/en.ass"
 
 
@@ -523,7 +523,7 @@ def test_export_writes_ass_with_preset(tmp_path) -> None:
     export(_ctx(), workspace=str(path), fmt="ass", ass_preset=exp.AssPreset.MOBILE)
 
     ass = path / "out" / "en.ass"
-    text = ass.read_text()
+    text = ass.read_text(encoding="utf-8")
     assert "PlayResX: 1080\nPlayResY: 1920" in text
     assert ws.read_manifest(path).stages[Stage.EXPORT].artifact == "out/en.ass"
 
@@ -556,7 +556,7 @@ def test_export_writes_source_srt_and_records_stage(tmp_path) -> None:
 
     srt = path / "out" / "en.srt"
     assert srt.exists()
-    text = srt.read_text()
+    text = srt.read_text(encoding="utf-8")
     assert text.startswith("1\n00:00:00,000 --> 00:00:01,600\nHello there.\n")
     assert "Bye now." in text
     final = ws.read_manifest(path).stages[Stage.EXPORT]
@@ -574,7 +574,7 @@ def test_export_to_joins_worksheet(tmp_path) -> None:
     export(_ctx(), workspace=str(path), to="zh")
 
     srt = path / "out" / "zh.srt"
-    assert srt.exists() and "你好\n" in srt.read_text()
+    assert srt.exists() and "你好\n" in srt.read_text(encoding="utf-8")
     final_manifest = ws.read_manifest(path)
     assert final_manifest.stages[Stage.EXPORT].artifact == "out/zh.srt"
     assert final_manifest.stages[Stage.TRANSLATE].status is StageStatus.DONE
@@ -678,7 +678,7 @@ def test_export_source_mode_does_not_require_worksheet(tmp_path) -> None:
     export(_ctx(), workspace=str(path), to="zh", mode=exp.ExportMode.SOURCE)
 
     srt = path / "out" / "en.srt"
-    assert srt.exists() and "hi\n" in srt.read_text()
+    assert srt.exists() and "hi\n" in srt.read_text(encoding="utf-8")
 
 
 def test_export_to_missing_worksheet_errors(tmp_path) -> None:

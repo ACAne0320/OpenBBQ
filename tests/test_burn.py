@@ -44,7 +44,7 @@ def _with_export(
 ) -> Path:
     sub = path / artifact
     sub.parent.mkdir(parents=True, exist_ok=True)
-    sub.write_text("[Script Info]\n")
+    sub.write_text("[Script Info]\n", encoding="utf-8")
     manifest.stages[Stage.EXPORT] = StageState(
         status=StageStatus.DONE,
         artifact=artifact,
@@ -167,7 +167,7 @@ def test_burn_rejects_modified_export_artifact(
 ) -> None:
     path, manifest = _workspace(tmp_path)
     sub = _with_export(path, manifest)
-    sub.write_text("[Script Info]\n; manually changed\n")
+    sub.write_text("[Script Info]\n; manually changed\n", encoding="utf-8")
     calls: dict[str, object] = {}
     _patch_burn(monkeypatch, calls)
 
@@ -183,7 +183,7 @@ def test_burn_rejects_untracked_workspace_subtitle(
 ) -> None:
     path, _ = _workspace(tmp_path)
     manual = path / "manual.ass"
-    manual.write_text("[Script Info]\n")
+    manual.write_text("[Script Info]\n", encoding="utf-8")
     calls: dict[str, object] = {}
     _patch_burn(monkeypatch, calls)
 
@@ -199,7 +199,7 @@ def test_burn_allows_explicit_stale_override(
 ) -> None:
     path, _ = _workspace(tmp_path)
     manual = path / "manual.ass"
-    manual.write_text("[Script Info]\n")
+    manual.write_text("[Script Info]\n", encoding="utf-8")
     calls: dict[str, object] = {}
     _patch_burn(monkeypatch, calls)
 
@@ -218,7 +218,7 @@ def test_burn_allows_explicit_external_subtitle(
 ) -> None:
     path, _ = _workspace(tmp_path)
     external = tmp_path / "external.ass"
-    external.write_text("[Script Info]\n")
+    external.write_text("[Script Info]\n", encoding="utf-8")
     calls: dict[str, object] = {}
     _patch_burn(monkeypatch, calls)
 

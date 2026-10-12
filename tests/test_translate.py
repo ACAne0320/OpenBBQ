@@ -488,7 +488,7 @@ def _workspace(tmp_path: Path, *cues: Cue, with_segment: bool = True) -> Path:
     )
     ws.write_manifest(path, manifest)
     if with_segment:
-        (path / "cues.json").write_text(_cues(*cues).model_dump_json())
+        (path / "cues.json").write_text(_cues(*cues).model_dump_json(), encoding="utf-8")
         manifest.stages[Stage.SEGMENT] = StageState(
             status=StageStatus.DONE,
             artifact="cues.json",

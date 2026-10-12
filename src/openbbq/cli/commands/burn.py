@@ -71,7 +71,7 @@ def _clock(seconds: float) -> str:
 
 def _relative_to_workspace(path: Path, workspace: Path) -> str:
     try:
-        return str(path.relative_to(workspace))
+        return path.relative_to(workspace).as_posix()
     except ValueError:
         return str(path)
 

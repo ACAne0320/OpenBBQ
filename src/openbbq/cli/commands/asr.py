@@ -396,7 +396,7 @@ def apply(
     )
     output.emit(
         AsrApplyResult(
-            artifact=str(artifact.relative_to(path)),
+            artifact=artifact.relative_to(path).as_posix(),
             applied=len(parsed),
             total=len(report.issues),
             resolved=len(report.resolved_ids),
@@ -454,7 +454,7 @@ def amend(
     )
     output.emit(
         AsrAmendResult(
-            artifact=str(artifact.relative_to(path)),
+            artifact=artifact.relative_to(path).as_posix(),
             applied=len(parsed),
             amendment_ids=amendment_ids,
             ready=report.ready,
