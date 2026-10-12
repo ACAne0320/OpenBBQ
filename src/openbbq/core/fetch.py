@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -154,7 +155,10 @@ def _run_yt_dlp(
 ) -> subprocess.CompletedProcess[str]:
     proc = subprocess.Popen(
         args,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
+        # yt-dlp otherwise prints titles in the Windows ANSI code page.
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         bufsize=1,

@@ -78,7 +78,8 @@ def _ffmpeg_filter_names(executable: str | Path) -> set[str] | None:
         proc = subprocess.run(
             [str(executable), "-hide_banner", "-filters"],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
     except (OSError, subprocess.SubprocessError):

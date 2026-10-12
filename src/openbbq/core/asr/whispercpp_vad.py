@@ -62,7 +62,9 @@ def detect_speech_file(audio: Path, model: Path) -> list[SpeechRegion]:
         process = subprocess.run(
             command,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             timeout=300,
         )
     except (OSError, subprocess.SubprocessError) as error:

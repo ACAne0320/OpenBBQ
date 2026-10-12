@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -585,3 +586,13 @@ def test_media_input_resolves_relative_fetch_artifact(tmp_path) -> None:
     )
 
     assert ws.media_input(manifest, tmp_path) == tmp_path / "media" / "video.webm"
+
+
+def test_yt_dlp_output_stays_utf8_under_an_ansi_code_page(monkeypatch) -> None:
+    # Windows pipes default to the ANSI code page; titles must still round-trip.
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+
+    proc = fetchlib._run_yt_dlp([sys.executable, "-c", "print('葬送的芙莉莲 · Frieren')"])
+
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == "葬送的芙莉莲 · Frieren"

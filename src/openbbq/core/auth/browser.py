@@ -3,11 +3,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import secrets
 import shutil
 import socket
 import struct
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -20,8 +22,24 @@ from openbbq.errors import OpenBBQError
 from . import sites, store
 
 
-def chrome_path() -> str:
-    candidates = [
+# Per-machine installs live under Program Files, per-user ones under LocalAppData.
+_WINDOWS_INSTALL_ROOTS = ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")
+_WINDOWS_BROWSERS = (
+    ("Google", "Chrome", "Application", "chrome.exe"),
+    ("Chromium", "Application", "chrome.exe"),
+    ("BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+    ("Microsoft", "Edge", "Application", "msedge.exe"),
+)
+
+
+def _browser_candidates() -> list[str | None]:
+    if sys.platform == "win32":
+        roots = [root for key in _WINDOWS_INSTALL_ROOTS if (root := os.environ.get(key))]
+        installed: list[str | None] = [
+            str(Path(root, *parts)) for parts in _WINDOWS_BROWSERS for root in roots
+        ]
+        return [*installed, shutil.which("chrome"), shutil.which("msedge")]
+    return [
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/Applications/Chromium.app/Contents/MacOS/Chromium",
         "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
@@ -32,7 +50,10 @@ def chrome_path() -> str:
         shutil.which("brave-browser"),
         shutil.which("microsoft-edge"),
     ]
-    for candidate in candidates:
+
+
+def chrome_path() -> str:
+    for candidate in _browser_candidates():
         if candidate and Path(candidate).exists():
             return str(candidate)
     raise OpenBBQError(

@@ -200,7 +200,13 @@ class ReviewManager:
             str(temporary),
         ]
         try:
-            subprocess.run(command, check=True, capture_output=True, text=True)
+            subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+            )
             os.replace(temporary, self._preview_path)
             self._serving_preview = True
             self._preview_status = "ready"

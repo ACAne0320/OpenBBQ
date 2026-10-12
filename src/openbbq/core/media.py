@@ -67,7 +67,8 @@ def _has_ass_filter(ffmpeg: Path) -> bool:
     proc = subprocess.run(
         [str(ffmpeg), "-hide_banner", "-filters"],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if proc.returncode != 0:
         return False
@@ -148,7 +149,8 @@ def media_duration(path: Path, *, ffmpeg: Path | None = None) -> float | None:
                 str(path),
             ],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except OSError:
         return None
@@ -180,7 +182,8 @@ def video_dimensions(path: Path) -> VideoDimensions | None:
                 str(path),
             ],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
         )
     except OSError:
         return None
@@ -265,7 +268,8 @@ def extract_audio(src: Path, dst: Path) -> None:
             str(dst),
         ],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if proc.returncode != 0:
         raise OpenBBQError(
@@ -326,7 +330,8 @@ def burn_subtitles(
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     assert proc.stdout is not None
     for line in proc.stdout:
@@ -380,7 +385,8 @@ def render_video_frame(
             str(dst),
         ],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if proc.returncode != 0 or not dst.is_file() or dst.stat().st_size <= 0:
         dst.unlink(missing_ok=True)

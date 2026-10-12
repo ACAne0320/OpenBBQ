@@ -305,12 +305,12 @@ def test_incompatible_video_builds_and_serves_review_proxy(
     ws.write_manifest(path, manifest)
 
     def transcode(
-        command: list[str], *, check: bool, capture_output: bool, text: bool
+        command: list[str], *, check: bool, capture_output: bool, encoding: str, errors: str
     ) -> subprocess.CompletedProcess[str]:
         assert command[0] == "ffmpeg"
         assert "libx264" in command
         assert "aac" in command
-        assert check and capture_output and text
+        assert check and capture_output and encoding == "utf-8"
         Path(command[-1]).write_bytes(b"proxy-video" * 16)
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
