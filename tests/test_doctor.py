@@ -31,6 +31,7 @@ def test_ffmpeg_missing_hint_uses_platform_package_manager(monkeypatch) -> None:
 def test_external_dependency_hints_are_platform_specific(monkeypatch) -> None:
     monkeypatch.setattr(doctor.sys, "platform", "linux")
     monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    monkeypatch.setattr(doctor.importlib.util, "find_spec", lambda name: None)
     monkeypatch.setattr(doctor, "_HOMEBREW_FFMPEG_FULL", ())
 
     subtitle_fix = doctor._ffmpeg_subtitle_filters().fix or ""
@@ -40,6 +41,16 @@ def test_external_dependency_hints_are_platform_specific(monkeypatch) -> None:
     assert "libass" in subtitle_fix
     assert "apt install yt-dlp" in ytdlp_fix
     assert "distro" in ytdlp_fix
+
+
+def test_yt_dlp_accepts_the_bundled_module_fetch_falls_back_to(monkeypatch) -> None:
+    # `uv tool install openbbq` installs yt-dlp as a dependency without putting it on PATH.
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+
+    check = doctor._yt_dlp()
+
+    assert check.ok is True
+    assert check.detail.endswith("-m yt_dlp")
 
 
 def test_ffmpeg_filter_names_reads_filter_name_column(monkeypatch) -> None:

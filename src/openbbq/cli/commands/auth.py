@@ -57,20 +57,11 @@ def browser_login(
     ctx: typer.Context,
     site: Annotated[str, typer.Argument(help="site key, currently: youtube")],
 ) -> None:
-    """Open a browser login window and save site cookies for later use."""
+    """Open a browser login window; save site cookies once the window is closed."""
     output: Output = ctx.obj
     policy = sites.require_policy(site)
 
-    def wait_for_user() -> None:
-        _stderr("Complete login in the opened browser window.")
-        _stderr("Then close that browser window, return here, and press Enter.")
-        input()
-
-    raw = browser.browser_login(
-        policy.key,
-        wait_for_user=wait_for_user,
-        on_message=_stderr,
-    )
+    raw = browser.browser_login(policy.key, on_message=_stderr)
     status = auth_store.save_cookies(policy.key, raw)
     output.emit(AuthStatusResult.of(status))
 

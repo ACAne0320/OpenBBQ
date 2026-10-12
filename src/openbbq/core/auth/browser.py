@@ -229,21 +229,64 @@ def extract_cookies_from_profile(profile: Path, *, on_message: Callable[[str], N
             proc.kill()
 
 
+# Logging in can involve 2FA or a bot check; give up eventually so agents do not hang.
+LOGIN_TIMEOUT_S = 15 * 60
+
+
+def wait_for_login_window(
+    proc: subprocess.Popen[bytes],
+    profile: Path,
+    *,
+    timeout_s: float = LOGIN_TIMEOUT_S,
+    poll_s: float = 1.0,
+) -> None:
+    """Return once the user closes the login window or quits the browser.
+
+    Polls the browser's DevTools target list instead of waiting for the process:
+    on macOS the browser keeps running after its last window closes.
+    """
+    port = read_devtools_port(profile)
+    deadline = time.monotonic() + timeout_s
+    seen_page = False
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            return
+        try:
+            targets = fetch_json(f"http://127.0.0.1:{port}/json/list")
+        except (OSError, ValueError):
+            return  # DevTools is gone with the browser
+        pages = isinstance(targets, list) and any(
+            isinstance(target, dict) and target.get("type") == "page" for target in targets
+        )
+        if pages:
+            seen_page = True
+        elif seen_page:
+            return
+        time.sleep(poll_s)
+    raise OpenBBQError(
+        "browser_login_timeout",
+        timeout_s=int(timeout_s),
+        fix="run openbbq auth browser-login again, then close the login window when done",
+    )
+
+
 def browser_login(
     site: str,
     *,
-    wait_for_user: Callable[[], None],
     on_message: Callable[[str], None] = lambda _: None,
 ) -> list[dict[str, object]]:
     policy = sites.require_policy(site)
     profile = store.browser_profile_dir(policy.key)
     profile.mkdir(mode=0o700, parents=True, exist_ok=True)
     browser = chrome_path()
+    (profile / "DevToolsActivePort").unlink(missing_ok=True)
     on_message(f"Opening {policy.label} login browser")
     proc = subprocess.Popen(
         [
             browser,
             f"--user-data-dir={profile}",
+            "--remote-debugging-address=127.0.0.1",
+            "--remote-debugging-port=0",
             "--no-first-run",
             "--no-default-browser-check",
             "--new-window",
@@ -253,7 +296,8 @@ def browser_login(
         stderr=subprocess.DEVNULL,
     )
     try:
-        wait_for_user()
+        on_message("Log in (and pass any verification) in that window, then close it.")
+        wait_for_login_window(proc, profile)
     finally:
         if proc.poll() is None:
             proc.terminate()

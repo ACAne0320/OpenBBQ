@@ -8,6 +8,7 @@ backend-agnostic and a new backend reports itself.
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -150,14 +151,18 @@ def _ffmpeg_subtitle_filters() -> Check:
 
 def _yt_dlp() -> Check:
     path = shutil.which("yt-dlp")
-    if path is None:
-        return Check(
-            "yt-dlp",
-            False,
-            "not on PATH",
-            _dependency_hint("yt-dlp"),
-        )
-    return Check("yt-dlp", True, path)
+    if path is not None:
+        return Check("yt-dlp", True, path)
+    # yt-dlp is an OpenBBQ dependency, so `uv tool install` puts it in the tool
+    # environment without exposing its script; fetch falls back to `python -m yt_dlp`.
+    if importlib.util.find_spec("yt_dlp") is not None:
+        return Check("yt-dlp", True, f"{sys.executable} -m yt_dlp")
+    return Check(
+        "yt-dlp",
+        False,
+        "not on PATH",
+        _dependency_hint("yt-dlp"),
+    )
 
 
 def _asr_backend(backend: ASRBackend) -> list[Check]:
