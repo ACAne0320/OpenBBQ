@@ -45,7 +45,7 @@ class ASRBackend(Protocol):
 
     def is_available(self) -> bool: ...
     def version(self) -> str | None: ...
-    def accelerator(self) -> str: ...  # "Metal" / "CUDA" / "Vulkan" / "CPU" / "unknown"
+    def accelerator(self) -> str: ...  # "Metal (Apple M5)" / "Vulkan (…)" / "CUDA (…)" / "CPU" / "unknown"
 
     # Models are backend-owned: format, source, naming, and cache layout are all
     # backend-specific, so the backend — not a shared module — manages them.

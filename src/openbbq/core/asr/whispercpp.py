@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import importlib
 import importlib.metadata
+import importlib.util
 import math
 import os
+import re
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -104,8 +107,11 @@ class WhisperCppBackend:
             model = importlib.import_module("pywhispercpp.model")
         except ImportError:
             return "unknown"
-        with _silenced_native_stderr():  # system_info() inits the GPU backend, banner and all
-            info = str(model.Model.system_info())
+        with _silenced_native_stderr():  # device probes init the GPU backend, banner and all
+            gpu = _gpu_device()
+            info = str(model.Model.system_info()) if gpu is None else ""
+        if gpu is not None:
+            return gpu
         for marker, label in (("CUDA", "CUDA"), ("VULKAN", "Vulkan"), ("MTL", "Metal")):
             if marker in info:
                 return label
@@ -356,6 +362,62 @@ def _initial_prompt(bias: Sequence[str] | None, explicit: str | None) -> str | N
 
 
 # --- native bindings + timestamp mapping --------------------------------------
+
+# libggml holds the backend registry.  Wheel repair tools may rename it with a
+# hash (auditwheel: libggml-c28dfeb1.so.0, delvewheel: ggml-<32 hex>.dll); the
+# hex-only suffix keeps ggml-base / ggml-cpu / ggml-vulkan from matching.
+_GGML_LIBRARY = re.compile(r"^(lib)?ggml(-[0-9a-f]{8,32})?(\.\d+)*\.(dll|dylib|so)(\.\d+)*$")
+_GPU_DEVICE_TYPES = (1, 2)  # GGML_BACKEND_DEVICE_TYPE_GPU, _IGPU
+_GPU_BACKENDS = (("MTL", "Metal"), ("Vulkan", "Vulkan"), ("CUDA", "CUDA"))
+
+
+def _ggml_library() -> Any | None:
+    spec = importlib.util.find_spec("_pywhispercpp")
+    if spec is None or spec.origin is None:
+        return None
+    root = Path(spec.origin).resolve().parent
+    # Prefer the copy _pywhispercpp itself links against.
+    for directory in (root / "pywhispercpp" / ".dylibs", root / "pywhispercpp.libs", root):
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.iterdir()):
+            if not _GGML_LIBRARY.match(path.name):
+                continue
+            try:
+                library = ctypes.CDLL(str(path))
+                library.ggml_backend_dev_count
+            except (OSError, AttributeError):
+                continue
+            library.ggml_backend_dev_count.restype = ctypes.c_size_t
+            library.ggml_backend_dev_get.argtypes = [ctypes.c_size_t]
+            library.ggml_backend_dev_get.restype = ctypes.c_void_p
+            for name in ("ggml_backend_dev_name", "ggml_backend_dev_description"):
+                getattr(library, name).argtypes = [ctypes.c_void_p]
+                getattr(library, name).restype = ctypes.c_char_p
+            library.ggml_backend_dev_type.argtypes = [ctypes.c_void_p]
+            library.ggml_backend_dev_type.restype = ctypes.c_int
+            return library
+    return None
+
+
+def _gpu_device() -> str | None:
+    """The first GPU ggml registered, e.g. "Vulkan (NVIDIA GeForce RTX 4070)".
+
+    Vulkan does not advertise itself in whisper's system_info(), so ask the
+    backend registry directly. None means no GPU device (or no probe-able ggml).
+    """
+    library = _ggml_library()
+    if library is None:
+        return None
+    for index in range(library.ggml_backend_dev_count()):
+        device = library.ggml_backend_dev_get(index)
+        if library.ggml_backend_dev_type(device) not in _GPU_DEVICE_TYPES:
+            continue
+        name = (library.ggml_backend_dev_name(device) or b"").decode("utf-8", "replace")
+        description = (library.ggml_backend_dev_description(device) or b"").decode("utf-8", "replace")
+        label = next((label for prefix, label in _GPU_BACKENDS if name.startswith(prefix)), name)
+        return f"{label} ({description})" if description else label
+    return None
 
 
 @contextlib.contextmanager

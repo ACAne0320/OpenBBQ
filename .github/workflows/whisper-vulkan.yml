@@ -1,0 +1,181 @@
+name: Vulkan ASR wheels
+
+# PyPI's pywhispercpp wheels for Windows and Linux are CPU-only. This rebuilds a
+# pywhispercpp release with ggml's Vulkan backend (NVIDIA, AMD and Intel GPUs,
+# driver only, no CUDA toolkit) and publishes the wheels to a GitHub release
+# that install-agent.md points uv at with --find-links.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pywhispercpp:
+        description: pywhispercpp release to build, without the leading v
+        required: true
+        default: "1.5.1"
+      publish:
+        description: Attach the wheels to the pywhispercpp-vulkan-v<version> release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  # PEP 440 local version: sorts after the CPU wheel of the same release.
+  WHEEL_VERSION: ${{ inputs.pywhispercpp }}+vulkan
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            # Same CPU flags as upstream's Windows wheels (BMI2 misdetection, no AVX-512).
+            cmake_args: "-DGGML_NATIVE=OFF -DGGML_BMI2=OFF -DGGML_AVX512=OFF -DGGML_AVX512_VBMI=OFF -DGGML_AVX512_VNNI=OFF -DGGML_AVX512_BF16=OFF"
+          - os: ubuntu-latest
+            cmake_args: "-DGGML_NATIVE=OFF"
+
+    steps:
+      - name: Checkout pywhispercpp
+        uses: actions/checkout@v7
+        with:
+          repository: absadiki/pywhispercpp
+          ref: v${{ inputs.pywhispercpp }}
+          submodules: true
+
+      - name: Install Vulkan SDK
+        if: runner.os == 'Windows'
+        uses: jakoch/install-vulkan-sdk-action@d17de7e2f5e50efb5d2123efed18497d3c58c533 # v1.7.0
+        with:
+          install_runtime: true
+          cache: true
+          stripdown: true
+
+      - name: Install Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install cibuildwheel
+        run: python -m pip install cibuildwheel==4.3.1
+
+      - name: Build wheels
+        run: python -m cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_BUILD: "cp312-* cp313-* cp314-*"
+          CIBW_ARCHS: auto64
+          CIBW_SKIP: "*-musllinux_*"
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_34
+          CIBW_BEFORE_ALL_LINUX: >-
+            dnf install -y vulkan-headers vulkan-loader-devel glslc spirv-headers-devel
+          # pywhispercpp's setup.py forwards every environment variable to CMake as -D.
+          CIBW_ENVIRONMENT: >-
+            CMAKE_ARGS="${{ matrix.cmake_args }}"
+            GGML_VULKAN=1
+            PYWHISPERCPP_VERSION=${{ env.WHEEL_VERSION }}
+          # setup.py repairs Windows wheels itself.
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: ""
+
+      - name: List wheels
+        shell: bash
+        run: ls -l wheelhouse
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  test:
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python }}, ${{ matrix.driver }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Lavapipe is Mesa's software Vulkan driver: it runs the real Vulkan code path without a GPU.
+          - { os: ubuntu-latest, python: "3.12", driver: lavapipe, expect: Vulkan }
+          - { os: windows-2022, python: "3.12", driver: lavapipe, expect: Vulkan }
+          # No Vulkan device at all: the wheel must still import and fall back to CPU.
+          - { os: ubuntu-latest, python: "3.14", driver: none, expect: CPU }
+          - { os: windows-2022, python: "3.13", driver: none, expect: CPU }
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download wheels
+        uses: actions/download-artifact@v8
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: wheelhouse
+
+      - name: Install Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install Lavapipe (Linux)
+        if: matrix.driver == 'lavapipe' && runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+
+      - name: Install Lavapipe (Windows)
+        if: matrix.driver == 'lavapipe' && runner.os == 'Windows'
+        uses: jakoch/install-vulkan-sdk-action@d17de7e2f5e50efb5d2123efed18497d3c58c533 # v1.7.0
+        with:
+          install_runtime_only: true
+          install_lavapipe: true
+
+      - name: Install OpenBBQ with the Vulkan wheel
+        run: python -m pip install --find-links wheelhouse "pywhispercpp==${WHEEL_VERSION}" .
+
+      - name: Download model and sample
+        run: |
+          curl -fsSL -o tiny.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+          curl -fsSL -o jfk.wav https://raw.githubusercontent.com/ggml-org/whisper.cpp/master/samples/jfk.wav
+
+      - name: Smoke test
+        env:
+          # Lavapipe reports itself as a CPU device, which ggml-vulkan skips unless asked.
+          GGML_VK_VISIBLE_DEVICES: ${{ matrix.driver == 'lavapipe' && '0' || '' }}
+          VK_DRIVER_FILES: ${{ matrix.driver == 'lavapipe' && runner.os == 'Windows' && 'C:\lavapipe\share\vulkan\icd.d\lvp_icd.x86_64.json' || '' }}
+        run: |
+          [ -n "$GGML_VK_VISIBLE_DEVICES" ] || unset GGML_VK_VISIBLE_DEVICES
+          [ -n "$VK_DRIVER_FILES" ] || unset VK_DRIVER_FILES
+          python .github/scripts/whisper_gpu_smoke.py "${{ matrix.expect }}" tiny.en.bin jfk.wav
+
+  publish:
+    name: Publish
+    needs: test
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: pywhispercpp-vulkan-v${{ inputs.pywhispercpp }}
+
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v8
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: wheelhouse
+
+      - name: Create or update the release
+        run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest=false \
+              --title "pywhispercpp ${WHEEL_VERSION}" \
+              --notes "pywhispercpp ${{ inputs.pywhispercpp }} rebuilt with ggml's Vulkan backend for Windows and Linux (x86_64, CPython 3.12-3.14). Install with uv's --find-links; see docs/install-agent.md."
+          fi
+          gh release upload "$TAG" wheelhouse/*.whl --repo "$GITHUB_REPOSITORY" --clobber

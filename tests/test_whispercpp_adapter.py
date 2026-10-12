@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
+
 from openbbq.core.asr import whispercpp
 from openbbq.core.asr.whispercpp import WhisperCppBackend
 from openbbq.core.asr.whispercpp import _segment_words, _to_segments, _vad_chunk_start
@@ -180,3 +182,58 @@ def test_transcribe_resolves_and_passes_vad_model_to_pywhispercpp(
         for segment in result.segments
         for word in segment.words or []
     ] == [(1.15, 1.4), (4.15, 4.4)]
+
+
+@pytest.mark.parametrize(
+    ("name", "is_ggml"),
+    [
+        ("libggml.0.9.8.dylib", True),
+        ("libggml.so", True),
+        ("libggml-c28dfeb1.so.0.13.1", True),  # auditwheel
+        ("ggml-2baff2768e83808aebfef26c4d759c7f.dll", True),  # delvewheel
+        ("ggml.dll", True),
+        ("libggml-base.0.9.8.dylib", False),
+        ("ggml-cpu-e61657b2c0b4ea5236d60be97f6b709f.dll", False),
+        ("ggml-vulkan.dll", False),
+        ("libggml-cuda.so", False),
+    ],
+)
+def test_ggml_library_name_matches_only_the_registry_library(name: str, is_ggml: bool) -> None:
+    assert bool(whispercpp._GGML_LIBRARY.match(name)) is is_ggml
+
+
+class _Registry:
+    def __init__(self, devices: list[tuple[bytes, bytes, int]]) -> None:
+        self._devices = devices
+
+    def ggml_backend_dev_count(self) -> int:
+        return len(self._devices)
+
+    def ggml_backend_dev_get(self, index: int) -> int:
+        return index
+
+    def ggml_backend_dev_name(self, device: int) -> bytes:
+        return self._devices[device][0]
+
+    def ggml_backend_dev_description(self, device: int) -> bytes:
+        return self._devices[device][1]
+
+    def ggml_backend_dev_type(self, device: int) -> int:
+        return self._devices[device][2]
+
+
+@pytest.mark.parametrize(
+    ("devices", "expected"),
+    [
+        ([(b"CPU", b"AMD Ryzen 7", 0), (b"Vulkan0", b"NVIDIA GeForce RTX 4070", 1)], "Vulkan (NVIDIA GeForce RTX 4070)"),
+        ([(b"Vulkan0", b"Intel(R) UHD Graphics", 2), (b"CPU", b"Intel", 0)], "Vulkan (Intel(R) UHD Graphics)"),
+        ([(b"MTL0", b"Apple M5", 1), (b"BLAS", b"Accelerate", 3)], "Metal (Apple M5)"),
+        ([(b"CPU", b"AMD Ryzen 7", 0)], None),
+    ],
+)
+def test_gpu_device_reports_the_first_gpu_ggml_registered(
+    monkeypatch: pytest.MonkeyPatch, devices: list[tuple[bytes, bytes, int]], expected: str | None
+) -> None:
+    monkeypatch.setattr(whispercpp, "_ggml_library", lambda: _Registry(devices))
+
+    assert whispercpp._gpu_device() == expected
