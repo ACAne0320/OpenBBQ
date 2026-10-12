@@ -62,6 +62,24 @@ agent 只读取自己的 skills 目录，就安装到对应目录：Claude Code 
 也会随安装一起可用。需要直接检查随包内容的 agent 可以使用
 `openbbq skill show`。
 
+## Windows 和 Linux 上的 GPU
+
+PyPI 上 Windows 和 Linux 的 `pywhispercpp` wheel 只能用 CPU。如果机器在
+Windows 或 Linux（x86_64，Python 3.12–3.14）上有 NVIDIA、AMD 或 Intel 显卡，改装
+OpenBBQ 发布的 Vulkan 版 `pywhispercpp`。它只需要显卡驱动，不需要 CUDA toolkit
+或编译器：
+
+```bash
+uv tool install 'openbbq[whispercpp]' --with 'pywhispercpp==1.5.1+vulkan' --find-links https://github.com/ACAne0320/OpenBBQ/releases/expanded_assets/pywhispercpp-vulkan-v1.5.1
+```
+
+已经装过 OpenBBQ 时加 `--reinstall`。然后运行 `openbbq --json doctor`：
+`whisper.cpp accel` 应以 `Vulkan` 开头并显示显卡名称。如果显示 `CPU`，先更新显卡
+驱动；如果安装或 `doctor` 失败，退回默认的
+`uv tool install --reinstall 'openbbq[whispercpp]'`，用 CPU 转写。
+
+在 Windows 上请直接原生安装 OpenBBQ，不要装进 WSL。
+
 ## 检查环境
 
 ```bash
@@ -75,7 +93,7 @@ JSON。Agent 需要解析输出时，优先显式使用 `--json`。
 
 - Python 需要 3.12 或更新版本。
 - 缺 FFmpeg 时，安装带 `libass` 的 FFmpeg。烧录硬字幕需要 `ass` 和 `subtitles` filter。
-- 缺 ASR 后端时，默认补 `pywhispercpp`。macOS 通常可直接用 wheel 的 Metal 支持；NVIDIA / Vulkan 路线可能需要本机 toolkit 和源码编译。
+- 缺 ASR 后端时，默认补 `pywhispercpp`。macOS wheel 自带 Metal 支持；Windows 和 Linux 有显卡时，改用 [Windows 和 Linux 上的 GPU](#windows-和-linux-上的-gpu) 里的 Vulkan 版。
 - 缺模型时，先让用户确认模型大小，再执行 `openbbq models pull <model>`。
 - 缺 VAD 模型时，执行 `openbbq models pull-vad silero-v6.2.0`；它与 ASR 模型分开缓存。
 - YouTube 需要登录或人机验证时，执行 `openbbq auth browser-login youtube`。

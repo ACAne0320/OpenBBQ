@@ -65,6 +65,25 @@ Installation always writes the English skill and its English `references/`, so
 referenced workflow notes are available to the agent. Agents that need to
 inspect packaged content directly can use `openbbq skill show`.
 
+## GPU On Windows And Linux
+
+PyPI's `pywhispercpp` wheels for Windows and Linux run on the CPU only. When the
+machine has an NVIDIA, AMD, or Intel GPU on Windows or Linux (x86_64, Python
+3.12–3.14), install OpenBBQ's Vulkan build of `pywhispercpp` instead. It needs
+only the GPU driver, no CUDA toolkit or compiler:
+
+```bash
+uv tool install 'openbbq[whispercpp]' --with 'pywhispercpp==1.5.1+vulkan' --find-links https://github.com/ACAne0320/OpenBBQ/releases/expanded_assets/pywhispercpp-vulkan-v1.5.1
+```
+
+Add `--reinstall` when OpenBBQ is already installed. Then run
+`openbbq --json doctor`: the `whisper.cpp accel` check should start with
+`Vulkan` and name the GPU. If it reports `CPU`, update the GPU driver. If the
+install or `doctor` fails, go back to the default
+`uv tool install --reinstall 'openbbq[whispercpp]'`, which transcribes on the CPU.
+
+Install OpenBBQ natively on Windows rather than inside WSL.
+
 ## Check The Environment
 
 ```bash
@@ -78,7 +97,7 @@ Use the output to decide what is missing:
 
 - Python must be 3.12 or newer.
 - If FFmpeg is missing, install an FFmpeg build with `libass`. Hard-subtitle burning needs the `ass` and `subtitles` filters.
-- If the ASR backend is missing, install `pywhispercpp` by default. macOS wheels usually include Metal support. NVIDIA / Vulkan routes may need local toolkits and source builds.
+- If the ASR backend is missing, install `pywhispercpp` by default. macOS wheels include Metal support; on Windows and Linux with a GPU, use the Vulkan build from [GPU On Windows And Linux](#gpu-on-windows-and-linux).
 - If the model is missing, ask the user to confirm the model size, then run `openbbq models pull <model>`.
 - If the VAD model is missing, run `openbbq models pull-vad silero-v6.2.0`. It is stored separately from ASR models.
 - If YouTube requires login or human verification, run `openbbq auth browser-login youtube`.
