@@ -16,9 +16,14 @@ on:
         description: Attach the wheels to the pywhispercpp-vulkan-v<version> release
         type: boolean
         default: false
+      wheels_from_run:
+        description: Skip the build and reuse the wheels from this workflow run ID
+        required: false
+        default: ""
 
 permissions:
   contents: read
+  actions: read
 
 env:
   # PEP 440 local version: sorts after the CPU wheel of the same release.
@@ -27,6 +32,7 @@ env:
 jobs:
   build:
     name: Build (${{ matrix.os }})
+    if: inputs.wheels_from_run == ''
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -118,6 +124,7 @@ jobs:
   test:
     name: Test (${{ matrix.os }}, Python ${{ matrix.python }}, ${{ matrix.driver }})
     needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -143,6 +150,8 @@ jobs:
           pattern: wheels-*
           merge-multiple: true
           path: wheelhouse
+          run-id: ${{ inputs.wheels_from_run || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Install Python
         uses: actions/setup-python@v7
@@ -181,7 +190,7 @@ jobs:
   publish:
     name: Publish
     needs: test
-    if: inputs.publish
+    if: ${{ !cancelled() && inputs.publish && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -196,6 +205,8 @@ jobs:
           pattern: wheels-*
           merge-multiple: true
           path: wheelhouse
+          run-id: ${{ inputs.wheels_from_run || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Create or update the release
         run: |

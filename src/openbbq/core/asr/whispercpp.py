@@ -10,6 +10,7 @@ import os
 import re
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from openbbq.core import media, models
@@ -363,15 +364,31 @@ def _initial_prompt(bias: Sequence[str] | None, explicit: str | None) -> str | N
 
 # --- native bindings + timestamp mapping --------------------------------------
 
-# libggml holds the backend registry.  Wheel repair tools may rename it with a
-# hash (auditwheel: libggml-c28dfeb1.so.0, delvewheel: ggml-<32 hex>.dll); the
-# hex-only suffix keeps ggml-base / ggml-cpu / ggml-vulkan from matching.
+# libggml holds the backend registry; the device getters live in libggml-base.
+# Wheel repair tools may rename them with a hash (auditwheel:
+# libggml-c28dfeb1.so.0, delvewheel: ggml-<32 hex>.dll); the hex-only suffix
+# keeps ggml-cpu / ggml-vulkan from matching.
 _GGML_LIBRARY = re.compile(r"^(lib)?ggml(-[0-9a-f]{8,32})?(\.\d+)*\.(dll|dylib|so)(\.\d+)*$")
+_GGML_BASE_LIBRARY = re.compile(
+    r"^(lib)?ggml-base(-[0-9a-f]{8,32})?(\.\d+)*\.(dll|dylib|so)(\.\d+)*$"
+)
+_GGML_FUNCTIONS: dict[str, tuple[list[Any], Any]] = {
+    "ggml_backend_dev_count": ([], ctypes.c_size_t),
+    "ggml_backend_dev_get": ([ctypes.c_size_t], ctypes.c_void_p),
+    "ggml_backend_dev_name": ([ctypes.c_void_p], ctypes.c_char_p),
+    "ggml_backend_dev_description": ([ctypes.c_void_p], ctypes.c_char_p),
+    "ggml_backend_dev_type": ([ctypes.c_void_p], ctypes.c_int),
+}
 _GPU_DEVICE_TYPES = (1, 2)  # GGML_BACKEND_DEVICE_TYPE_GPU, _IGPU
 _GPU_BACKENDS = (("MTL", "Metal"), ("Vulkan", "Vulkan"), ("CUDA", "CUDA"))
 
 
 def _ggml_library() -> Any | None:
+    """The ggml device-registry functions, or None when they cannot be loaded.
+
+    dlsym also searches a library's dependencies, but Windows' GetProcAddress
+    only searches the named DLL, so bind each function from libggml or libggml-base.
+    """
     spec = importlib.util.find_spec("_pywhispercpp")
     if spec is None or spec.origin is None:
         return None
@@ -380,23 +397,29 @@ def _ggml_library() -> Any | None:
     for directory in (root / "pywhispercpp" / ".dylibs", root / "pywhispercpp.libs", root):
         if not directory.is_dir():
             continue
-        for path in sorted(directory.iterdir()):
-            if not _GGML_LIBRARY.match(path.name):
-                continue
+        names = sorted(path.name for path in directory.iterdir())
+        found = [
+            directory / name
+            for pattern in (_GGML_LIBRARY, _GGML_BASE_LIBRARY)
+            for name in names
+            if pattern.match(name)
+        ]
+        libraries = []
+        for path in found:
             try:
-                library = ctypes.CDLL(str(path))
-                library.ggml_backend_dev_count
-            except (OSError, AttributeError):
+                libraries.append(ctypes.CDLL(str(path)))
+            except OSError:
                 continue
-            library.ggml_backend_dev_count.restype = ctypes.c_size_t
-            library.ggml_backend_dev_get.argtypes = [ctypes.c_size_t]
-            library.ggml_backend_dev_get.restype = ctypes.c_void_p
-            for name in ("ggml_backend_dev_name", "ggml_backend_dev_description"):
-                getattr(library, name).argtypes = [ctypes.c_void_p]
-                getattr(library, name).restype = ctypes.c_char_p
-            library.ggml_backend_dev_type.argtypes = [ctypes.c_void_p]
-            library.ggml_backend_dev_type.restype = ctypes.c_int
-            return library
+        functions = {}
+        for name, (argtypes, restype) in _GGML_FUNCTIONS.items():
+            function = next((getattr(lib, name) for lib in libraries if hasattr(lib, name)), None)
+            if function is None:
+                break
+            function.argtypes = argtypes
+            function.restype = restype
+            functions[name] = function
+        else:
+            return SimpleNamespace(**functions)
     return None
 
 

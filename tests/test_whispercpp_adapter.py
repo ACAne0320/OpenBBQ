@@ -202,6 +202,20 @@ def test_ggml_library_name_matches_only_the_registry_library(name: str, is_ggml:
     assert bool(whispercpp._GGML_LIBRARY.match(name)) is is_ggml
 
 
+@pytest.mark.parametrize(
+    ("name", "is_base"),
+    [
+        ("libggml-base.0.9.8.dylib", True),
+        ("libggml-base-64073f84.so.0.13.1", True),  # auditwheel
+        ("ggml-base-6d3a8d4460fb79a0f0b91c356c4cd6f3.dll", True),  # delvewheel
+        ("ggml-2baff2768e83808aebfef26c4d759c7f.dll", False),
+        ("ggml-cpu-e61657b2c0b4ea5236d60be97f6b709f.dll", False),
+    ],
+)
+def test_ggml_base_library_name_matches_only_ggml_base(name: str, is_base: bool) -> None:
+    assert bool(whispercpp._GGML_BASE_LIBRARY.match(name)) is is_base
+
+
 class _Registry:
     def __init__(self, devices: list[tuple[bytes, bytes, int]]) -> None:
         self._devices = devices
