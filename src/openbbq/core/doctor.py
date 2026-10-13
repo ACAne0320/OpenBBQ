@@ -12,6 +12,7 @@ import importlib.util
 import shutil
 import subprocess
 import sys
+import sysconfig
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -150,18 +151,35 @@ def _ffmpeg_subtitle_filters() -> Check:
 
 
 def _yt_dlp() -> Check:
+    # Same choice as fetch: the yt-dlp installed with OpenBBQ, else one on PATH.
+    # `uv tool install` does not expose the bundled module's script on PATH.
+    if importlib.util.find_spec("yt_dlp") is not None:
+        return Check("yt-dlp", True, f"{sys.executable} -m yt_dlp")
     path = shutil.which("yt-dlp")
     if path is not None:
         return Check("yt-dlp", True, path)
-    # yt-dlp is an OpenBBQ dependency, so `uv tool install` puts it in the tool
-    # environment without exposing its script; fetch falls back to `python -m yt_dlp`.
-    if importlib.util.find_spec("yt_dlp") is not None:
-        return Check("yt-dlp", True, f"{sys.executable} -m yt_dlp")
     return Check(
         "yt-dlp",
         False,
         "not on PATH",
         _dependency_hint("yt-dlp"),
+    )
+
+
+def _js_runtime() -> Check:
+    """YouTube downloads need a JS runtime; yt-dlp only looks for deno by default.
+
+    OpenBBQ depends on the `deno` package, which installs it next to the
+    interpreter; yt-dlp searches there before PATH.
+    """
+    path = shutil.which("deno", path=sysconfig.get_path("scripts")) or shutil.which("deno")
+    if path is not None:
+        return Check("yt-dlp JS runtime", True, f"deno: {path}")
+    return Check(
+        "yt-dlp JS runtime",
+        False,
+        "deno not found",
+        "reinstall OpenBBQ, which bundles deno, or install deno from https://deno.com",
     )
 
 
@@ -278,7 +296,7 @@ def _agent_skill(target: Path | None = None) -> Check:
 
 def run_checks() -> list[Check]:
     """Every probe, in display order. Add a new check by appending here."""
-    checks = [_python(), _ffmpeg(), _ffmpeg_subtitle_filters(), _yt_dlp()]
+    checks = [_python(), _ffmpeg(), _ffmpeg_subtitle_filters(), _yt_dlp(), _js_runtime()]
     checks.append(_agent_skill())
     for backend in all_backends():
         checks.extend(_asr_backend(backend))

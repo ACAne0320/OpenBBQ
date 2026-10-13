@@ -69,6 +69,16 @@ def test_fetch_command_reuses_completed_stage_instead_of_downloading_again(
     assert calls == 1
 
 
+def test_fetch_prefers_the_bundled_ytdlp_over_one_on_path(monkeypatch) -> None:
+    # A system yt-dlp may have no JS runtime; the bundled one ships with deno.
+    monkeypatch.setattr(fetchlib.shutil, "which", lambda name: "/usr/bin/yt-dlp")
+
+    assert fetchlib._yt_dlp_command() == [sys.executable, "-m", "yt_dlp"]
+
+    monkeypatch.setattr(fetchlib.importlib.util, "find_spec", lambda name: None)
+    assert fetchlib._yt_dlp_command() == ["/usr/bin/yt-dlp"]
+
+
 def test_fetch_defaults_to_anonymous_ytdlp(tmp_path, monkeypatch) -> None:
     wsdir = tmp_path / "ws"
     wsdir.mkdir()

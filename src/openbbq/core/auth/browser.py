@@ -7,11 +7,14 @@ import os
 import secrets
 import shutil
 import socket
+import sqlite3
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 from typing import cast
 from urllib.parse import urlparse
@@ -233,34 +236,58 @@ def extract_cookies_from_profile(profile: Path, *, on_message: Callable[[str], N
 LOGIN_TIMEOUT_S = 15 * 60
 
 
-def wait_for_login_window(
+def login_cookie_created(profile: Path, policy: sites.SitePolicy) -> int | None:
+    """Creation time of the newest sign-in cookie in a browser profile.
+
+    0 when there is none yet, None when the cookie database cannot be read. Reads a
+    copy, since Chrome keeps the database locked; on Windows the lock is exclusive
+    and the copy always fails.
+    """
+    for db in (profile / "Default" / "Network" / "Cookies", profile / "Default" / "Cookies"):
+        if not db.is_file():
+            continue
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "Cookies"
+            try:
+                shutil.copyfile(db, copy)
+                with closing(sqlite3.connect(copy)) as conn:
+                    rows = conn.execute(
+                        "SELECT host_key, creation_utc FROM cookies WHERE name = ?",
+                        (policy.login_cookie,),
+                    ).fetchall()
+            except (OSError, sqlite3.Error):
+                return None
+        return max(
+            (int(created) for host, created in rows if sites.domain_matches(host, policy.domains[0])),
+            default=0,
+        )
+    return 0
+
+
+def wait_for_login(
     proc: subprocess.Popen[bytes],
     profile: Path,
+    policy: sites.SitePolicy,
     *,
     timeout_s: float = LOGIN_TIMEOUT_S,
-    poll_s: float = 1.0,
+    poll_s: float = 2.0,
 ) -> None:
-    """Return once the user closes the login window or quits the browser.
+    """Return once the user has signed in or closed the browser.
 
-    Polls the browser's DevTools target list instead of waiting for the process:
-    on macOS the browser keeps running after its last window closes.
+    Never enables DevTools on the login browser: Google refuses to sign in to a
+    browser with remote debugging on. Chrome exits with its last window on Windows
+    and Linux; on macOS it keeps running, so also watch the profile for a new
+    sign-in cookie (Chrome writes cookies to disk within about 30 seconds).
     """
-    port = read_devtools_port(profile)
+    baseline = login_cookie_created(profile, policy)
     deadline = time.monotonic() + timeout_s
-    seen_page = False
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             return
-        try:
-            targets = fetch_json(f"http://127.0.0.1:{port}/json/list")
-        except (OSError, ValueError):
-            return  # DevTools is gone with the browser
-        pages = isinstance(targets, list) and any(
-            isinstance(target, dict) and target.get("type") == "page" for target in targets
-        )
-        if pages:
-            seen_page = True
-        elif seen_page:
+        created = login_cookie_created(profile, policy)
+        if baseline is None:
+            baseline = created  # an earlier login's cookie must not end the wait
+        elif created is not None and created > baseline:
             return
         time.sleep(poll_s)
     raise OpenBBQError(
@@ -279,14 +306,11 @@ def browser_login(
     profile = store.browser_profile_dir(policy.key)
     profile.mkdir(mode=0o700, parents=True, exist_ok=True)
     browser = chrome_path()
-    (profile / "DevToolsActivePort").unlink(missing_ok=True)
     on_message(f"Opening {policy.label} login browser")
     proc = subprocess.Popen(
         [
             browser,
             f"--user-data-dir={profile}",
-            "--remote-debugging-address=127.0.0.1",
-            "--remote-debugging-port=0",
             "--no-first-run",
             "--no-default-browser-check",
             "--new-window",
@@ -296,8 +320,14 @@ def browser_login(
         stderr=subprocess.DEVNULL,
     )
     try:
-        on_message("Log in (and pass any verification) in that window, then close it.")
-        wait_for_login_window(proc, profile)
+        if sys.platform == "darwin":
+            on_message(
+                "Log in (and pass any verification) in that window, then quit the"
+                " browser (Cmd+Q). It may also close by itself once you are signed in."
+            )
+        else:
+            on_message("Log in (and pass any verification) in that window, then close it.")
+        wait_for_login(proc, profile, policy)
     finally:
         if proc.poll() is None:
             proc.terminate()

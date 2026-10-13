@@ -29,7 +29,9 @@ dependencies = [
     "pydantic>=2.13.4",
     "rich>=15.0.0",
     "typer>=0.26.7",
-    "yt-dlp>=2026.6.9",
+    # YouTube needs a JS runtime: `default` bundles the EJS challenge solver and
+    # `deno` installs the runtime next to the interpreter, where yt-dlp finds it.
+    "yt-dlp[default,deno]>=2026.6.9",
 ]
 
 [project.scripts]

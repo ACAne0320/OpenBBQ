@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import sqlite3
 import subprocess
 import sys
+from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-from openbbq.core.auth import browser
+from openbbq.core.auth import browser, sites
 from openbbq.errors import OpenBBQError
 
 
@@ -56,59 +59,111 @@ class _Proc:
 
 
 def _proc(exit_after: int | None = None) -> subprocess.Popen[bytes]:
-    return cast(subprocess.Popen[bytes], _Proc(exit_after))
+    return cast("subprocess.Popen[bytes]", _Proc(exit_after))
 
 
-def _devtools(monkeypatch: pytest.MonkeyPatch, responses: list[object]) -> list[str]:
-    """Serve successive /json/list responses; an Exception instance is raised instead."""
-    calls: list[str] = []
-
-    def fetch_json(url: str) -> object:
-        calls.append(url)
-        response = responses.pop(0) if responses else []
-        if isinstance(response, Exception):
-            raise response
-        return response
-
-    monkeypatch.setattr(browser, "read_devtools_port", lambda profile: 9222)
-    monkeypatch.setattr(browser, "fetch_json", fetch_json)
-    monkeypatch.setattr(browser.time, "sleep", lambda seconds: None)
-    return calls
+def _cookie_db(profile: Path, rows: list[tuple[str, str, int]], *, network: bool = True) -> None:
+    db = profile / "Default" / ("Network" if network else "") / "Cookies"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    db.unlink(missing_ok=True)
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("CREATE TABLE cookies (host_key TEXT, name TEXT, creation_utc INTEGER)")
+        conn.executemany("INSERT INTO cookies VALUES (?, ?, ?)", rows)
+        conn.commit()
 
 
-PAGE = {"type": "page", "url": "https://accounts.google.com/"}
-WORKER = {"type": "service_worker", "url": "https://www.youtube.com/sw.js"}
+def _on_sleep(monkeypatch: pytest.MonkeyPatch, *steps: Callable[[], None]) -> list[float]:
+    """Run one step per poll interval, standing in for the user acting in the browser."""
+    pending = list(steps)
+    sleeps: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        if pending:
+            pending.pop(0)()
+
+    monkeypatch.setattr(browser.time, "sleep", sleep)
+    return sleeps
 
 
-def test_login_wait_ends_when_the_last_page_closes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # macOS keeps the browser process alive after its last window closes.
-    calls = _devtools(monkeypatch, [[PAGE], [PAGE, WORKER], [WORKER]])
+YOUTUBE = sites.require_policy("youtube")
 
-    browser.wait_for_login_window(_proc(), tmp_path)
 
-    assert calls == ["http://127.0.0.1:9222/json/list"] * 3
+def test_login_cookie_reads_only_the_sites_sign_in_cookie(tmp_path: Path) -> None:
+    assert browser.login_cookie_created(tmp_path, YOUTUBE) == 0
+    _cookie_db(
+        tmp_path,
+        [
+            (".youtube.com", "LOGIN_INFO", 200),
+            (".youtube.com", "PREF", 900),
+            (".google.com", "LOGIN_INFO", 900),
+        ],
+        network=False,
+    )
+
+    assert browser.login_cookie_created(tmp_path, YOUTUBE) == 200
+
+
+def test_login_cookie_is_unknown_when_the_database_is_unreadable(tmp_path: Path) -> None:
+    db = tmp_path / "Default" / "Network" / "Cookies"
+    db.parent.mkdir(parents=True)
+    db.write_bytes(b"not a database")
+
+    assert browser.login_cookie_created(tmp_path, YOUTUBE) is None
+
+
+def test_login_wait_ends_once_a_new_sign_in_cookie_appears(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # macOS keeps the browser running after its last window closes.
+    _cookie_db(tmp_path, [(".youtube.com", "LOGIN_INFO", 100)])  # an earlier login
+    sleeps = _on_sleep(
+        monkeypatch,
+        lambda: None,
+        lambda: _cookie_db(tmp_path, [(".youtube.com", "LOGIN_INFO", 300)]),
+    )
+
+    browser.wait_for_login(_proc(), tmp_path, YOUTUBE)
+
+    assert len(sleeps) == 2
 
 
 def test_login_wait_ends_when_the_browser_exits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = _devtools(monkeypatch, [[PAGE], [PAGE]])
+    # Windows locks the cookie database, so only the browser exiting ends the wait.
+    monkeypatch.setattr(browser, "login_cookie_created", lambda profile, policy: None)
+    sleeps = _on_sleep(monkeypatch)
 
-    browser.wait_for_login_window(_proc(exit_after=2), tmp_path)
+    browser.wait_for_login(_proc(exit_after=3), tmp_path, YOUTUBE)
 
-    assert len(calls) == 2
-
-
-def test_login_wait_ends_when_devtools_goes_away(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _devtools(monkeypatch, [[PAGE], ConnectionRefusedError()])
-
-    browser.wait_for_login_window(_proc(), tmp_path)
+    assert len(sleeps) == 3
 
 
 def test_login_wait_times_out_while_the_window_stays_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _devtools(monkeypatch, [[PAGE]] * 10)
+    _on_sleep(monkeypatch)
 
     with pytest.raises(OpenBBQError) as raised:
-        browser.wait_for_login_window(_proc(), tmp_path, timeout_s=0)
+        browser.wait_for_login(_proc(), tmp_path, YOUTUBE, timeout_s=0)
 
     assert raised.value.code == "browser_login_timeout"
+
+
+def test_login_browser_runs_without_remote_debugging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Google refuses to sign in to a browser with remote debugging on.
+    launched: list[list[str]] = []
+
+    def popen(argv: list[str], **kwargs: object) -> subprocess.Popen[bytes]:
+        launched.append(argv)
+        return _proc(exit_after=0)
+
+    monkeypatch.setattr(browser, "chrome_path", lambda: "chrome")
+    monkeypatch.setattr(browser.store, "browser_profile_dir", lambda site: tmp_path / site)
+    monkeypatch.setattr(browser.subprocess, "Popen", popen)
+    monkeypatch.setattr(browser, "extract_cookies_from_profile", lambda profile, on_message: [])
+
+    browser.browser_login("youtube")
+
+    assert launched and not any("remote-debugging" in arg for arg in launched[0])

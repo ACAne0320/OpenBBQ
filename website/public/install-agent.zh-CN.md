@@ -1,4 +1,4 @@
-<!-- 本文件为 canonical 版本，服务于 https://openbbq.acane.dev/install-agent.zh-CN.md。仓库副本：docs/install-agent.zh-CN.md（随 wheel 打包），改动时请同步。 -->
+<!-- 以 website/public/install-agent.zh-CN.md 为准（发布于 openbbq.acane.dev），改动时请同步。 -->
 
 # OpenBBQ Agent 安装 Playbook
 
@@ -97,7 +97,7 @@ JSON。Agent 需要解析输出时，优先显式使用 `--json`。
 - 缺模型时，先让用户确认模型大小，再执行 `openbbq models pull <model>`。
 - 缺 VAD 模型时，执行 `openbbq models pull-vad silero-v6.2.0`；它与 ASR 模型分开缓存。
 - YouTube 需要登录或人机验证时，执行 `openbbq auth browser-login youtube`。
-  请用户在打开的窗口里完成登录后关闭该窗口；窗口关闭后命令会保存会话并自动返回。
+  请用户在打开的窗口里完成登录后关闭该窗口；窗口关闭后命令会保存会话并自动返回。macOS 上关窗不会退出浏览器，请用户按 Cmd+Q 退出（登录成功后窗口也可能自动关闭）。
 - browser auth 和带登录态的 `fetch` 需要可写的 `OPENBBQ_HOME`（默认 `~/.openbbq`）。
   受限 sandbox 中请在普通用户环境里运行，或把 `OPENBBQ_HOME` 指到可写目录。
 - 如果 agent skill 缺失或过期，按 doctor 提示执行 `openbbq skill install` 或

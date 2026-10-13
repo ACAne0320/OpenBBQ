@@ -32,6 +32,8 @@ class SitePolicy:
     login_url: str
     domains: tuple[str, ...]
     auth_cookie_names: frozenset[str]
+    # Set on the first domain when a sign-in completes; ends the login wait.
+    login_cookie: str
 
 
 YOUTUBE = SitePolicy(
@@ -52,6 +54,7 @@ YOUTUBE = SitePolicy(
         "ytimg.com",
     ),
     auth_cookie_names=frozenset(YOUTUBE_AUTH_COOKIE_NAMES),
+    login_cookie="LOGIN_INFO",
 )
 
 POLICIES = {YOUTUBE.key: YOUTUBE}

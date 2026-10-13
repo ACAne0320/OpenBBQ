@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -60,7 +61,9 @@ _THUMBNAIL_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif"}
 
 
 def _yt_dlp_command() -> list[str]:
-    if path := shutil.which("yt-dlp"):
+    # Prefer the yt-dlp installed with OpenBBQ: it comes with the EJS solver and a
+    # deno next to this interpreter, which YouTube's JS challenges need.
+    if importlib.util.find_spec("yt_dlp") is None and (path := shutil.which("yt-dlp")):
         return [path]
     return [sys.executable, "-m", "yt_dlp"]
 

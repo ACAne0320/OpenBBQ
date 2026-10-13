@@ -102,7 +102,9 @@ Use the output to decide what is missing:
 - If the VAD model is missing, run `openbbq models pull-vad silero-v6.2.0`. It is stored separately from ASR models.
 - If YouTube requires login or human verification, run `openbbq auth browser-login youtube`.
   Ask the user to log in in the window it opens and then close that window; the
-  command saves the session and returns once the window closes.
+  command saves the session and returns once the window closes. On macOS, closing
+  the window does not quit the browser: ask the user to quit it with Cmd+Q (it may
+  also close by itself once they are signed in).
 - Browser auth and authenticated `fetch` need a writable `OPENBBQ_HOME`
   (default: `~/.openbbq`). In a restricted sandbox, run them in a normal user
   environment or set `OPENBBQ_HOME` to a writable path.

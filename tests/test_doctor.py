@@ -53,6 +53,28 @@ def test_yt_dlp_accepts_the_bundled_module_fetch_falls_back_to(monkeypatch) -> N
     assert check.detail.endswith("-m yt_dlp")
 
 
+def test_js_runtime_finds_the_deno_bundled_next_to_the_interpreter(monkeypatch, tmp_path) -> None:
+    scripts = tmp_path / "Scripts"
+    monkeypatch.setattr(doctor.sysconfig, "get_path", lambda name: str(scripts))
+    monkeypatch.setattr(
+        doctor.shutil, "which", lambda name, path=None: str(scripts / "deno") if path == str(scripts) else None
+    )
+
+    check = doctor._js_runtime()
+
+    assert check.ok is True
+    assert check.detail == f"deno: {scripts / 'deno'}"
+
+
+def test_js_runtime_missing_fails_with_a_fix(monkeypatch) -> None:
+    monkeypatch.setattr(doctor.shutil, "which", lambda name, path=None: None)
+
+    check = doctor._js_runtime()
+
+    assert check.ok is False
+    assert "deno" in (check.fix or "")
+
+
 def test_ffmpeg_filter_names_reads_filter_name_column(monkeypatch) -> None:
     proc = SimpleNamespace(
         returncode=0,
